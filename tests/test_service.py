@@ -3,10 +3,9 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-from agent_core.contracts.events import AgentEvent, AgentEventType
-from agent_core.runtime.factory import build_memory_runtime
-from app.service import AgentApplicationService
-from infra.settings import AppSettings
+from agent.persistence.memory import MemoryEventBus, MemoryEventSequence
+from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.publisher import EventPublisher
 
 
 async def _slow_event_source() -> AsyncIterator[AgentEvent]:
@@ -30,10 +29,9 @@ async def _slow_event_source() -> AsyncIterator[AgentEvent]:
 
 async def test_service_emits_protocol_heartbeat_while_graph_is_quiet() -> None:
     """长模型或工具调用期间使用统一 AgentEvent 心跳，而非 SSE 注释帧。"""
-    runtime = build_memory_runtime(AppSettings(_env_file=None))
-    service = AgentApplicationService(runtime, heartbeat_seconds=0.01)
+    publisher = EventPublisher(MemoryEventBus(), MemoryEventSequence(), 0.01)
 
-    events = [event async for event in service.with_heartbeat(_slow_event_source())]
+    events = [event async for event in publisher.with_heartbeat(_slow_event_source())]
 
     assert AgentEventType.HEARTBEAT in [event.event_type for event in events]
     heartbeat = next(
@@ -41,3 +39,9 @@ async def test_service_emits_protocol_heartbeat_while_graph_is_quiet() -> None:
     )
     assert heartbeat.run_id == "run"
     assert heartbeat.conversation_id == "conversation"
+    assert any(
+        event.timestamp > events[0].timestamp
+        for event in events
+        if event.event_type == AgentEventType.HEARTBEAT
+    )
+    assert [event.sequence for event in events] == list(range(1, len(events) + 1))

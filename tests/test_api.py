@@ -13,24 +13,30 @@ def _client() -> TestClient:
     return TestClient(create_app(AppSettings(_env_file=None)))
 
 
-def test_list_agents_exposes_registered_example() -> None:
-    """调用方可以发现已注册智能体，但不会看到内部图对象。"""
+def test_single_agent_uses_fixed_chat_route() -> None:
+    """单智能体模板使用固定路由，不要求调用方理解或提交 agent_id。"""
+    with _client() as client:
+        response = client.post(
+            "/api/agent/chat",
+            json={"message": "帮我整理需求"},
+        )
+
+    assert response.status_code == 200
+
+
+def test_legacy_multi_agent_discovery_route_is_removed() -> None:
+    """单智能体模板不再暴露注册中心或智能体发现接口。"""
     with _client() as client:
         response = client.get("/api/agents")
 
-    assert response.status_code == 200
-    assert response.json()["data"][0] == {
-        "agent_id": "example",
-        "name": "示例需求助手",
-        "description": "演示结构化追问、工具调用和恢复执行",
-    }
+    assert response.status_code == 404
 
 
 def test_stream_chat_uses_stable_sse_event_contract() -> None:
     """流式接口发布命名事件和 JSON 数据，不透传 LangGraph 原始事件。"""
     with _client() as client:
         response = client.post(
-            "/api/agents/example/chat/stream",
+            "/api/agent/chat/stream",
             json={"message": "帮我整理需求"},
         )
 
@@ -48,8 +54,8 @@ def test_stream_chat_uses_stable_sse_event_contract() -> None:
     assert question["data"]["questions"][0]["id"] == "goal"
 
 
-def test_unknown_agent_returns_safe_machine_readable_error() -> None:
-    """不存在的智能体返回稳定错误码，不暴露 Python 异常信息。"""
+def test_legacy_agent_id_route_is_not_supported() -> None:
+    """固定单智能体接口不会接受 agent_id 路径参数。"""
     with _client() as client:
         response = client.post(
             "/api/agents/missing/chat",
@@ -57,18 +63,13 @@ def test_unknown_agent_returns_safe_machine_readable_error() -> None:
         )
 
     assert response.status_code == 404
-    assert response.json() == {
-        "success": False,
-        "code": "AGENT_NOT_FOUND",
-        "message": "未找到指定智能体",
-    }
 
 
 def test_resume_endpoint_completes_paused_run() -> None:
     """API 调用方可以使用追问事件中的标识恢复并完成同一次运行。"""
     with _client() as client:
         paused_response = client.post(
-            "/api/agents/example/chat",
+            "/api/agent/chat",
             json={"message": "帮我梳理业务"},
         )
         paused_events = paused_response.json()["data"]
@@ -76,7 +77,7 @@ def test_resume_endpoint_completes_paused_run() -> None:
             event for event in paused_events if event["event_type"] == "question.required"
         )
         resumed_response = client.post(
-            f"/api/agents/example/runs/{question['run_id']}/resume",
+            f"/api/agent/runs/{question['run_id']}/resume",
             json={
                 "conversation_id": question["conversation_id"],
                 "answers": {"goal": "构建售后工单智能体"},
@@ -93,7 +94,7 @@ def test_resume_rejects_unbounded_answer_text() -> None:
     """HTTP 边界拒绝无界恢复内容，防止超大数据进入图 Checkpoint。"""
     with _client() as client:
         response = client.post(
-            "/api/agents/example/runs/unknown/resume",
+            "/api/agent/runs/unknown/resume",
             json={
                 "conversation_id": "conversation",
                 "answers": {"goal": "x" * 2_001},
@@ -106,8 +107,15 @@ def test_resume_rejects_unbounded_answer_text() -> None:
 def test_cancel_rejects_unknown_run_without_leaking_memory() -> None:
     """取消不存在运行时返回稳定错误，不把伪造标识写入取消集合。"""
     with _client() as client:
-        response = client.post("/api/agents/example/runs/unknown/cancel")
+        response = client.post("/api/agent/runs/unknown/cancel")
 
     assert response.status_code == 409
     assert response.json()["code"] == "RUN_NOT_CANCELLABLE"
 
+
+def test_production_rejects_missing_authenticated_principal() -> None:
+    """生产环境不能把匿名调用方静默归并到共享开发身份。"""
+    with TestClient(create_app(AppSettings(app_env="production", _env_file=None))) as client:
+        response = client.post("/api/agent/chat", json={"message": "开始"})
+
+    assert response.status_code == 401

@@ -2,26 +2,26 @@
 
 import pytest
 
-from agent_core.contracts.events import AgentEvent, AgentEventType
-from agent_core.errors import BackendNotConfiguredError
-from agent_core.models.provider import StaticChatModelProvider
-from agent_core.persistence.memory import (
+from agent.errors import BackendNotConfiguredError
+from agent.persistence.memory import (
     DisabledTaskDispatcher,
     MemoryConversationStore,
     MemoryEventBus,
 )
+from agent.streaming.events import AgentEvent, AgentEventType
+from infra.model_provider import StaticChatModelProvider
 
 
 def test_memory_conversation_store_returns_copy() -> None:
     """会话元数据可保存，读取方不能修改内部真实值。"""
     store = MemoryConversationStore()
-    store.save("conversation", {"agent_id": "example"})
+    store.save("conversation", {"principal_id": "developer-a"})
 
     value = store.get("conversation")
-    assert value == {"agent_id": "example"}
+    assert value == {"principal_id": "developer-a"}
     assert value is not None
-    value["agent_id"] = "changed"
-    assert store.get("conversation") == {"agent_id": "example"}
+    value["principal_id"] = "changed"
+    assert store.get("conversation") == {"principal_id": "developer-a"}
 
 
 async def test_memory_event_bus_can_replay_after_cursor() -> None:
@@ -64,4 +64,3 @@ def test_static_model_provider_is_deterministic_and_offline() -> None:
     model = StaticChatModelProvider(["第一条回复"]).create_chat_model()
 
     assert model.invoke("hello").content == "第一条回复"
-

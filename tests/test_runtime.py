@@ -4,17 +4,16 @@ import asyncio
 from typing import Annotated, TypedDict
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
 
-from agent_core.contracts.agent import AgentDefinition
-from agent_core.contracts.events import AgentEvent, AgentEventType
-from agent_core.errors import InvalidResumeAnswersError
-from agent_core.runtime.engine import AgentRuntime
-from agent_core.runtime.factory import build_memory_runtime
-from agents.example_agent.definition import create_example_agent_definition
+from agent.errors import InvalidResumeAnswersError
+from agent.runner import AgentRunner, build_memory_runner
+from agent.schemas.run import RunRecord, RunStatus
+from agent.streaming.events import AgentEvent, AgentEventType
 from infra.settings import AppSettings
 
 
@@ -23,11 +22,9 @@ async def _collect_events(stream: object) -> list[AgentEvent]:
     return [event async for event in stream]  # type: ignore[attr-defined]
 
 
-def _create_runtime() -> AgentRuntime:
-    """创建不访问网络的内存运行时并注册示例智能体。"""
-    runtime = build_memory_runtime(AppSettings(_env_file=None))
-    runtime.register(create_example_agent_definition())
-    return runtime
+def _create_runtime() -> AgentRunner:
+    """创建不访问网络且直接持有唯一图的内存运行器。"""
+    return build_memory_runner(AppSettings(_env_file=None))
 
 
 async def test_chat_pauses_with_structured_question() -> None:
@@ -35,7 +32,7 @@ async def test_chat_pauses_with_structured_question() -> None:
     runtime = _create_runtime()
 
     events = await _collect_events(
-        runtime.stream_chat(agent_id="example", message="帮我整理一个开发目标")
+        runtime.stream_chat(message="帮我整理一个开发目标")
     )
 
     event_types = [event.event_type for event in events]
@@ -51,11 +48,32 @@ async def test_chat_pauses_with_structured_question() -> None:
     assert question.conversation_id
 
 
+async def test_malformed_question_tool_result_fails_instead_of_waiting_forever() -> None:
+    """畸形追问载荷必须产生失败事件，不能进入无法恢复的等待状态。"""
+    runner = _create_runtime()
+    record = RunRecord(
+        run_id="run",
+        conversation_id="conversation",
+        principal_id="developer-a",
+        status=RunStatus.RUNNING,
+    )
+    message = ToolMessage(
+        content='{"success":true,"data":{"questions":[]}}',
+        tool_call_id="tool-1",
+        name="ask_user_question",
+    )
+
+    events = [event async for event in runner._events_for_message(record, message)]
+
+    assert events[0].event_type == AgentEventType.RUN_FAILED
+    assert events[0].data["code"] == "INVALID_QUESTION_PAYLOAD"
+
+
 async def test_resume_executes_tool_and_completes_once() -> None:
     """提交问题答案后，从相同运行恢复，执行工具并且只完成一次。"""
     runtime = _create_runtime()
     paused_events = await _collect_events(
-        runtime.stream_chat(agent_id="example", message="帮我整理一个开发目标")
+        runtime.stream_chat(message="帮我整理一个开发目标")
     )
     paused = next(
         event
@@ -65,7 +83,6 @@ async def test_resume_executes_tool_and_completes_once() -> None:
 
     resumed_events = await _collect_events(
         runtime.resume(
-            agent_id="example",
             conversation_id=paused.conversation_id,
             run_id=paused.run_id,
             answers={"goal": "实现一个可复用的订单查询智能体"},
@@ -108,20 +125,13 @@ def _slow_graph_factory(checkpointer: object) -> object:
 
 async def test_runtime_stops_graph_after_configured_timeout() -> None:
     """图超过运行预算后返回稳定超时错误，不泄露 asyncio 异常。"""
-    runtime = build_memory_runtime(
-        AppSettings(agent_run_timeout_seconds=1, _env_file=None)
-    )
-    runtime.register(
-        AgentDefinition(
-            agent_id="slow",
-            name="慢智能体",
-            description="测试运行超时",
-            graph_factory=_slow_graph_factory,
-        )
+    runtime = build_memory_runner(
+        AppSettings(agent_run_timeout_seconds=1, _env_file=None),
+        graph=_slow_graph_factory(MemorySaver()),
     )
 
     events = await _collect_events(
-        runtime.stream_chat(agent_id="slow", message="开始")
+        runtime.stream_chat(message="开始")
     )
 
     failed = next(
@@ -138,7 +148,6 @@ async def test_resume_rejects_answers_for_unknown_question() -> None:
     runtime = _create_runtime()
     paused_events = await _collect_events(
         runtime.stream_chat(
-            agent_id="example",
             message="帮我整理一个开发目标",
             principal_id="developer-a",
         )
@@ -151,7 +160,6 @@ async def test_resume_rejects_answers_for_unknown_question() -> None:
 
     with pytest.raises(InvalidResumeAnswersError):
         runtime.resume(
-            agent_id="example",
             conversation_id=paused.conversation_id,
             run_id=paused.run_id,
             answers={"unexpected": "value"},
@@ -161,19 +169,11 @@ async def test_resume_rejects_answers_for_unknown_question() -> None:
 
 async def test_cancel_interrupts_long_running_node_without_waiting_for_update() -> None:
     """取消信号会立即打断长节点，并向原事件流发送取消终止事件。"""
-    runtime = build_memory_runtime(
-        AppSettings(agent_run_timeout_seconds=10, _env_file=None)
-    )
-    runtime.register(
-        AgentDefinition(
-            agent_id="slow",
-            name="慢智能体",
-            description="测试主动取消",
-            graph_factory=_slow_graph_factory,
-        )
+    runtime = build_memory_runner(
+        AppSettings(agent_run_timeout_seconds=10, _env_file=None),
+        graph=_slow_graph_factory(MemorySaver()),
     )
     stream = runtime.stream_chat(
-        agent_id="slow",
         message="开始",
         principal_id="developer-a",
     )
@@ -182,7 +182,6 @@ async def test_cancel_interrupts_long_running_node_without_waiting_for_update() 
     cancel_started_at = loop.time()
 
     runtime.cancel(
-        agent_id="slow",
         run_id=started.run_id,
         principal_id="developer-a",
     )
@@ -196,19 +195,11 @@ async def test_cancel_interrupts_long_running_node_without_waiting_for_update() 
 
 async def test_second_run_on_same_conversation_fails_without_orphan_record() -> None:
     """同会话并发请求快速返回安全事件，且不会影响首个运行取消清理。"""
-    runtime = build_memory_runtime(
-        AppSettings(agent_run_timeout_seconds=10, _env_file=None)
-    )
-    runtime.register(
-        AgentDefinition(
-            agent_id="slow",
-            name="慢智能体",
-            description="测试会话互斥",
-            graph_factory=_slow_graph_factory,
-        )
+    runtime = build_memory_runner(
+        AppSettings(agent_run_timeout_seconds=10, _env_file=None),
+        graph=_slow_graph_factory(MemorySaver()),
     )
     first_stream = runtime.stream_chat(
-        agent_id="slow",
         message="第一次",
         conversation_id="shared-conversation",
         principal_id="developer-a",
@@ -217,7 +208,6 @@ async def test_second_run_on_same_conversation_fails_without_orphan_record() -> 
 
     second_events = await _collect_events(
         runtime.stream_chat(
-            agent_id="slow",
             message="第二次",
             conversation_id="shared-conversation",
             principal_id="developer-a",
@@ -227,7 +217,6 @@ async def test_second_run_on_same_conversation_fails_without_orphan_record() -> 
     assert second_events[-1].event_type == AgentEventType.RUN_FAILED
     assert second_events[-1].data["code"] == "RUN_BUSY"
     runtime.cancel(
-        agent_id="slow",
         run_id=first_started.run_id,
         principal_id="developer-a",
     )
@@ -239,17 +228,15 @@ async def test_conversation_id_is_scoped_to_principal_and_agent() -> None:
     runtime = _create_runtime()
     await _collect_events(
         runtime.stream_chat(
-            agent_id="example",
             message="创建会话",
             conversation_id="owned-conversation",
             principal_id="developer-a",
         )
     )
-    from agent_core.errors import ConversationAccessDeniedError
+    from agent.errors import ConversationAccessDeniedError
 
     with pytest.raises(ConversationAccessDeniedError):
         runtime.stream_chat(
-            agent_id="example",
             message="尝试访问",
             conversation_id="owned-conversation",
             principal_id="developer-b",

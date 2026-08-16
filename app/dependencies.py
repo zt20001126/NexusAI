@@ -1,6 +1,6 @@
 """HTTP 层可信身份及后续鉴权集成接缝。"""
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 
 
 def get_principal_id(request: Request) -> str:
@@ -12,5 +12,10 @@ def get_principal_id(request: Request) -> str:
     principal_id = getattr(request.state, "principal_id", None)
     if isinstance(principal_id, str) and principal_id:
         return principal_id
-    return "local-development"
-
+    app_env = request.app.state.settings.app_env
+    if app_env == "development":
+        return "local-development"
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="未提供有效身份凭证",
+    )

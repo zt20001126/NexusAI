@@ -38,11 +38,3 @@ class ResumeRequest(BaseModel):
                 if len(value) > 20 or any(len(item) > 500 for item in value):
                     raise ValueError("多选答案超出允许范围")
         return answers
-
-
-class AgentInfo(BaseModel):
-    """对外展示的智能体元数据，不包含图或工具内部对象。"""
-
-    agent_id: str
-    name: str
-    description: str

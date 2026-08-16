@@ -2,9 +2,9 @@
 
 import pytest
 
-from agent_core.errors import BackendNotConfiguredError, ModelNotConfiguredError
-from agent_core.models.provider import OpenAICompatibleProvider
-from agent_core.runtime.factory import build_runtime
+from agent.errors import BackendNotConfiguredError, ModelNotConfiguredError
+from agent.runner import build_memory_runner
+from infra.model_provider import OpenAICompatibleProvider
 from infra.settings import AppSettings
 
 
@@ -22,7 +22,7 @@ def test_external_backend_configuration_does_not_connect_implicitly() -> None:
     )
 
     with pytest.raises(BackendNotConfiguredError) as error:
-        build_runtime(settings)
+        build_memory_runner(settings)
 
     assert error.value.code == "BACKEND_NOT_CONFIGURED"
 
@@ -35,4 +35,3 @@ def test_model_provider_requires_configuration_only_when_created() -> None:
         provider.create_chat_model()
 
     assert error.value.code == "MODEL_NOT_CONFIGURED"
-
