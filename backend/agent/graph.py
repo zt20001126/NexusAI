@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agent.nodes.agent_node import create_agent_node
-from agent.nodes.result_node import result_node
+from agent.nodes.result_node import create_streaming_result_node
 from agent.nodes.validation_node import validation_node
 from agent.state import AgentState
 from agent.tools.registry import AGENT_TOOLS, PAUSE_TOOL_NAMES
@@ -34,7 +34,7 @@ def build_agent_graph(checkpointer: Any, chat_model: BaseChatModel) -> Any:
     graph.add_node("validation", validation_node)
     graph.add_node("agent", create_agent_node(chat_model))
     graph.add_node("tools", ToolNode(AGENT_TOOLS))
-    graph.add_node("result", result_node)
+    graph.add_node("result", create_streaming_result_node(chat_model))
     graph.add_edge(START, "validation")
     graph.add_edge("validation", "agent")
     graph.add_conditional_edges("agent", route_after_agent)

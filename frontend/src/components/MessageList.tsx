@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ConversationMessage } from '../api/conversations'
 
 export interface DisplayMessage {
@@ -72,7 +74,26 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
           <div className="message-column">
             <div className="message-author">{message.role === 'user' ? '当前用户' : 'NexusAI'}</div>
             <div className={`message-bubble ${message.role}`}>
-              {message.content ? <span>{message.content}</span> : <span className="typing-dots">正在思考…</span>}
+              {message.content
+                ? message.role === 'assistant'
+                  ? (
+                    <div className="message-markdown">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noreferrer">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  )
+                  : <span>{message.content}</span>
+                : <span className="typing-dots">正在思考…</span>}
               {message.streaming && <span className="stream-caret" aria-hidden="true" />}
             </div>
           </div>
