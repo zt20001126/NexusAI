@@ -1,15 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ConversationMessage } from '../api/conversations'
-
-export interface DisplayMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  streaming?: boolean
-  createdAt?: string
-}
+import type { DisplayMessage } from '../model/messages'
 
 interface MessageListProps {
   messages: DisplayMessage[]
@@ -111,15 +103,6 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
     </div>
     </div>
   )
-}
-
-export function toDisplayMessage(message: ConversationMessage): DisplayMessage {
-  return {
-    id: message.message_id,
-    role: message.role,
-    content: message.content,
-    createdAt: message.created_at,
-  }
 }
 
 export default MessageList

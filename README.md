@@ -30,9 +30,20 @@ backend/
   requirements*.txt          Python 依赖
   .env.example               后端环境变量模板
 frontend/                    React + TypeScript + Vite 前端
+  src/
+    shared/api/              与具体业务无关的 HTTP、SSE 传输能力
+    features/chat/            聊天功能及其页面入口
+      api/                    聊天 API 与后端数据类型
+      components/             聊天功能专属 UI
+      hooks/                  会话状态与交互编排
+      model/                  聊天视图模型与数据转换
+    App.tsx                   前端应用入口
+    main.tsx                  React 挂载与全局样式入口
 docs/                        项目级文档（按需添加）
 scripts/                     项目级辅助脚本（按需添加）
 ```
+
+前端按功能组织代码。新页面或业务能力优先放入对应的 `features/<feature>/`；只有多个功能共同使用的基础能力才放在 `shared/`。功能内部的 API、UI、状态编排和视图模型分别归入 `api/`、`components/`、`hooks/` 和 `model/`，避免页面直接承载请求与复杂状态逻辑。
 
 这里的 `backend/agent/` 就是唯一智能体，不需要复制目录、定义 `agent_id` 或注册 `AgentDefinition`。后续开发通常只修改该目录中的 `state.py`、`nodes/`、`tools/`、`prompts/` 和 `graph.py`。
 

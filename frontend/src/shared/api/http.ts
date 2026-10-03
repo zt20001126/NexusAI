@@ -1,4 +1,4 @@
-/** 统一处理前端到 FastAPI 的 JSON 请求、错误响应和 SSE 请求。 */
+/** 提供前端共享的 JSON 请求、错误处理与 SSE 传输能力。 */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -32,31 +32,21 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   return body.data
 }
 
-export interface AgentEvent {
-  event_id: string
-  event_type: string
-  conversation_id: string
-  run_id: string
-  sequence: number
-  timestamp: string
-  data: Record<string, unknown>
-}
-
-function parseEventBlock(block: string): AgentEvent | null {
+function parseEventBlock<T>(block: string): T | null {
   const dataLines = block
     .split(/\r?\n/)
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trimStart())
 
   if (dataLines.length === 0) return null
-  return JSON.parse(dataLines.join('\n')) as AgentEvent
+  return JSON.parse(dataLines.join('\n')) as T
 }
 
-/** 通过 fetch 发送 POST 请求并逐条读取后端命名 SSE 事件。 */
-export async function streamAgentEvents(
+/** 通过 fetch 发送 POST 请求并逐条读取 SSE 数据事件。 */
+export async function streamEvents<T>(
   path: string,
   payload: unknown,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: T) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -86,13 +76,13 @@ export async function streamAgentEvents(
       const blocks = buffer.split(/\r?\n\r?\n/)
       buffer = blocks.pop() ?? ''
       for (const block of blocks) {
-        const event = parseEventBlock(block)
+        const event = parseEventBlock<T>(block)
         if (event) onEvent(event)
       }
       if (done) break
     }
 
-    const finalEvent = parseEventBlock(buffer)
+    const finalEvent = parseEventBlock<T>(buffer)
     if (finalEvent) onEvent(finalEvent)
   } finally {
     reader.releaseLock()

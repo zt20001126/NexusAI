@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question } from '../api/agent'
 import { cancelAgentRun, resumeAgentRun, streamChat } from '../api/agent'
-import { getApiDocsUrl, type AgentEvent } from '../api/http'
+import type { AgentEvent } from '../api/agent'
 import {
   getConversationMessages,
   getConversations,
   type Conversation,
 } from '../api/conversations'
-import ConversationSidebar from '../components/ConversationSidebar'
-import Composer from '../components/Composer'
-import MessageList, { type DisplayMessage, toDisplayMessage } from '../components/MessageList'
-import AgentInteractionCard from '../components/AgentInteractionCard'
+import { toDisplayMessage, type DisplayMessage } from '../model/messages'
 
 interface PendingQuestion {
   conversationId: string
@@ -18,12 +15,11 @@ interface PendingQuestion {
   questions: Question[]
 }
 
-/** 对话主页面，编排会话加载、消息历史、SSE 回复和结构化追问。 */
-function ChatPage() {
+/** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
+export function useChatSession() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMessage[]>([])
-  const [draft, setDraft] = useState('')
   const [sidebarLoading, setSidebarLoading] = useState(true)
   const [conversationHasMore, setConversationHasMore] = useState(false)
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false)
@@ -147,11 +143,7 @@ function ChatPage() {
         const questions = Array.isArray(event.data.questions)
           ? event.data.questions as Question[]
           : []
-        setPendingQuestion({
-          conversationId: event.conversation_id,
-          runId: event.run_id,
-          questions,
-        })
+        setPendingQuestion({ conversationId: event.conversation_id, runId: event.run_id, questions })
         setStatus('等待你的补充信息')
         break
       }
@@ -188,24 +180,23 @@ function ChatPage() {
     }
   }
 
-  async function handleSend() {
-    const message = draft.trim()
-    if (!message || sending) return
+  async function sendMessage(message: string) {
+    const trimmedMessage = message.trim()
+    if (!trimmedMessage || sending) return
 
     const conversationId = activeConversationRef.current
-    setDraft('')
     setError(null)
     setPendingQuestion(null)
     setMessages((current) => [
       ...current,
-      { id: `local-${Date.now()}`, role: 'user', content: message },
+      { id: `local-${Date.now()}`, role: 'user', content: trimmedMessage },
     ])
     setSending(true)
     setStatus('正在连接…')
 
     try {
       await streamChat(
-        { message, ...(conversationId ? { conversation_id: conversationId } : {}) },
+        { message: trimmedMessage, ...(conversationId ? { conversation_id: conversationId } : {}) },
         handleAgentEvent,
       )
       await finishTurn()
@@ -218,7 +209,7 @@ function ChatPage() {
     }
   }
 
-  async function handleResume(answers: Record<string, string>) {
+  async function resumeRun(answers: Record<string, string>) {
     if (!pendingQuestion || sending) return
     setError(null)
     setSending(true)
@@ -240,7 +231,7 @@ function ChatPage() {
     }
   }
 
-  async function handleCancel() {
+  async function cancelRun() {
     const runId = activeRunRef.current
     if (!runId) return
     try {
@@ -251,17 +242,14 @@ function ChatPage() {
     }
   }
 
-  async function handleLoadOlder() {
+  async function loadOlderMessages() {
     const conversationId = activeConversationRef.current
     if (!conversationId || olderCursor === null || loadingOlder) return
     setLoadingOlder(true)
     try {
       const page = await getConversationMessages(conversationId, 50, olderCursor)
       if (activeConversationRef.current !== conversationId) return
-      setMessages((current) => [
-        ...page.items.map(toDisplayMessage),
-        ...current,
-      ])
+      setMessages((current) => [...page.items.map(toDisplayMessage), ...current])
       setOlderCursor(page.next_before_sequence)
     } catch (requestError) {
       setError(getErrorMessage(requestError))
@@ -270,7 +258,7 @@ function ChatPage() {
     }
   }
 
-  async function handleLoadMoreConversations() {
+  async function loadMoreConversations() {
     if (loadingMoreConversations || !conversationHasMore) return
     setLoadingMoreConversations(true)
     try {
@@ -284,7 +272,7 @@ function ChatPage() {
     }
   }
 
-  function handleNewConversation() {
+  function createConversation() {
     selectConversation(null)
     setMessages([])
     setError(null)
@@ -295,67 +283,32 @@ function ChatPage() {
     (conversation) => conversation.conversation_id === activeConversationId,
   )
 
-  return (
-    <main className="chat-app-shell">
-      <ConversationSidebar
-        conversations={conversations}
-        activeConversationId={activeConversationId}
-        loading={sidebarLoading}
-        hasMore={conversationHasMore}
-        loadingMore={loadingMoreConversations}
-        disabled={sending}
-        error={sidebarError}
-        onCreate={handleNewConversation}
-        onSelect={selectConversation}
-        onLoadMore={() => { void handleLoadMoreConversations() }}
-        onRetry={() => { void refreshConversations() }}
-      />
-
-      <section className="chat-main">
-        <header className="chat-topbar">
-          <div className="topbar-title">
-            <img className="mobile-brand-mark" src="/brand/nexusai-icon.png" alt="" />
-            <div>
-              <strong>{activeConversation?.title || (activeConversationId ? '会话' : '新对话')}</strong>
-              <span><i className="status-dot" /> {status}</span>
-            </div>
-          </div>
-          <a href={getApiDocsUrl()} target="_blank" rel="noreferrer" className="docs-link">API 文档 ↗</a>
-          <button className="mobile-new-conversation" type="button" onClick={handleNewConversation} disabled={sending}>＋ 新对话</button>
-        </header>
-
-        <div className="chat-content">
-          {olderCursor !== null && !historyLoading && (
-            <button className="load-older-button" type="button" onClick={() => { void handleLoadOlder() }} disabled={loadingOlder}>
-              {loadingOlder ? '正在加载…' : '↑ 查看更早消息'}
-            </button>
-          )}
-          <MessageList
-            messages={messages}
-            loading={historyLoading}
-            conversationId={activeConversationId}
-          />
-          {pendingQuestion && pendingQuestion.questions.length > 0 && (
-            <AgentInteractionCard
-              questions={pendingQuestion.questions}
-              disabled={sending}
-              onSubmit={(answers) => { void handleResume(answers) }}
-            />
-          )}
-          {error && <div className="error-banner" role="alert">{error}</div>}
-        </div>
-
-        <Composer
-          value={draft}
-          disabled={sending || Boolean(pendingQuestion)}
-          onChange={setDraft}
-          onSend={() => { void handleSend() }}
-          onCancel={() => { void handleCancel() }}
-          canCancel={sending && activeRunRef.current !== null}
-        />
-      </section>
-    </main>
-  )
+  return {
+    conversations,
+    activeConversation,
+    activeConversationId,
+    messages,
+    sidebarLoading,
+    conversationHasMore,
+    loadingMoreConversations,
+    historyLoading,
+    sending,
+    sidebarError,
+    error,
+    status,
+    pendingQuestion,
+    olderCursor,
+    loadingOlder,
+    canCancel: sending && activeRunRef.current !== null,
+    selectConversation,
+    refreshConversations,
+    sendMessage,
+    resumeRun,
+    cancelRun,
+    loadOlderMessages,
+    loadMoreConversations,
+    createConversation,
+  }
 }
 
 function readString(value: unknown): string {
@@ -371,9 +324,7 @@ function upsertAssistantMessage(
 ): DisplayMessage[] {
   const id = `assistant-${runId}`
   const existingIndex = messages.findIndex((message) => message.id === id)
-  if (existingIndex === -1) {
-    return [...messages, { id, role: 'assistant', content, streaming }]
-  }
+  if (existingIndex === -1) return [...messages, { id, role: 'assistant', content, streaming }]
   return messages.map((message, index) => index === existingIndex
     ? { ...message, content: append ? message.content + content : content, streaming }
     : message)
@@ -382,5 +333,3 @@ function upsertAssistantMessage(
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '发生未知错误，请稍后重试。'
 }
-
-export default ChatPage

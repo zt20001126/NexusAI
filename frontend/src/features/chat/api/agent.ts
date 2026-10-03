@@ -1,6 +1,16 @@
 /** Agent 对话、追问恢复和运行取消 API。 */
 
-import { streamAgentEvents, requestJson, type AgentEvent } from './http'
+import { requestJson, streamEvents } from '../../../shared/api/http'
+
+export interface AgentEvent {
+  event_id: string
+  event_type: string
+  conversation_id: string
+  run_id: string
+  sequence: number
+  timestamp: string
+  data: Record<string, unknown>
+}
 
 export interface ChatRequest {
   message: string
@@ -27,7 +37,7 @@ export async function streamChat(
   payload: ChatRequest,
   onEvent: (event: AgentEvent) => void,
 ): Promise<void> {
-  await streamAgentEvents('/api/agent/chat/stream', payload, onEvent)
+  await streamEvents('/api/agent/chat/stream', payload, onEvent)
 }
 
 export async function resumeAgentRun(
@@ -36,7 +46,7 @@ export async function resumeAgentRun(
   answers: Record<string, string>,
   onEvent: (event: AgentEvent) => void,
 ): Promise<void> {
-  await streamAgentEvents(
+  await streamEvents(
     `/api/agent/runs/${encodeURIComponent(runId)}/resume`,
     { conversation_id: conversationId, answers },
     onEvent,

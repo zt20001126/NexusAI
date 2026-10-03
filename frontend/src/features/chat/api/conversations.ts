@@ -1,6 +1,6 @@
 /** 会话列表和消息历史 API。 */
 
-import { requestJson } from './http'
+import { requestJson } from '../../../shared/api/http'
 
 export interface Conversation {
   conversation_id: string
