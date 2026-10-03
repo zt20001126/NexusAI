@@ -5,21 +5,26 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 
 from agent.prompts.system import SYSTEM_PROMPT
 from agent.state import AgentState
+from agent.streaming.model import invoke_chat_model_streaming
 from agent.tools.registry import AGENT_TOOLS
 
 
 def create_agent_node(chat_model: BaseChatModel) -> Callable[..., Any]:
-    """绑定已登记工具并创建使用系统提示词的异步决策节点。"""
-    model_with_tools = chat_model.bind_tools(AGENT_TOOLS, tool_choice="required")
+    """按需绑定已登记工具，允许模型直接回复或选择调用工具。"""
+    model_with_tools = chat_model.bind_tools(AGENT_TOOLS)
 
-    async def agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
+    async def agent_node(
+        state: AgentState,
+        config: RunnableConfig | None = None,
+    ) -> dict[str, list[BaseMessage]]:
         messages = list(state.get("messages", []))
         if not messages or not isinstance(messages[0], SystemMessage):
             messages.insert(0, SystemMessage(content=SYSTEM_PROMPT))
-        response = await model_with_tools.ainvoke(messages)
+        response = await invoke_chat_model_streaming(model_with_tools, messages, config)
         return {"messages": [response]}
 
     return agent_node

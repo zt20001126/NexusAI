@@ -52,6 +52,22 @@ from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.settings import AppSettings
 
 logger = logging.getLogger(__name__)
+STREAMING_RESPONSE_NODES = frozenset({"agent", "result"})
+
+
+def _message_text(content: Any) -> str:
+    """提取用户可见文本块，忽略图像等非文本消息内容。"""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    text_parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            text_parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            text_parts.append(item["text"])
+    return "".join(text_parts)
 
 
 class AgentRunner:
@@ -99,6 +115,9 @@ class AgentRunner:
         if conversation is not None and conversation.get("principal_id") != principal_id:
             raise ConversationAccessDeniedError()
         self._conversation_store.save(resolved_id, {"principal_id": principal_id})
+        if conversation is None:
+            title = " ".join(message.split())[:50]
+            self._conversation_store.set_title_if_empty(resolved_id, title)
         record = RunRecord(
             run_id=uuid.uuid4().hex,
             conversation_id=resolved_id,
@@ -136,11 +155,15 @@ class AgentRunner:
             raise InvalidResumeAnswersError()
         record.status = RunStatus.RUNNING
         self._run_store.save(record)
+        answer_text = "\n".join(
+            f"{question_id}: {', '.join(value) if isinstance(value, list) else value}"
+            for question_id, value in answers.items()
+        )
         self._message_store.save(
             conversation_id,
             record.run_id,
             "user",
-            json.dumps(answers, ensure_ascii=False),
+            answer_text,
         )
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
@@ -175,6 +198,7 @@ class AgentRunner:
         waiting_for_answer = False
         tool_call_count = 0
         output_char_count = 0
+        streamed_text_by_node: dict[str, str] = {}
         cancel_event = self._cancel_events.setdefault(record.run_id, asyncio.Event())
         try:
             await self._run_lock.acquire(scope_key)
@@ -198,13 +222,12 @@ class AgentRunner:
                     stream_mode, payload = stream_item
                     if stream_mode == "messages":
                         message, metadata = payload
-                        if (
-                            isinstance(message, (AIMessage, AIMessageChunk))
-                            and metadata.get("langgraph_node") == "result"
-                            and isinstance(message.content, str)
-                            and message.content
-                        ):
-                            output_char_count += len(message.content)
+                        node_name = metadata.get("langgraph_node")
+                        content = _message_text(message.content) if isinstance(
+                            message, (AIMessage, AIMessageChunk)
+                        ) else ""
+                        if node_name in STREAMING_RESPONSE_NODES and content:
+                            output_char_count += len(content)
                             if output_char_count > self._max_output_chars:
                                 record.status = RunStatus.FAILED
                                 yield self._event(
@@ -216,14 +239,42 @@ class AgentRunner:
                             yield self._event(
                                 record,
                                 AgentEventType.MESSAGE_DELTA,
-                                {"content": message.content},
+                                {"content": content},
+                            )
+                            streamed_text_by_node[node_name] = (
+                                streamed_text_by_node.get(node_name, "") + content
                             )
                         continue
-                    for node_update in payload.values():
+                    for node_name, node_update in payload.items():
                         if not isinstance(node_update, dict):
                             continue
                         for message in node_update.get("messages", []):
                             async for event in self._events_for_message(record, message):
+                                if (
+                                    event.event_type == AgentEventType.MESSAGE_COMPLETED
+                                    and isinstance(event.data.get("content"), str)
+                                ):
+                                    completed_content = event.data["content"]
+                                    streamed_content = streamed_text_by_node.pop(node_name, "")
+                                    if completed_content.startswith(streamed_content):
+                                        missing_content = completed_content[len(streamed_content):]
+                                    else:
+                                        missing_content = completed_content
+                                    if missing_content:
+                                        output_char_count += len(missing_content)
+                                        if output_char_count > self._max_output_chars:
+                                            record.status = RunStatus.FAILED
+                                            yield self._event(
+                                                record,
+                                                AgentEventType.RUN_FAILED,
+                                                {"code": "AGENT_OUTPUT_LIMIT", "message": "智能体输出超过允许长度"},
+                                            )
+                                            return
+                                        yield self._event(
+                                            record,
+                                            AgentEventType.MESSAGE_DELTA,
+                                            {"content": missing_content},
+                                        )
                                 if event.event_type == AgentEventType.TOOL_STARTED:
                                     tool_call_count += 1
                                     if tool_call_count > self._max_tool_calls:
@@ -447,6 +498,9 @@ def build_memory_runner(
     settings: AppSettings,
     graph: Any | None = None,
     model_provider: ChatModelProvider | None = None,
+    *,
+    conversation_store: ConversationStore | None = None,
+    message_store: MessageStore | None = None,
 ) -> AgentRunner:
     """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
@@ -455,8 +509,8 @@ def build_memory_runner(
         checkpointer=checkpointer,
         run_store=MemoryRunStore(),
         run_lock=MemoryRunLock(),
-        conversation_store=MemoryConversationStore(),
-        message_store=MemoryMessageStore(),
+        conversation_store=conversation_store or MemoryConversationStore(),
+        message_store=message_store or MemoryMessageStore(),
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,

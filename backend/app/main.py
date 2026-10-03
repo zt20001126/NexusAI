@@ -5,7 +5,8 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.controller.agent import router
+from app.controller.agent import router as agent_router
+from app.controller.conversation import router as conversation_router
 from app.exceptions.handlers import register_exception_handlers
 from app.lifecycle import build_lifespan
 from infra.model_provider import ChatModelProvider
@@ -25,7 +26,8 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan or build_lifespan(resolved_settings, model_provider),
     )
-    app.include_router(router)
+    app.include_router(agent_router)
+    app.include_router(conversation_router)
     register_exception_handlers(app)
     return app
 

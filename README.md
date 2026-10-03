@@ -2,6 +2,8 @@
 
 这是一个从 Hookshot 选品智能体提炼出的独立单智能体模板。它保留 LangGraph 节点编排、工具调用、结构化追问、Checkpoint 恢复、取消、统一事件与 SSE 流式能力，不包含选品或商品业务，也不包含多智能体注册、发现和路由。
 
+![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
+
 应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话所有权、运行状态和 SSE 事件。内存适配器仅由测试代码显式注入，不是应用运行配置选项。
 
 仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目级文档和脚本放在根目录的 `docs/`、`scripts/` 等目录。
