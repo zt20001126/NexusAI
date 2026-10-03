@@ -34,7 +34,6 @@ function ConversationSidebar({
         <img className="brand-mark" src="/brand/nexusai-icon.png" alt="" />
         <div>
           <strong>NexusAI</strong>
-          <span>智能对话空间</span>
         </div>
       </div>
 
