@@ -22,6 +22,7 @@ from agent.graph import build_agent_graph
 from agent.persistence.interfaces import (
     ConversationStore,
     EventSequence,
+    MessageStore,
     RunLock,
     RunStore,
     TaskDispatcher,
@@ -31,11 +32,13 @@ from agent.persistence.memory import (
     MemoryCheckpointProvider,
     MemoryConversationStore,
     MemoryEventSequence,
+    MemoryMessageStore,
     MemoryRunLock,
     MemoryRunStore,
 )
 from agent.persistence.postgres import (
     PostgresConversationStore,
+    PostgresMessageStore,
     PostgresRunLock,
     PostgresRunStore,
     PostgresRuntimeStore,
@@ -61,6 +64,7 @@ class AgentRunner:
         run_store: RunStore,
         run_lock: RunLock,
         conversation_store: ConversationStore,
+        message_store: MessageStore,
         task_dispatcher: TaskDispatcher,
         event_sequence: EventSequence,
         max_steps: int,
@@ -73,6 +77,7 @@ class AgentRunner:
         self._run_store = run_store
         self._run_lock = run_lock
         self._conversation_store = conversation_store
+        self._message_store = message_store
         self._task_dispatcher = task_dispatcher
         self._event_sequence = event_sequence
         self._max_steps = max_steps
@@ -101,6 +106,7 @@ class AgentRunner:
             status=RunStatus.RUNNING,
         )
         self._run_store.save(record)
+        self._message_store.save(resolved_id, record.run_id, "user", message)
         graph_input = {
             "messages": [HumanMessage(content=message)],
             "original_request": message,
@@ -130,6 +136,12 @@ class AgentRunner:
             raise InvalidResumeAnswersError()
         record.status = RunStatus.RUNNING
         self._run_store.save(record)
+        self._message_store.save(
+            conversation_id,
+            record.run_id,
+            "user",
+            json.dumps(answers, ensure_ascii=False),
+        )
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
             "resume_answers": answers,
@@ -340,6 +352,12 @@ class AgentRunner:
                     {"tool_name": tool_call.get("name", "")},
                 )
             if isinstance(message.content, str) and message.content:
+                self._message_store.save(
+                    record.conversation_id,
+                    record.run_id,
+                    "assistant",
+                    message.content,
+                )
                 yield self._event(
                     record,
                     AgentEventType.MESSAGE_COMPLETED,
@@ -366,6 +384,15 @@ class AgentRunner:
                     {"code": "INVALID_QUESTION_PAYLOAD", "message": "追问信息格式不正确"},
                 )
                 return
+            self._message_store.save(
+                record.conversation_id,
+                record.run_id,
+                "assistant",
+                "\n".join(
+                    f"{question.title}\n{question.prompt}"
+                    for question in questions.questions
+                ),
+            )
             yield self._event(
                 record,
                 AgentEventType.QUESTION_REQUIRED,
@@ -429,6 +456,7 @@ def build_memory_runner(
         run_store=MemoryRunStore(),
         run_lock=MemoryRunLock(),
         conversation_store=MemoryConversationStore(),
+        message_store=MemoryMessageStore(),
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,
@@ -449,6 +477,7 @@ def build_postgres_runner(
         run_store=PostgresRunStore(runtime_store),
         run_lock=PostgresRunLock(runtime_store),
         conversation_store=PostgresConversationStore(runtime_store),
+        message_store=PostgresMessageStore(runtime_store),
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
     )
@@ -461,6 +490,7 @@ def _build_runner(
     run_store: RunStore,
     run_lock: RunLock,
     conversation_store: ConversationStore,
+    message_store: MessageStore,
     event_sequence: EventSequence,
     model_provider: ChatModelProvider | None = None,
     graph: Any | None = None,
@@ -474,6 +504,7 @@ def _build_runner(
         run_store=run_store,
         run_lock=run_lock,
         conversation_store=conversation_store,
+        message_store=message_store,
         task_dispatcher=DisabledTaskDispatcher(),
         event_sequence=event_sequence,
         max_steps=settings.agent_max_steps,

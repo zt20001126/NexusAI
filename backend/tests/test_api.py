@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agent.persistence.memory import MemoryEventBus, MemoryEventSequence
+from agent.persistence.memory import MemoryEventSequence
 from agent.runner import build_memory_runner
 from agent.streaming.publisher import EventPublisher
 from app.main import create_app
@@ -22,12 +22,11 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         runner = build_memory_runner(settings, model_provider=model_provider)
-        event_bus = MemoryEventBus()
         event_sequence = MemoryEventSequence()
         app.state.settings = settings
         app.state.agent_service = AgentApplicationService(
             runner,
-            EventPublisher(event_bus, event_sequence, settings.sse_heartbeat_seconds),
+            EventPublisher(event_sequence, settings.sse_heartbeat_seconds),
         )
         yield
 

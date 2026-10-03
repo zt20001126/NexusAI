@@ -6,7 +6,8 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from agent.persistence.postgres import PostgresEventBus, PostgresRuntimeStore
+from agent.persistence.memory import MemoryEventSequence
+from agent.persistence.postgres import PostgresRuntimeStore
 from agent.runner import build_postgres_runner
 from agent.streaming.publisher import EventPublisher
 from app.service.agent import AgentApplicationService
@@ -42,8 +43,7 @@ def build_lifespan(
                     app_instance,
                     settings,
                     runner,
-                    PostgresEventBus(runtime_store),
-                    runtime_store,
+                    MemoryEventSequence(),
                 )
                 yield
 
@@ -54,12 +54,10 @@ def _install_runtime_state(
     app_instance: FastAPI,
     settings: AppSettings,
     runner: Any,
-    event_bus: Any,
     event_sequence: Any,
 ) -> None:
     """将运行时依赖注册到请求上下文，供 Controller 依赖注入使用。"""
-    publisher = EventPublisher(event_bus, event_sequence, settings.sse_heartbeat_seconds)
+    publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
     app_instance.state.settings = settings
     app_instance.state.agent_runner = runner
-    app_instance.state.event_bus = event_bus
     app_instance.state.agent_service = AgentApplicationService(runner, publisher)

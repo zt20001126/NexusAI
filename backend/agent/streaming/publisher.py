@@ -5,21 +5,19 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import datetime, timezone
 
-from agent.persistence.interfaces import EventBus, EventSequence
+from agent.persistence.interfaces import EventSequence
 from agent.streaming.events import AgentEvent, AgentEventType
 
 
 class EventPublisher:
-    """为实际交付事件分配单调游标，并保存到可替换事件总线。"""
+    """为本次连接实际交付的事件分配单调游标并插入心跳。"""
 
     def __init__(
         self,
-        event_bus: EventBus,
         event_sequence: EventSequence,
         heartbeat_seconds: float,
     ) -> None:
-        """注入事件存储、序号生成器和心跳周期。"""
-        self._event_bus = event_bus
+        """注入序号生成器和心跳周期。"""
         self._event_sequence = event_sequence
         self._heartbeat_seconds = heartbeat_seconds
 
@@ -83,5 +81,4 @@ class EventPublisher:
         delivered = event.model_copy(
             update={"event_id": f"{event.conversation_id}:{sequence}", "sequence": sequence}
         )
-        await self._event_bus.publish(delivered)
         return delivered

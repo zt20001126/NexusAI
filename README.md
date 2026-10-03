@@ -143,7 +143,7 @@ run.failed
 默认运行配置为：
 
 ```text
-DATABASE_URL=postgresql://<user>:<password>@localhost:5433/nexusai
+DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5433/nexusai
 ```
 
 `DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、运行记录和事件重放历史；运行锁由数据库 advisory lock 协调。

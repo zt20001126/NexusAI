@@ -22,6 +22,18 @@ class ConversationStore(Protocol):
     def get(self, conversation_id: str) -> dict[str, Any] | None: ...
 
 
+class MessageStore(Protocol):
+    """会话消息持久化协议。"""
+
+    def save(
+        self,
+        conversation_id: str,
+        run_id: str,
+        role: str,
+        content: str,
+    ) -> None: ...
+
+
 class RunStore(Protocol):
     """运行记录持久化协议。"""
 

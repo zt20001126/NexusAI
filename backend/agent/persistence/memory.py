@@ -40,6 +40,25 @@ class MemoryConversationStore:
         return deepcopy(value) if value is not None else None
 
 
+class MemoryMessageStore:
+    """供测试运行器保存会话消息的进程内适配器。"""
+
+    def __init__(self) -> None:
+        self.messages: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    def save(
+        self,
+        conversation_id: str,
+        run_id: str,
+        role: str,
+        content: str,
+    ) -> None:
+        """按写入顺序保存测试消息。"""
+        self.messages[conversation_id].append(
+            {"run_id": run_id, "role": role, "content": content}
+        )
+
+
 class MemoryRunStore:
     """进程内运行记录存储。"""
 

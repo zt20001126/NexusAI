@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-from agent.persistence.memory import MemoryEventBus, MemoryEventSequence
+from agent.persistence.memory import MemoryEventSequence
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.streaming.publisher import EventPublisher
 
@@ -29,7 +29,7 @@ async def _slow_event_source() -> AsyncIterator[AgentEvent]:
 
 async def test_service_emits_protocol_heartbeat_while_graph_is_quiet() -> None:
     """长模型或工具调用期间使用统一 AgentEvent 心跳，而非 SSE 注释帧。"""
-    publisher = EventPublisher(MemoryEventBus(), MemoryEventSequence(), 0.01)
+    publisher = EventPublisher(MemoryEventSequence(), 0.01)
 
     events = [event async for event in publisher.with_heartbeat(_slow_event_source())]
 
