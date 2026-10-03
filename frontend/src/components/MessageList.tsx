@@ -48,7 +48,9 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
     return (
       <div className="message-scroll-area" ref={listRef}>
       <div className="welcome-panel">
-        <div className="welcome-orbit" aria-hidden="true"><span>✳</span></div>
+        <div className="welcome-orbit" aria-hidden="true">
+          <img src="/brand/nexusai-icon.png" alt="" />
+        </div>
         <p className="eyebrow">NEXUSAI ASSISTANT</p>
         <h1>{conversationId ? '继续这段对话' : '你好，今天想一起完成什么？'}</h1>
         <p>描述你的目标或问题，NexusAI 会和你一起梳理下一步。</p>
