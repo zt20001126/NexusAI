@@ -10,7 +10,7 @@ import {
 import ConversationSidebar from '../components/ConversationSidebar'
 import Composer from '../components/Composer'
 import MessageList, { type DisplayMessage, toDisplayMessage } from '../components/MessageList'
-import QuestionForm from '../components/QuestionForm'
+import AgentInteractionCard from '../components/AgentInteractionCard'
 
 interface PendingQuestion {
   conversationId: string
@@ -336,7 +336,7 @@ function ChatPage() {
             conversationId={activeConversationId}
           />
           {pendingQuestion && pendingQuestion.questions.length > 0 && (
-            <QuestionForm
+            <AgentInteractionCard
               questions={pendingQuestion.questions}
               disabled={sending}
               onSubmit={(answers) => { void handleResume(answers) }}
