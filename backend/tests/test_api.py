@@ -1,20 +1,48 @@
 """FastAPI 对外接口和 SSE 协议测试。"""
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from agent.persistence.memory import MemoryEventBus, MemoryEventSequence
+from agent.runner import build_memory_runner
+from agent.streaming.publisher import EventPublisher
 from app.main import create_app
+from app.service.agent import AgentApplicationService
 from infra.settings import AppSettings
 from tests.fake_models import ScriptedToolCallingProvider
 
 
-def _client() -> TestClient:
-    """创建使用内存后端的独立测试客户端。"""
+def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingProvider):
+    """为 API 测试显式注入内存 Agent，不改变应用的 PostgreSQL 默认值。"""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        runner = build_memory_runner(settings, model_provider=model_provider)
+        event_bus = MemoryEventBus()
+        event_sequence = MemoryEventSequence()
+        app.state.settings = settings
+        app.state.agent_service = AgentApplicationService(
+            runner,
+            EventPublisher(event_bus, event_sequence, settings.sse_heartbeat_seconds),
+        )
+        yield
+
+    return lifespan
+
+
+def _client(settings: AppSettings | None = None) -> TestClient:
+    """创建带显式测试生命周期的 API 客户端。"""
+    resolved_settings = settings or AppSettings(_env_file=None)
+    model_provider = ScriptedToolCallingProvider()
     return TestClient(
         create_app(
-            AppSettings(_env_file=None),
-            model_provider=ScriptedToolCallingProvider(),
+            resolved_settings,
+            model_provider=model_provider,
+            lifespan=_test_lifespan(resolved_settings, model_provider),
         )
     )
 
@@ -121,10 +149,13 @@ def test_cancel_rejects_unknown_run_without_leaking_memory() -> None:
 
 def test_production_rejects_missing_authenticated_principal() -> None:
     """生产环境不能把匿名调用方静默归并到共享开发身份。"""
+    settings = AppSettings(app_env="production", _env_file=None)
+    provider = ScriptedToolCallingProvider()
     with TestClient(
         create_app(
-            AppSettings(app_env="production", _env_file=None),
-            model_provider=ScriptedToolCallingProvider(),
+            settings,
+            model_provider=provider,
+            lifespan=_test_lifespan(settings, provider),
         )
     ) as client:
         response = client.post("/api/agent/chat", json={"message": "开始"})

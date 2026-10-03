@@ -12,7 +12,6 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 from langgraph.errors import GraphRecursionError
 
 from agent.errors import (
-    BackendNotConfiguredError,
     ConversationAccessDeniedError,
     InvalidResumeAnswersError,
     RunBusyError,
@@ -422,9 +421,7 @@ def build_memory_runner(
     graph: Any | None = None,
     model_provider: ChatModelProvider | None = None,
 ) -> AgentRunner:
-    """创建内存运行器，并在应用组装时注入 DeepSeek 对话模型。"""
-    if settings.checkpoint_backend != "memory":
-        raise BackendNotConfiguredError("external")
+    """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
     return _build_runner(
         settings=settings,
@@ -446,8 +443,6 @@ def build_postgres_runner(
     model_provider: ChatModelProvider | None = None,
 ) -> AgentRunner:
     """创建 PostgreSQL 持久化运行器，保留仅用于执行协调的进程内锁。"""
-    if settings.checkpoint_backend != "postgres":
-        raise BackendNotConfiguredError("postgres")
     return _build_runner(
         settings=settings,
         checkpointer=checkpointer,

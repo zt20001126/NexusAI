@@ -2,7 +2,7 @@
 
 这是一个从 Hookshot 选品智能体提炼出的独立单智能体模板。它保留 LangGraph 节点编排、工具调用、结构化追问、Checkpoint 恢复、取消、统一事件与 SSE 流式能力，不包含选品或商品业务，也不包含多智能体注册、发现和路由。
 
-应用通过配置使用 PostgreSQL 保存 LangGraph Checkpoint、会话所有权、运行状态和 SSE 事件；内存后端仅供离线测试或显式选择时使用。
+应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话所有权、运行状态和 SSE 事件。内存适配器仅由测试代码显式注入，不是应用运行配置选项。
 
 仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目级文档和脚本放在根目录的 `docs/`、`scripts/` 等目录。
 
@@ -54,7 +54,7 @@ scripts/                     项目级辅助脚本（按需添加）
 conda create --name nexusai python=3.12.13
 conda activate nexusai
 if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
-# 填写模型密钥和 PostgreSQL 配置；本地 DATABASE_URL 密码需与 POSTGRES_PASSWORD 一致
+# 填写模型密钥和 PostgreSQL 配置；本机运行后端时 DATABASE_URL 使用 localhost:5433
 docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres
 cd backend
 python -m pip install -r requirements-dev.txt
@@ -143,13 +143,12 @@ run.failed
 默认运行配置为：
 
 ```text
-CHECKPOINT_BACKEND=postgres
-DATABASE_URL=postgresql://<user>:<password>@localhost:5432/nexusai
+DATABASE_URL=postgresql://<user>:<password>@localhost:5433/nexusai
 ```
 
-`backend/.env.example` 还包含 DeepSeek、腾讯混元生图极速版、火山引擎 Seedream 和智能体运行限制配置。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5432`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、运行记录和事件重放历史；运行锁由数据库 advisory lock 协调。
+`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、运行记录和事件重放历史；运行锁由数据库 advisory lock 协调。
 
-连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。内存适配器仍可用于测试，应用配置 `CHECKPOINT_BACKEND=memory` 时不需要 PostgreSQL。
+连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。应用启动必须能通过 `DATABASE_URL` 访问 PostgreSQL；测试可显式注入内存适配器。
 
 ## 测试
 

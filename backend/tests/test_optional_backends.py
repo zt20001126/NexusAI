@@ -2,24 +2,17 @@
 
 import pytest
 
-from agent.errors import BackendNotConfiguredError, ModelNotConfiguredError
-from agent.runner import build_memory_runner
+from agent.errors import ModelNotConfiguredError
+from agent.runner import AgentRunner, build_memory_runner
 from infra.model_provider import OpenAICompatibleProvider
 from infra.settings import AppSettings
 
 
-def test_external_backend_configuration_does_not_connect_implicitly() -> None:
-    """启用预留后端时明确报告尚未实现，不尝试建立真实网络连接。"""
-    settings = AppSettings(
-        checkpoint_backend="postgres",
-        database_url="postgresql://placeholder/agent",
-        _env_file=None,
-    )
+def test_memory_runner_remains_an_explicit_test_fixture() -> None:
+    """内存运行器仅由测试显式构造，不再通过应用配置切换。"""
+    runner = build_memory_runner(AppSettings(_env_file=None), graph=object())
 
-    with pytest.raises(BackendNotConfiguredError) as error:
-        build_memory_runner(settings)
-
-    assert error.value.code == "BACKEND_NOT_CONFIGURED"
+    assert isinstance(runner, AgentRunner)
 
 
 def test_model_provider_requires_configuration_only_when_created() -> None:

@@ -8,7 +8,6 @@ services:
     env_file:
       - .env
     environment:
-      CHECKPOINT_BACKEND: postgres
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       LANGGRAPH_STRICT_MSGPACK: "true"
     ports:
