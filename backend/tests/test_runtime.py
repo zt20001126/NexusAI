@@ -15,6 +15,7 @@ from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
 from agent.streaming.events import AgentEvent, AgentEventType
 from infra.settings import AppSettings
+from tests.fake_models import ScriptedToolCallingProvider
 
 
 async def _collect_events(stream: object) -> list[AgentEvent]:
@@ -24,7 +25,10 @@ async def _collect_events(stream: object) -> list[AgentEvent]:
 
 def _create_runtime() -> AgentRunner:
     """创建不访问网络且直接持有唯一图的内存运行器。"""
-    return build_memory_runner(AppSettings(_env_file=None))
+    return build_memory_runner(
+        AppSettings(_env_file=None),
+        model_provider=ScriptedToolCallingProvider(),
+    )
 
 
 async def test_chat_pauses_with_structured_question() -> None:

@@ -40,6 +40,7 @@ from agent.schemas.question import QuestionPayload
 from agent.schemas.tool_result import ToolResult
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.tools.registry import PAUSE_TOOL_NAMES
+from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -410,18 +411,20 @@ class AgentRunner:
         return f"{record.principal_id}:{record.conversation_id}"
 
 
-def build_memory_runner(settings: AppSettings, graph: Any | None = None) -> AgentRunner:
-    """创建完全不访问网络的单智能体运行器。"""
-    if (
-        settings.checkpoint_backend != "memory"
-        or settings.lock_backend != "memory"
-        or settings.event_bus_backend != "memory"
-        or settings.task_backend != "disabled"
-    ):
+def build_memory_runner(
+    settings: AppSettings,
+    graph: Any | None = None,
+    model_provider: ChatModelProvider | None = None,
+) -> AgentRunner:
+    """创建内存运行器，并在应用组装时注入 DeepSeek 对话模型。"""
+    if settings.checkpoint_backend != "memory":
         raise BackendNotConfiguredError("external")
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
+    if graph is None:
+        provider = model_provider or OpenAICompatibleProvider(settings)
+        graph = build_agent_graph(checkpointer, provider.create_chat_model())
     return AgentRunner(
-        graph=graph or build_agent_graph(checkpointer),
+        graph=graph,
         run_store=MemoryRunStore(),
         run_lock=MemoryRunLock(),
         conversation_store=MemoryConversationStore(),

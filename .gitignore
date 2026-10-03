@@ -1,4 +1,5 @@
 .env
+.env.*.local
 .venv/
 __pycache__/
 *.py[cod]
@@ -7,4 +8,9 @@ __pycache__/
 htmlcov/
 .idea/
 .vscode/
+node_modules/
+dist/
+coverage/
+npm-debug.log*
+*.tsbuildinfo
 

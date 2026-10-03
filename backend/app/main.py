@@ -13,23 +13,27 @@ from agent.runner import build_memory_runner
 from agent.streaming.publisher import EventPublisher
 from app.routes import router
 from app.service import AgentApplicationService
+from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: AppSettings | None = None) -> FastAPI:
+def create_app(
+    settings: AppSettings | None = None,
+    model_provider: ChatModelProvider | None = None,
+) -> FastAPI:
     """创建独立应用并注册默认示例智能体。
 
-    默认工厂只初始化内存资源。未来外部后端应在 lifespan 中建立并关闭
-    连接，不得在模块导入阶段产生网络副作用。
+    默认使用 DeepSeek Provider；只在应用 lifespan 组装模型，不在模块导入
+    阶段建立网络连接。测试和离线场景可注入替代 Provider。
     """
     resolved_settings = settings or AppSettings()
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         """在应用生命周期内创建共享运行资源并预留统一关闭位置。"""
-        runner = build_memory_runner(resolved_settings)
+        runner = build_memory_runner(resolved_settings, model_provider=model_provider)
         event_bus = MemoryEventBus()
         publisher = EventPublisher(
             event_bus,

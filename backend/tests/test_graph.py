@@ -3,9 +3,10 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agent.graph import route_after_agent, route_after_tools
-from agent.nodes.agent_node import agent_node
+from agent.nodes.agent_node import create_agent_node
 from agent.nodes.result_node import result_node
 from agent.nodes.validation_node import validation_node
+from tests.fake_models import ScriptedToolCallingProvider
 
 
 async def test_validation_node_normalizes_request() -> None:
@@ -17,7 +18,8 @@ async def test_validation_node_normalizes_request() -> None:
 
 async def test_agent_node_asks_question_without_goal() -> None:
     """缺少目标时，决策节点只调用结构化追问工具。"""
-    result = await agent_node({"resume_answers": {}})
+    node = create_agent_node(ScriptedToolCallingProvider().create_chat_model())
+    result = await node({"messages": []})
 
     assert result["messages"][0].tool_calls[0]["name"] == "ask_user_question"
 

@@ -6,11 +6,17 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from infra.settings import AppSettings
+from tests.fake_models import ScriptedToolCallingProvider
 
 
 def _client() -> TestClient:
     """创建使用内存后端的独立测试客户端。"""
-    return TestClient(create_app(AppSettings(_env_file=None)))
+    return TestClient(
+        create_app(
+            AppSettings(_env_file=None),
+            model_provider=ScriptedToolCallingProvider(),
+        )
+    )
 
 
 def test_single_agent_uses_fixed_chat_route() -> None:
@@ -115,7 +121,12 @@ def test_cancel_rejects_unknown_run_without_leaking_memory() -> None:
 
 def test_production_rejects_missing_authenticated_principal() -> None:
     """生产环境不能把匿名调用方静默归并到共享开发身份。"""
-    with TestClient(create_app(AppSettings(app_env="production", _env_file=None))) as client:
+    with TestClient(
+        create_app(
+            AppSettings(app_env="production", _env_file=None),
+            model_provider=ScriptedToolCallingProvider(),
+        )
+    ) as client:
         response = client.post("/api/agent/chat", json={"message": "开始"})
 
     assert response.status_code == 401

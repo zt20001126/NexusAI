@@ -9,8 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     """应用配置。
 
-    默认后端均为内存或禁用，因此开发环境不需要运行 PostgreSQL、Redis
-    或 Celery；只有显式启用相应后端时才校验连接配置。
+    默认使用内存 Checkpoint，因此开发环境无需连接数据库；显式选择
+    PostgreSQL 时会校验连接配置，但适配器尚未实现。
     """
 
     model_config = SettingsConfigDict(
@@ -20,23 +20,24 @@ class AppSettings(BaseSettings):
     )
 
     app_env: str = "development"
-    app_host: str = "127.0.0.1"
-    app_port: int = Field(default=8000, ge=1, le=65535)
+    deepseek_api_key: SecretStr = SecretStr("")
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-flash"
+    deepseek_timeout_seconds: int = Field(default=60, ge=1, le=600)
 
-    llm_provider: str = "openai_compatible"
-    llm_model: str = ""
-    llm_api_key: SecretStr = SecretStr("")
-    llm_base_url: str = ""
-    llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
+    tencent_cloud_secret_id: SecretStr = SecretStr("")
+    tencent_cloud_secret_key: SecretStr = SecretStr("")
+    tencent_hunyuan_image_region: str = "ap-guangzhou"
+    tencent_hunyuan_image_endpoint: str = "https://aiart.tencentcloudapi.com"
+    tencent_hunyuan_image_api_version: str = "2022-12-29"
+    tencent_hunyuan_image_action: str = "TextToImageLite"
+
+    volcengine_ark_api_key: SecretStr = SecretStr("")
+    volcengine_ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    volcengine_seedream_model: str = "doubao-seedream-5-0-flash-260915"
 
     checkpoint_backend: Literal["memory", "postgres"] = "memory"
     database_url: str | None = None
-    lock_backend: Literal["memory", "redis"] = "memory"
-    event_bus_backend: Literal["memory", "redis"] = "memory"
-    redis_url: str | None = None
-    task_backend: Literal["disabled", "celery"] = "disabled"
-    celery_broker_url: str | None = None
-    celery_result_backend: str | None = None
 
     agent_max_steps: int = Field(default=20, ge=2, le=100)
     agent_max_tool_calls: int = Field(default=20, ge=1, le=100)
@@ -49,10 +50,4 @@ class AppSettings(BaseSettings):
         """仅对显式启用的外部后端要求连接配置。"""
         if self.checkpoint_backend == "postgres" and not self.database_url:
             raise ValueError("启用 PostgreSQL Checkpoint 时必须配置 DATABASE_URL")
-        if (
-            self.lock_backend == "redis" or self.event_bus_backend == "redis"
-        ) and not self.redis_url:
-            raise ValueError("启用 Redis 后端时必须配置 REDIS_URL")
-        if self.task_backend == "celery" and not self.celery_broker_url:
-            raise ValueError("启用 Celery 时必须配置 CELERY_BROKER_URL")
         return self

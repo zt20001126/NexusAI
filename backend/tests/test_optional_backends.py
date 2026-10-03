@@ -13,11 +13,6 @@ def test_external_backend_configuration_does_not_connect_implicitly() -> None:
     settings = AppSettings(
         checkpoint_backend="postgres",
         database_url="postgresql://placeholder/agent",
-        lock_backend="redis",
-        event_bus_backend="redis",
-        redis_url="redis://placeholder:6379/0",
-        task_backend="celery",
-        celery_broker_url="redis://placeholder:6379/1",
         _env_file=None,
     )
 
