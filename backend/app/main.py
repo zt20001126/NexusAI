@@ -16,6 +16,7 @@ from app.routes import router
 from app.service import AgentApplicationService
 from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

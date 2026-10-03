@@ -32,7 +32,7 @@ class PostgresRuntimeStore:
             kwargs={"autocommit": True, "row_factory": dict_row},
         )
 
-    def __enter__(self) -> PostgresRuntimeStore:
+    def __enter__(self) -> "PostgresRuntimeStore":
         """打开连接池并确保应用元数据表存在。"""
         self._pool.open(wait=True)
         self._create_tables()
