@@ -2,7 +2,7 @@
 
 这是一个从 Hookshot 选品智能体提炼出的独立单智能体模板。它保留 LangGraph 节点编排、工具调用、结构化追问、Checkpoint 恢复、取消、统一事件与 SSE 流式能力，不包含选品或商品业务，也不包含多智能体注册、发现和路由。
 
-默认使用内存后端，无需启动 PostgreSQL。`DATABASE_URL` 为后续接入数据库保留；当前尚未实现 PostgreSQL 持久化适配器。
+应用通过配置使用 PostgreSQL 保存 LangGraph Checkpoint、会话所有权、运行状态和 SSE 事件；内存后端仅供离线测试或显式选择时使用。
 
 仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目级文档和脚本放在根目录的 `docs/`、`scripts/` 等目录。
 
@@ -20,7 +20,7 @@ backend/
     prompts/                 系统提示词和版本
     schemas/                 问题、工具结果和运行状态模型
     streaming/               事件、发布、重放和 SSE 编码
-    persistence/             持久化协议与默认内存适配器
+    persistence/             持久化协议及 PostgreSQL、内存适配器
   infra/                     集中配置与外部服务适配
   tests/                     节点、运行器、SSE、API 与契约测试
   main.py                    Uvicorn 入口
@@ -44,7 +44,7 @@ scripts/                     项目级辅助脚本（按需添加）
 - 稳定事件类型、单调 SSE 游标、协议心跳和内存断点重放
 - 安全工具返回与统一业务异常，不向用户暴露原始异常
 - DeepSeek 对话模型与工具调用；测试通过可替换 Provider 离线运行
-- 数据库连接配置占位；默认运行仍使用内存 Checkpoint
+- PostgreSQL Checkpoint、会话元数据、运行状态和有界 SSE 事件历史持久化
 
 ## 本地启动
 
@@ -53,9 +53,12 @@ scripts/                     项目级辅助脚本（按需添加）
 ```powershell
 conda create --name nexusai python=3.12.13
 conda activate nexusai
+if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
+# 填写模型密钥和 PostgreSQL 配置；本地 DATABASE_URL 密码需与 POSTGRES_PASSWORD 一致
+docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres
 cd backend
 python -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env
+$env:LANGGRAPH_STRICT_MSGPACK = "true"
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -77,7 +80,7 @@ docker compose --env-file backend/.env -f backend/compose.yaml up --build
 docker compose --env-file backend/.env -f backend/compose.yaml down
 ```
 
-Compose 配置位于 `backend/compose.yaml`。它会启动后端和 PostgreSQL 17；数据库数据保存在 Docker 命名卷 `postgres_data` 中。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。
+Compose 配置位于 `backend/compose.yaml`。项目名为 `nexusai`，服务名为 `backend` 和 `postgres`；它会启动后端和 PostgreSQL 17，数据库数据保存在 Docker 命名卷 `nexusai_postgres_data` 中。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。
 
 在另一个终端启动前端：
 
@@ -137,16 +140,16 @@ run.failed
 
 ## 数据库配置
 
-默认配置为：
+默认运行配置为：
 
 ```text
-CHECKPOINT_BACKEND=memory
-DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/nexusai
+CHECKPOINT_BACKEND=postgres
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/nexusai
 ```
 
-`backend/.env.example` 还包含 DeepSeek、腾讯混元生图极速版、火山引擎 Seedream 和智能体运行限制配置。Docker 中的 PostgreSQL 可供本地开发连接（宿主机地址为 `localhost:5432`，容器网络地址为 `database:5432`）。当前 Agent Checkpoint 仍使用内存；PostgreSQL 适配器尚未实现，因此添加数据库容器并不意味着 Agent 会话已持久化。
+`backend/.env.example` 还包含 DeepSeek、腾讯混元生图极速版、火山引擎 Seedream 和智能体运行限制配置。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5432`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、运行记录和事件重放历史；运行锁由数据库 advisory lock 协调。
 
-后续适配器应实现 `backend/agent/persistence/interfaces.py` 中的协议。数据库查询集中在独立 CRUD 层；连接池和客户端在 FastAPI lifespan 中创建、关闭，禁止模块导入时连接网络。
+连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。内存适配器仍可用于测试，应用配置 `CHECKPOINT_BACKEND=memory` 时不需要 PostgreSQL。
 
 ## 测试
 

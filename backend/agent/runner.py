@@ -35,6 +35,12 @@ from agent.persistence.memory import (
     MemoryRunLock,
     MemoryRunStore,
 )
+from agent.persistence.postgres import (
+    PostgresConversationStore,
+    PostgresRunLock,
+    PostgresRunStore,
+    PostgresRuntimeStore,
+)
 from agent.schemas.run import RunRecord, RunStatus
 from agent.schemas.question import QuestionPayload
 from agent.schemas.tool_result import ToolResult
@@ -420,16 +426,61 @@ def build_memory_runner(
     if settings.checkpoint_backend != "memory":
         raise BackendNotConfiguredError("external")
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
+    return _build_runner(
+        settings=settings,
+        checkpointer=checkpointer,
+        run_store=MemoryRunStore(),
+        run_lock=MemoryRunLock(),
+        conversation_store=MemoryConversationStore(),
+        event_sequence=MemoryEventSequence(),
+        model_provider=model_provider,
+        graph=graph,
+    )
+
+
+def build_postgres_runner(
+    settings: AppSettings,
+    *,
+    checkpointer: Any,
+    runtime_store: PostgresRuntimeStore,
+    model_provider: ChatModelProvider | None = None,
+) -> AgentRunner:
+    """创建 PostgreSQL 持久化运行器，保留仅用于执行协调的进程内锁。"""
+    if settings.checkpoint_backend != "postgres":
+        raise BackendNotConfiguredError("postgres")
+    return _build_runner(
+        settings=settings,
+        checkpointer=checkpointer,
+        run_store=PostgresRunStore(runtime_store),
+        run_lock=PostgresRunLock(runtime_store),
+        conversation_store=PostgresConversationStore(runtime_store),
+        event_sequence=MemoryEventSequence(),
+        model_provider=model_provider,
+    )
+
+
+def _build_runner(
+    *,
+    settings: AppSettings,
+    checkpointer: Any,
+    run_store: RunStore,
+    run_lock: RunLock,
+    conversation_store: ConversationStore,
+    event_sequence: EventSequence,
+    model_provider: ChatModelProvider | None = None,
+    graph: Any | None = None,
+) -> AgentRunner:
+    """组装唯一智能体图和可替换运行基础设施。"""
     if graph is None:
         provider = model_provider or OpenAICompatibleProvider(settings)
         graph = build_agent_graph(checkpointer, provider.create_chat_model())
     return AgentRunner(
         graph=graph,
-        run_store=MemoryRunStore(),
-        run_lock=MemoryRunLock(),
-        conversation_store=MemoryConversationStore(),
+        run_store=run_store,
+        run_lock=run_lock,
+        conversation_store=conversation_store,
         task_dispatcher=DisabledTaskDispatcher(),
-        event_sequence=MemoryEventSequence(),
+        event_sequence=event_sequence,
         max_steps=settings.agent_max_steps,
         max_tool_calls=settings.agent_max_tool_calls,
         max_output_chars=settings.agent_max_output_chars,

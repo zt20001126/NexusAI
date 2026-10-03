@@ -9,8 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     """应用配置。
 
-    默认使用内存 Checkpoint，因此开发环境无需连接数据库；显式选择
-    PostgreSQL 时会校验连接配置，但适配器尚未实现。
+    统一管理模型、数据库和智能体运行限制；生产及 Docker 环境应选择
+    PostgreSQL 持久化，内存后端仅用于离线测试。DATABASE_URL 在本地运行时
+    指向 localhost，在 Compose 网络内由服务配置覆盖为 postgres 主机名。
     """
 
     model_config = SettingsConfigDict(

@@ -1,3 +1,5 @@
+name: nexusai
+
 services:
   backend:
     build:
@@ -5,10 +7,17 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      CHECKPOINT_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LANGGRAPH_STRICT_MSGPACK: "true"
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  database:
+  postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in backend/.env}
