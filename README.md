@@ -65,19 +65,19 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 
 ### 使用 Docker 启动后端
 
-先将 `backend/.env.example` 复制为 `backend/.env`，并填写 DeepSeek API Key。然后在项目根目录执行：
+先将 `backend/.env.example` 复制为 `backend/.env`，并填写 DeepSeek API Key 和 PostgreSQL 密码。然后在项目根目录执行：
 
 ```powershell
-docker compose -f backend/compose.yaml up --build
+docker compose --env-file backend/.env -f backend/compose.yaml up --build
 ```
 
 停止服务：
 
 ```powershell
-docker compose -f backend/compose.yaml down
+docker compose --env-file backend/.env -f backend/compose.yaml down
 ```
 
-Compose 配置位于 `backend/compose.yaml`。容器使用 Python 3.12.13，并以非 root 用户运行；`backend/.env` 仅作为运行时环境变量传入，不会打包进镜像。
+Compose 配置位于 `backend/compose.yaml`。它会启动后端和 PostgreSQL 17；数据库数据保存在 Docker 命名卷 `postgres_data` 中。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。
 
 在另一个终端启动前端：
 
@@ -144,7 +144,7 @@ CHECKPOINT_BACKEND=memory
 DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/nexusai
 ```
 
-`backend/.env.example` 还包含 DeepSeek、腾讯混元生图极速版、火山引擎 Seedream 和智能体运行限制配置。`DATABASE_URL` 当前不会触发数据库连接；若将 `CHECKPOINT_BACKEND` 改为 `postgres`，运行器会返回 `BACKEND_NOT_CONFIGURED`，直到 PostgreSQL 适配器实现。
+`backend/.env.example` 还包含 DeepSeek、腾讯混元生图极速版、火山引擎 Seedream 和智能体运行限制配置。Docker 中的 PostgreSQL 可供本地开发连接（宿主机地址为 `localhost:5432`，容器网络地址为 `database:5432`）。当前 Agent Checkpoint 仍使用内存；PostgreSQL 适配器尚未实现，因此添加数据库容器并不意味着 Agent 会话已持久化。
 
 后续适配器应实现 `backend/agent/persistence/interfaces.py` 中的协议。数据库查询集中在独立 CRUD 层；连接池和客户端在 FastAPI lifespan 中创建、关闭，禁止模块导入时连接网络。
 
