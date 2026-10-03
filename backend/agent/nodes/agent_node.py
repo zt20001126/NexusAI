@@ -12,8 +12,8 @@ from agent.tools.registry import AGENT_TOOLS
 
 
 def create_agent_node(chat_model: BaseChatModel) -> Callable[..., Any]:
-    """绑定已登记工具并创建使用系统提示词的异步决策节点。"""
-    model_with_tools = chat_model.bind_tools(AGENT_TOOLS, tool_choice="required")
+    """按需绑定已登记工具，允许模型直接回复或选择调用工具。"""
+    model_with_tools = chat_model.bind_tools(AGENT_TOOLS)
 
     async def agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
         messages = list(state.get("messages", []))

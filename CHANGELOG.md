@@ -10,3 +10,7 @@
 
 - 为前端侧栏、移动端、浏览器标签页和 README 添加 NexusAI 品牌标志。
 - 建立任务级与项目级变更记录机制，详见 [`docs/changes/README.md`](docs/changes/README.md)。
+
+### Fixed
+
+- 修复 DeepSeek Thinking 模式下强制工具调用导致对话请求返回 400 的问题。
