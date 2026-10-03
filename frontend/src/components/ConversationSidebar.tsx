@@ -73,10 +73,6 @@ function ConversationSidebar({
           </button>
         )}
       </div>
-
-      <div className="sidebar-footer">
-        <span className="status-dot" /> API 已连接后即可对话
-      </div>
     </aside>
   )
 }

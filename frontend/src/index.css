@@ -41,7 +41,6 @@ a { color: inherit; text-decoration: none; }
 .sidebar-hint { padding: 3px 10px; color: #858c9c; font-size: 12px; line-height: 1.7; }
 .sidebar-error { padding: 0 10px; color: #efb6b6; font-size: 12px; line-height: 1.6; }
 .sidebar-error button { padding: 0; border: 0; color: #c9c2ff; background: transparent; text-decoration: underline; }
-.sidebar-footer { display: flex; align-items: center; gap: 8px; padding: 13px 9px 2px; border-top: 1px solid rgba(255,255,255,.08); color: #858c9a; font-size: 10px; }
 .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #68c79a; box-shadow: 0 0 0 3px rgba(104,199,154,.1); }
 
 .chat-main { display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100%; }
@@ -57,6 +56,12 @@ a { color: inherit; text-decoration: none; }
 
 .chat-content { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .message-scroll-area { flex: 1; min-height: 0; overflow: auto; scroll-behavior: smooth; }
+.conversation-list, .message-scroll-area { scrollbar-color: rgba(158,169,196,.42) transparent; scrollbar-width: thin; }
+.conversation-list::-webkit-scrollbar, .message-scroll-area::-webkit-scrollbar { width: 6px; }
+.conversation-list::-webkit-scrollbar-track, .message-scroll-area::-webkit-scrollbar-track { background: transparent; }
+.conversation-list::-webkit-scrollbar-thumb, .message-scroll-area::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: rgba(158,169,196,.42); background-clip: padding-box; }
+.conversation-list::-webkit-scrollbar-thumb:hover, .message-scroll-area::-webkit-scrollbar-thumb:hover { background: rgba(158,169,196,.68); background-clip: padding-box; }
+.conversation-list::-webkit-scrollbar-button, .message-scroll-area::-webkit-scrollbar-button { display: none; }
 .message-list { display: flex; flex-direction: column; gap: 28px; width: min(790px, calc(100% - 64px)); min-height: 100%; padding: 38px 0 30px; margin: 0 auto; }
 .message-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; animation: message-in .24s ease-out; }
 .message-row.user { justify-content: flex-end; }
@@ -82,8 +87,6 @@ a { color: inherit; text-decoration: none; }
 .eyebrow { margin: 0 0 11px; color: #9289ce; font-size: 9px; font-weight: 700; letter-spacing: 2px; }
 .welcome-panel h1 { margin: 0; color: #303340; font: 600 clamp(21px, 3vw, 28px) Manrope, 'Microsoft YaHei', sans-serif; letter-spacing: -.7px; }
 .welcome-panel > p:not(.eyebrow) { margin: 12px 0 24px; color: #8b8f99; font-size: 12px; line-height: 1.8; }
-.suggestion-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
-.suggestion-row span { padding: 8px 11px; border: 1px solid #e9e8ec; border-radius: 999px; color: #717582; background: rgba(255,255,255,.75); font-size: 10px; }
 .load-older-button { align-self: center; padding: 9px 12px; margin: 16px 0 0; border: 1px solid #e9e8ed; border-radius: 999px; color: #828692; background: #fff; font-size: 10px; }
 .load-older-button:hover:not(:disabled) { border-color: #d8d3f0; color: #685fbd; }
 .error-banner { width: min(790px, calc(100% - 64px)); padding: 10px 13px; margin: 0 auto 12px; border: 1px solid #f0d1cf; border-radius: 9px; color: #a64a45; background: #fff7f6; font-size: 11px; line-height: 1.6; }
@@ -139,8 +142,6 @@ a { color: inherit; text-decoration: none; }
   .message-bubble { font-size: 12px; }
   .welcome-panel { min-height: 320px; padding: 25px 16px 45px; }
   .welcome-panel h1 { line-height: 1.45; }
-  .suggestion-row { gap: 6px; }
-  .suggestion-row span { padding: 7px 9px; font-size: 9px; }
   .composer-wrap { padding-bottom: 10px; }
   .composer-box { min-height: 52px; border-radius: 14px; }
   .question-card { padding: 14px; margin-bottom: 9px; }

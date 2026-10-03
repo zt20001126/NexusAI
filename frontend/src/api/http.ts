@@ -2,6 +2,12 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
+/** 返回后端 FastAPI Swagger UI 地址。 */
+export function getApiDocsUrl(): string {
+  const docsBaseUrl = API_BASE_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
+  return `${docsBaseUrl.replace(/\/+$/, '')}/docs`
+}
+
 interface ApiEnvelope<T> {
   success: boolean
   data?: T

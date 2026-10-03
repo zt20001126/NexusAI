@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question } from '../api/agent'
 import { cancelAgentRun, resumeAgentRun, streamChat } from '../api/agent'
-import type { AgentEvent } from '../api/http'
+import { getApiDocsUrl, type AgentEvent } from '../api/http'
 import {
   getConversationMessages,
   getConversations,
@@ -320,7 +320,7 @@ function ChatPage() {
               <span><i className="status-dot" /> {status}</span>
             </div>
           </div>
-          <a href="/docs" target="_blank" rel="noreferrer" className="docs-link">API 文档 ↗</a>
+          <a href={getApiDocsUrl()} target="_blank" rel="noreferrer" className="docs-link">API 文档 ↗</a>
           <button className="mobile-new-conversation" type="button" onClick={handleNewConversation} disabled={sending}>＋ 新对话</button>
         </header>
 

@@ -54,11 +54,6 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
         <p className="eyebrow">NEXUSAI ASSISTANT</p>
         <h1>{conversationId ? '继续这段对话' : '你好，今天想一起完成什么？'}</h1>
         <p>描述你的目标或问题，NexusAI 会和你一起梳理下一步。</p>
-        <div className="suggestion-row">
-          <span>整理一个开发目标</span>
-          <span>梳理业务流程</span>
-          <span>从一个问题开始</span>
-        </div>
       </div>
       </div>
     )

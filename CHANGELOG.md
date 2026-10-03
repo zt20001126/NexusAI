@@ -13,6 +13,13 @@
 - 为前端侧栏、移动端、浏览器标签页和 README 添加 NexusAI 品牌标志。
 - 建立任务级与项目级变更记录机制，详见 [`docs/changes/README.md`](docs/changes/README.md)。
 
+### Changed
+
+- 将侧栏会话列表和消息区域的滚动条改为细窄、半透明样式。
+- 移除侧栏底部的“API 已连接后即可对话”提示。
+- 移除欢迎页文案下方的三个快捷建议框。
+
 ### Fixed
 
+- 修正右上角 API 文档链接，使其打开后端 Swagger 接口文档。
 - 修复 DeepSeek Thinking 模式下强制工具调用导致对话请求返回 400 的问题。
