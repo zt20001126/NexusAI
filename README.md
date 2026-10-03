@@ -48,19 +48,36 @@ scripts/                     项目级辅助脚本（按需添加）
 
 ## 本地启动
 
-项目目标环境为 Python 3.12；当前测试也兼容 Python 3.11。
+项目运行环境固定为 Python 3.12.13。
 
 ```powershell
+conda create --name nexusai python=3.12.13
+conda activate nexusai
 cd backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 首次启动前，请在 `backend/.env` 中将 `DEEPSEEK_API_KEY` 的占位值替换为你的 DeepSeek API Key；占位值无法通过启动配置校验。
 
 打开 `http://127.0.0.1:8000/docs` 查看接口。
+
+### 使用 Docker 启动后端
+
+先将 `backend/.env.example` 复制为 `backend/.env`，并填写 DeepSeek API Key。然后在项目根目录执行：
+
+```powershell
+docker compose -f backend/compose.yaml up --build
+```
+
+停止服务：
+
+```powershell
+docker compose -f backend/compose.yaml down
+```
+
+Compose 配置位于 `backend/compose.yaml`。容器使用 Python 3.12.13，并以非 root 用户运行；`backend/.env` 仅作为运行时环境变量传入，不会打包进镜像。
 
 在另一个终端启动前端：
 

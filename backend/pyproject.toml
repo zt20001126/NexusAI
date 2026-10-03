@@ -2,7 +2,7 @@
 name = "generic-agent-framework"
 version = "0.1.0"
 description = "基于 FastAPI 与 LangGraph 的通用智能体基础框架"
-requires-python = ">=3.12"
+requires-python = "==3.12.13"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
