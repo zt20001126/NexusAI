@@ -4,9 +4,13 @@
 
 ![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
 
-应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话所有权、运行状态和 SSE 事件。内存适配器仅由测试代码显式注入，不是应用运行配置选项。
+应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话、消息和运行状态。内存适配器由测试显式注入，不是应用运行配置选项。
 
-仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目级文档和脚本放在根目录的 `docs/`、`scripts/` 等目录。
+仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目文档集中放在 `docs/`；辅助脚本按需放在 `scripts/`。
+
+## 文档导航
+
+从 [`docs/README.md`](docs/README.md) 查看文档目录。首次了解项目，建议先读本文的启动说明，再读[后端架构约定](docs/ARCHITECTURE.md)；数据库字段说明见[数据库结构文档](docs/数据库表结构.md)。
 
 ## 目录结构
 
@@ -32,7 +36,7 @@ backend/
 frontend/                    React + TypeScript + Vite 前端
   src/
     shared/api/              与具体业务无关的 HTTP、SSE 传输能力
-    features/chat/            聊天功能及其页面入口
+    features/chat/           聊天功能及其页面入口
       api/                    聊天 API 与后端数据类型
       components/             聊天功能专属 UI
       hooks/                  会话状态与交互编排
@@ -59,7 +63,9 @@ scripts/                     项目级辅助脚本（按需添加）
 - DeepSeek 对话模型与工具调用；测试通过可替换 Provider 离线运行
 - PostgreSQL Checkpoint、会话元数据、消息和运行状态持久化
 
-## 本地启动
+## 快速开始
+
+### 本机运行后端
 
 项目运行环境固定为 Python 3.12.13。
 
@@ -79,6 +85,18 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 
 打开 `http://127.0.0.1:8000/docs` 查看接口。
 
+### 启动前端
+
+另开一个终端启动前端开发服务器：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Vite 会将 `/api` 请求代理到 `http://127.0.0.1:8000`。
+
 ### 使用 Docker 启动后端
 
 先将 `backend/.env.example` 复制为 `backend/.env`，并填写 DeepSeek API Key 和 PostgreSQL 密码。然后在项目根目录执行：
@@ -93,17 +111,13 @@ docker compose --env-file backend/.env -f backend/compose.yaml up --build
 docker compose --env-file backend/.env -f backend/compose.yaml down
 ```
 
-Compose 配置位于 `backend/compose.yaml`。项目名为 `nexusai`，服务名为 `backend`、`postgres` 和 `redis`；它会启动后端、PostgreSQL 17 和 Redis 7。PostgreSQL 与 Redis 数据分别保存在 Docker 命名卷 `nexusai_postgres_data` 和 `nexusai_redis_data` 中。Redis 开启 AOF 持久化，宿主机可通过 `localhost:6379` 连接，Compose 内的服务可通过 `redis:6379` 连接。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。当前应用尚未使用 Redis，Redis 服务仅作为项目基础设施提供。
+Compose 配置位于 `backend/compose.yaml`，包含以下服务：
 
-在另一个终端启动前端：
+- `backend`：FastAPI 服务，使用 Python 3.12.13，并以非 root 用户运行。
+- `postgres`：PostgreSQL 17；数据保存在 `nexusai_postgres_data` 卷中。Compose 网络内的连接地址为 `postgres:5432`。
+- `redis`：Redis 7，启用 AOF；数据保存在 `nexusai_redis_data` 卷中，宿主机连接地址为 `localhost:6379`。当前应用尚未使用 Redis。
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Vite 开发服务器将 `/api` 请求代理到 `http://127.0.0.1:8000`。
+`.env` 仅作为配置来源，不会打包进后端镜像。
 
 ## API 与 SSE
 
@@ -159,7 +173,7 @@ SSE 事件通过 `event_id` 标识当前进程内的递增游标。当前 HTTP A
 DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5433/nexusai
 ```
 
-`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、会话元数据、消息和运行记录；运行锁由数据库 advisory lock 协调。SSE 事件历史当前不持久化。
+`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、会话元数据、消息和运行记录；运行锁由数据库 advisory lock 协调。
 
 连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。应用启动必须能通过 `DATABASE_URL` 访问 PostgreSQL；测试可显式注入内存适配器。
 
