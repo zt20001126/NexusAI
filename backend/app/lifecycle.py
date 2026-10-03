@@ -7,10 +7,15 @@ from typing import Any
 from fastapi import FastAPI
 
 from agent.persistence.memory import MemoryEventSequence
-from agent.persistence.postgres import PostgresRuntimeStore
+from agent.persistence.postgres import (
+    PostgresConversationStore,
+    PostgresMessageStore,
+    PostgresRuntimeStore,
+)
 from agent.runner import build_postgres_runner
 from agent.streaming.publisher import EventPublisher
 from app.service.agent import AgentApplicationService
+from app.service.conversation import ConversationApplicationService
 from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
 
@@ -39,11 +44,15 @@ def build_lifespan(
                     runtime_store=runtime_store,
                     model_provider=model_provider,
                 )
+                conversation_store = PostgresConversationStore(runtime_store)
+                message_store = PostgresMessageStore(runtime_store)
                 _install_runtime_state(
                     app_instance,
                     settings,
                     runner,
                     MemoryEventSequence(),
+                    conversation_store,
+                    message_store,
                 )
                 yield
 
@@ -55,9 +64,15 @@ def _install_runtime_state(
     settings: AppSettings,
     runner: Any,
     event_sequence: Any,
+    conversation_store: PostgresConversationStore,
+    message_store: PostgresMessageStore,
 ) -> None:
     """将运行时依赖注册到请求上下文，供 Controller 依赖注入使用。"""
     publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
     app_instance.state.settings = settings
     app_instance.state.agent_runner = runner
     app_instance.state.agent_service = AgentApplicationService(runner, publisher)
+    app_instance.state.conversation_service = ConversationApplicationService(
+        conversation_store,
+        message_store,
+    )

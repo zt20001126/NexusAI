@@ -99,6 +99,9 @@ class AgentRunner:
         if conversation is not None and conversation.get("principal_id") != principal_id:
             raise ConversationAccessDeniedError()
         self._conversation_store.save(resolved_id, {"principal_id": principal_id})
+        if conversation is None:
+            title = " ".join(message.split())[:50]
+            self._conversation_store.set_title_if_empty(resolved_id, title)
         record = RunRecord(
             run_id=uuid.uuid4().hex,
             conversation_id=resolved_id,
@@ -136,11 +139,15 @@ class AgentRunner:
             raise InvalidResumeAnswersError()
         record.status = RunStatus.RUNNING
         self._run_store.save(record)
+        answer_text = "\n".join(
+            f"{question_id}: {', '.join(value) if isinstance(value, list) else value}"
+            for question_id, value in answers.items()
+        )
         self._message_store.save(
             conversation_id,
             record.run_id,
             "user",
-            json.dumps(answers, ensure_ascii=False),
+            answer_text,
         )
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
@@ -447,6 +454,9 @@ def build_memory_runner(
     settings: AppSettings,
     graph: Any | None = None,
     model_provider: ChatModelProvider | None = None,
+    *,
+    conversation_store: ConversationStore | None = None,
+    message_store: MessageStore | None = None,
 ) -> AgentRunner:
     """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
@@ -455,8 +465,8 @@ def build_memory_runner(
         checkpointer=checkpointer,
         run_store=MemoryRunStore(),
         run_lock=MemoryRunLock(),
-        conversation_store=MemoryConversationStore(),
-        message_store=MemoryMessageStore(),
+        conversation_store=conversation_store or MemoryConversationStore(),
+        message_store=message_store or MemoryMessageStore(),
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,

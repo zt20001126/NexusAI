@@ -4,11 +4,14 @@ import asyncio
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent.errors import BackendNotConfiguredError, RunBusyError
+from agent.schemas.conversation import ConversationRecord, MessageRecord
 from agent.schemas.run import RunRecord
 from agent.streaming.events import AgentEvent
 
@@ -31,13 +34,49 @@ class MemoryConversationStore:
         self._conversations: dict[str, dict[str, Any]] = {}
 
     def save(self, conversation_id: str, metadata: dict[str, Any]) -> None:
-        """保存元数据副本。"""
-        self._conversations[conversation_id] = deepcopy(metadata)
+        """保存元数据副本并维护会话时间。"""
+        now = datetime.now(timezone.utc)
+        existing = self._conversations.get(conversation_id, {})
+        self._conversations[conversation_id] = {
+            **{
+                key: deepcopy(value)
+                for key, value in existing.items()
+                if key.startswith("_")
+            },
+            **deepcopy(metadata),
+            "_created_at": existing.get("_created_at", now),
+            "_updated_at": now,
+        }
 
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         """读取元数据副本。"""
         value = self._conversations.get(conversation_id)
-        return deepcopy(value) if value is not None else None
+        if value is None:
+            return None
+        return deepcopy({key: item for key, item in value.items() if not key.startswith("_")})
+
+    def set_title_if_empty(self, conversation_id: str, title: str) -> None:
+        """只在会话尚无标题时设置首条消息标题。"""
+        value = self._conversations.get(conversation_id)
+        if value is not None and not value.get("_title"):
+            value["_title"] = title
+
+    def list_by_owner(
+        self, principal_id: str, limit: int, offset: int
+    ) -> list[ConversationRecord]:
+        """按最近更新时间倒序返回指定主体的会话。"""
+        records = [
+            ConversationRecord(
+                conversation_id=conversation_id,
+                title=value.get("_title"),
+                created_at=value["_created_at"],
+                updated_at=value["_updated_at"],
+            )
+            for conversation_id, value in self._conversations.items()
+            if value.get("principal_id") == principal_id
+        ]
+        records.sort(key=lambda record: record.updated_at, reverse=True)
+        return records[offset : offset + limit]
 
 
 class MemoryMessageStore:
@@ -55,8 +94,34 @@ class MemoryMessageStore:
     ) -> None:
         """按写入顺序保存测试消息。"""
         self.messages[conversation_id].append(
-            {"run_id": run_id, "role": role, "content": content}
+            {
+                "message_id": uuid4().hex,
+                "conversation_id": conversation_id,
+                "run_id": run_id,
+                "sequence": len(self.messages[conversation_id]) + 1,
+                "role": role,
+                "content": content,
+                "created_at": datetime.now(timezone.utc),
+            }
         )
+
+    def list_by_conversation(
+        self,
+        conversation_id: str,
+        limit: int,
+        before_sequence: int | None,
+    ) -> list[MessageRecord]:
+        """从最新消息向前读取一页，并按新到旧顺序返回。"""
+        messages = self.messages.get(conversation_id, [])
+        eligible = [
+            item
+            for item in messages
+            if before_sequence is None or item["sequence"] < before_sequence
+        ]
+        return [
+            MessageRecord(**item)
+            for item in reversed(eligible[-limit:])
+        ]
 
 
 class MemoryRunStore:

@@ -12,6 +12,7 @@ from psycopg_pool import ConnectionPool
 
 from agent.schemas.run import RunRecord, RunStatus
 from agent.errors import RunBusyError
+from agent.schemas.conversation import ConversationRecord, MessageRecord
 
 
 class PostgresRuntimeStore:
@@ -121,6 +122,38 @@ class PostgresRuntimeStore:
             ).fetchone()
         return {"principal_id": row["owner_id"]} if row is not None else None
 
+    def set_conversation_title_if_empty(self, conversation_id: str, title: str) -> None:
+        """只在会话标题为空时保存首条用户消息摘要。"""
+        with self._pool.connection() as connection:
+            connection.execute(
+                """
+                UPDATE conversations
+                SET title = %s
+                WHERE conversation_id = %s AND (title IS NULL OR title = '')
+                """,
+                (title, conversation_id),
+            )
+
+    def list_conversations(
+        self,
+        principal_id: str,
+        limit: int,
+        offset: int,
+    ) -> list[ConversationRecord]:
+        """按更新时间倒序分页查询当前主体的会话。"""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT conversation_id, title, created_at, updated_at
+                FROM conversations
+                WHERE owner_id = %s
+                ORDER BY updated_at DESC, conversation_id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (principal_id, limit, offset),
+            ).fetchall()
+        return [ConversationRecord(**row) for row in rows]
+
     def save_message(
         self,
         conversation_id: str,
@@ -156,6 +189,28 @@ class PostgresRuntimeStore:
                     "UPDATE conversations SET updated_at = NOW() WHERE conversation_id = %s",
                     (conversation_id,),
                 )
+
+    def list_messages(
+        self,
+        conversation_id: str,
+        limit: int,
+        before_sequence: int | None,
+    ) -> list[MessageRecord]:
+        """从最新消息向前分页查询，并按新到旧顺序返回。"""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT message_id, conversation_id, run_id, sequence,
+                       role, content, created_at
+                FROM messages
+                WHERE conversation_id = %s
+                  AND (%s::BIGINT IS NULL OR sequence < %s)
+                ORDER BY sequence DESC
+                LIMIT %s
+                """,
+                (conversation_id, before_sequence, before_sequence, limit),
+            ).fetchall()
+        return [MessageRecord(**row) for row in rows]
 
     def save_run(self, record: RunRecord) -> None:
         """持久化新增或更新的智能体运行记录。"""
@@ -218,6 +273,16 @@ class PostgresConversationStore:
         """读取会话所有权元数据。"""
         return self._store.get(conversation_id)
 
+    def set_title_if_empty(self, conversation_id: str, title: str) -> None:
+        """为首次对话设置默认标题，不覆盖用户后续标题。"""
+        self._store.set_conversation_title_if_empty(conversation_id, title)
+
+    def list_by_owner(
+        self, principal_id: str, limit: int, offset: int
+    ) -> list[ConversationRecord]:
+        """读取当前主体的会话列表。"""
+        return self._store.list_conversations(principal_id, limit, offset)
+
 
 class PostgresRunStore:
     """运行状态及追问恢复信息的 PostgreSQL 协议适配器。"""
@@ -251,6 +316,15 @@ class PostgresMessageStore:
     ) -> None:
         """保存一条会话消息。"""
         self._store.save_message(conversation_id, run_id, role, content)
+
+    def list_by_conversation(
+        self,
+        conversation_id: str,
+        limit: int,
+        before_sequence: int | None,
+    ) -> list[MessageRecord]:
+        """读取指定会话最新的一页消息。"""
+        return self._store.list_messages(conversation_id, limit, before_sequence)
 
 
 class PostgresRunLock:

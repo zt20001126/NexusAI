@@ -7,11 +7,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agent.persistence.memory import MemoryEventSequence
+from agent.persistence.memory import (
+    MemoryConversationStore,
+    MemoryEventSequence,
+    MemoryMessageStore,
+)
 from agent.runner import build_memory_runner
 from agent.streaming.publisher import EventPublisher
+from app.dependencies.auth import get_principal_id
 from app.main import create_app
 from app.service.agent import AgentApplicationService
+from app.service.conversation import ConversationApplicationService
 from infra.settings import AppSettings
 from tests.fake_models import ScriptedToolCallingProvider
 
@@ -21,12 +27,23 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        runner = build_memory_runner(settings, model_provider=model_provider)
+        conversation_store = MemoryConversationStore()
+        message_store = MemoryMessageStore()
+        runner = build_memory_runner(
+            settings,
+            model_provider=model_provider,
+            conversation_store=conversation_store,
+            message_store=message_store,
+        )
         event_sequence = MemoryEventSequence()
         app.state.settings = settings
         app.state.agent_service = AgentApplicationService(
             runner,
             EventPublisher(event_sequence, settings.sse_heartbeat_seconds),
+        )
+        app.state.conversation_service = ConversationApplicationService(
+            conversation_store,
+            message_store,
         )
         yield
 
@@ -121,6 +138,85 @@ def test_resume_endpoint_completes_paused_run() -> None:
     assert "event: tool.completed" in resumed_response.text
     assert resumed_response.text.count("event: run.completed") == 1
     assert "售后工单智能体" in resumed_response.text
+
+
+def test_conversation_and_message_history_endpoints_support_paging() -> None:
+    """会话列表和消息历史 API 返回新建对话，并可按序号读取更早消息。"""
+    with _client() as client:
+        paused_response = client.post(
+            "/api/agent/chat",
+            json={"message": "帮我梳理业务"},
+        )
+        paused_events = paused_response.json()["data"]
+        question = next(
+            event for event in paused_events if event["event_type"] == "question.required"
+        )
+        conversation_id = question["conversation_id"]
+
+        resumed_response = client.post(
+            f"/api/agent/runs/{question['run_id']}/resume",
+            json={
+                "conversation_id": conversation_id,
+                "answers": {"goal": "构建售后工单智能体"},
+            },
+        )
+        assert resumed_response.status_code == 200
+
+        conversations_response = client.get(
+            "/api/conversations",
+            params={"limit": 10, "offset": 0},
+        )
+        latest_page_response = client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            params={"limit": 2},
+        )
+        latest_page = latest_page_response.json()["data"]
+        earlier_page_response = client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            params={
+                "limit": 2,
+                "before_sequence": latest_page["next_before_sequence"],
+            },
+        )
+
+    conversations = conversations_response.json()["data"]["items"]
+    assert conversations_response.status_code == 200
+    assert conversations[0]["conversation_id"] == conversation_id
+    assert conversations[0]["title"] == "帮我梳理业务"
+
+    assert latest_page_response.status_code == 200
+    assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
+    assert "构建售后工单智能体" in latest_page["items"][0]["content"]
+    assert latest_page["next_before_sequence"] == 3
+
+    earlier_page = earlier_page_response.json()["data"]
+    assert earlier_page_response.status_code == 200
+    assert [item["sequence"] for item in earlier_page["items"]] == [1, 2]
+    assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
+
+
+def test_conversation_messages_are_hidden_from_other_principals() -> None:
+    """消息历史查询必须验证会话归属，且不泄露其他主体是否拥有会话。"""
+    with _client() as client:
+        chat_response = client.post(
+            "/api/agent/chat",
+            json={"message": "创建我的会话"},
+        )
+        event = chat_response.json()["data"][0]
+        conversation_id = event["conversation_id"]
+        client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
+        response = client.get(f"/api/conversations/{conversation_id}/messages")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONVERSATION_ACCESS_DENIED"
+
+
+def test_conversation_query_rejects_invalid_page_sizes() -> None:
+    """接口拒绝超出约束的分页参数。"""
+    with _client() as client:
+        response = client.get("/api/conversations", params={"limit": 101})
+
+    assert response.status_code == 422
 
 
 def test_resume_rejects_unbounded_answer_text() -> None:
