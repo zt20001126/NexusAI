@@ -8,4 +8,5 @@
 
 ### Added
 
+- 为前端侧栏、移动端、浏览器标签页和 README 添加 NexusAI 品牌标志。
 - 建立任务级与项目级变更记录机制，详见 [`docs/changes/README.md`](docs/changes/README.md)。
