@@ -10,8 +10,17 @@ class ChatRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(min_length=1, max_length=20_000)
-    conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
+    message: str = Field(
+        min_length=1,
+        max_length=20_000,
+        description="本轮提交给智能体的用户消息",
+    )
+    conversation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="可选的会话标识；为空时由 Agent runtime 创建",
+    )
 
 
 class ResumeRequest(BaseModel):
@@ -19,8 +28,16 @@ class ResumeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    conversation_id: str = Field(min_length=1, max_length=128)
-    answers: dict[str, AnswerValue] = Field(min_length=1, max_length=20)
+    conversation_id: str = Field(
+        min_length=1,
+        max_length=128,
+        description="待恢复运行所属的会话标识",
+    )
+    answers: dict[str, AnswerValue] = Field(
+        min_length=1,
+        max_length=20,
+        description="按问题标识提交的结构化答案",
+    )
 
     @field_validator("answers")
     @classmethod

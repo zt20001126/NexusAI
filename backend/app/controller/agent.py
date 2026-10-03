@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette import EventSourceResponse
 
 from agent.streaming import encode_sse_events
-from app.dependencies import get_principal_id
-from app.schemas import ChatRequest, ResumeRequest
-from app.service import AgentApplicationService
+from app.dependencies.auth import get_principal_id
+from app.schemas.agent import ChatRequest, ResumeRequest
+from app.service.agent import AgentApplicationService
 
 router = APIRouter(prefix="/api/agent", tags=["通用智能体"])
 
