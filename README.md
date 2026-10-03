@@ -80,7 +80,7 @@ docker compose --env-file backend/.env -f backend/compose.yaml up --build
 docker compose --env-file backend/.env -f backend/compose.yaml down
 ```
 
-Compose 配置位于 `backend/compose.yaml`。项目名为 `nexusai`，服务名为 `backend` 和 `postgres`；它会启动后端和 PostgreSQL 17，数据库数据保存在 Docker 命名卷 `nexusai_postgres_data` 中。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。
+Compose 配置位于 `backend/compose.yaml`。项目名为 `nexusai`，服务名为 `backend`、`postgres` 和 `redis`；它会启动后端、PostgreSQL 17 和 Redis 7。PostgreSQL 与 Redis 数据分别保存在 Docker 命名卷 `nexusai_postgres_data` 和 `nexusai_redis_data` 中。Redis 开启 AOF 持久化，宿主机可通过 `localhost:6379` 连接，Compose 内的服务可通过 `redis:6379` 连接。后端容器使用 Python 3.12.13，并以非 root 用户运行；`.env` 仅作为配置来源，不会打包进镜像。当前应用尚未使用 Redis，Redis 服务仅作为项目基础设施提供。
 
 在另一个终端启动前端：
 
