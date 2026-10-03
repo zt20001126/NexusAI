@@ -21,13 +21,13 @@ backend/
     tools/                   工具实现与唯一工具清单
     prompts/                 系统提示词和版本
     schemas/                 问题、工具结果和运行状态模型
-    streaming/               事件、发布、重放和 SSE 编码
+    streaming/               稳定事件、发布和 SSE 编码
     persistence/             持久化协议及 PostgreSQL、内存适配器
   infra/                     集中配置与外部服务适配
   tests/                     节点、运行器、SSE、API 与契约测试
   main.py                    Uvicorn 入口
   pyproject.toml             Python 项目与 pytest 配置
-  requirements*.txt          Python 依赖
+  requirements.txt           Python 依赖
   .env.example               后端环境变量模板
 frontend/                    React + TypeScript + Vite 前端
   src/
@@ -54,10 +54,10 @@ scripts/                     项目级辅助脚本（按需添加）
 - `question.required` 结构化追问和相同 Checkpoint 恢复
 - 会话级互斥锁、可信主体隔离、运行超时和主动取消
 - 最大步骤、工具次数和输出长度保护
-- 稳定事件类型、单调 SSE 游标、协议心跳和内存断点重放
+- 稳定事件类型、单调 SSE 游标和协议心跳
 - 安全工具返回与统一业务异常，不向用户暴露原始异常
 - DeepSeek 对话模型与工具调用；测试通过可替换 Provider 离线运行
-- PostgreSQL Checkpoint、会话元数据、运行状态和有界 SSE 事件历史持久化
+- PostgreSQL Checkpoint、会话元数据、消息和运行状态持久化
 
 ## 本地启动
 
@@ -70,7 +70,7 @@ if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env
 # 填写模型密钥和 PostgreSQL 配置；本机运行后端时 DATABASE_URL 使用 localhost:5433
 docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres
 cd backend
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements.txt
 $env:LANGGRAPH_STRICT_MSGPACK = "true"
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -138,7 +138,7 @@ run.cancelled
 run.failed
 ```
 
-`event_id` 可作为稳定游标。当前 HTTP API 覆盖对话、恢复和取消；`backend/agent/streaming/replay.py` 已提供内部重放接缝，生产接入 Redis Stream 后可按业务鉴权要求增加公开订阅路由。
+SSE 事件通过 `event_id` 标识当前进程内的递增游标。当前 HTTP API 覆盖对话、恢复和取消，不保存事件历史，也不支持断线续传；如后续需要重放，应再按实际持久化和鉴权要求设计事件存储与订阅接口。
 
 ## 后续业务开发位置
 
@@ -159,7 +159,7 @@ run.failed
 DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5433/nexusai
 ```
 
-`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、运行记录和事件重放历史；运行锁由数据库 advisory lock 协调。
+`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、会话元数据、消息和运行记录；运行锁由数据库 advisory lock 协调。SSE 事件历史当前不持久化。
 
 连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。应用启动必须能通过 `DATABASE_URL` 访问 PostgreSQL；测试可显式注入内存适配器。
 

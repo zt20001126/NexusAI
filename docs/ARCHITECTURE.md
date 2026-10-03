@@ -11,7 +11,7 @@ app.main -> app.lifecycle -> Agent runtime、Provider 与持久化适配器
 - `app/controller/` 是 HTTP 接口层，只做参数接收、依赖解析、调用 Service 和 JSON/SSE 协议转换。
 - `app/service/` 编排应用用例；它不依赖 FastAPI 请求对象，也不访问 SQL。
 - `app/repositories/` 当前有意不创建：仓库没有脱离 Agent runtime 的业务 CRUD 资源。新增普通业务数据时，再按资源添加 Repository，并由对应 Service 调用。
-- `agent/persistence/` 是 Agent 基础能力的一部分，保存 Checkpoint 周边的会话、运行、事件和序号。它不是通用业务 Repository，不依赖 `app`，由 `agent.runner` 按协议使用。
+- `agent/persistence/` 是 Agent 基础能力的一部分，保存 Checkpoint 周边的会话、消息和运行状态，并提供进程内事件序号。当前不持久化 SSE 事件，也不提供断线重放。它不是通用业务 Repository，不依赖 `app`，由 Agent runtime 按协议使用。
 - `infra/model_provider.py` 创建对话模型；`infra/settings.py` 管理模型、数据库和 Agent 运行设置。AI Provider、Agent、Tools 和 Persistence 不属于 HTTP 三层。
 
 ## 公共边界

@@ -6,9 +6,7 @@ from agent.errors import BackendNotConfiguredError
 from agent.persistence.memory import (
     DisabledTaskDispatcher,
     MemoryConversationStore,
-    MemoryEventBus,
 )
-from agent.streaming.events import AgentEvent, AgentEventType
 from infra.model_provider import StaticChatModelProvider
 
 
@@ -22,33 +20,6 @@ def test_memory_conversation_store_returns_copy() -> None:
     assert value is not None
     value["principal_id"] = "changed"
     assert store.get("conversation") == {"principal_id": "developer-a"}
-
-
-async def test_memory_event_bus_can_replay_after_cursor() -> None:
-    """内存事件总线按事件游标重放后续事件，为 Redis Stream 保留相同接缝。"""
-    bus = MemoryEventBus(max_events_per_conversation=10)
-    first = AgentEvent(
-        event_id="conversation:1",
-        event_type=AgentEventType.RUN_STARTED,
-        conversation_id="conversation",
-        run_id="run",
-        sequence=1,
-    )
-    second = AgentEvent(
-        event_id="conversation:2",
-        event_type=AgentEventType.RUN_COMPLETED,
-        conversation_id="conversation",
-        run_id="run",
-        sequence=2,
-    )
-    await bus.publish(first)
-    await bus.publish(second)
-
-    subscription = bus.subscribe("conversation", after="conversation:1")
-    replayed = await anext(subscription)
-    await subscription.aclose()
-
-    assert replayed.event_id == "conversation:2"
 
 
 def test_disabled_dispatcher_fails_with_stable_error() -> None:

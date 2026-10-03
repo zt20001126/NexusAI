@@ -1,19 +1,9 @@
-"""可由 PostgreSQL、Redis 或 Celery 实现的基础设施协议。"""
+"""持久化、互斥锁和运行协调等基础设施协议。"""
 
-from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 from agent.schemas.conversation import ConversationRecord, MessageRecord
 from agent.schemas.run import RunRecord
-from agent.streaming.events import AgentEvent
-
-
-class CheckpointProvider(Protocol):
-    """LangGraph Checkpointer 提供协议。"""
-
-    def get_checkpointer(self) -> Any:
-        """返回应用生命周期内共享的 Checkpointer。"""
-        ...
 
 
 class ConversationStore(Protocol):
@@ -63,15 +53,6 @@ class EventSequence(Protocol):
     """会话内事件序号协议。"""
 
     def next(self, conversation_id: str) -> int: ...
-
-
-class EventBus(Protocol):
-    """事件发布和断点重放协议。"""
-
-    async def publish(self, event: AgentEvent) -> None: ...
-    def subscribe(
-        self, conversation_id: str, after: str | None = None
-    ) -> AsyncIterator[AgentEvent]: ...
 
 
 class TaskDispatcher(Protocol):
