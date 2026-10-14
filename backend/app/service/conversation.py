@@ -1,12 +1,13 @@
 """会话列表和消息历史查询的业务编排。"""
 
 from agent.errors import ConversationAccessDeniedError
-from agent.persistence.interfaces import ConversationStore, MessageStore
+from agent.persistence.interfaces import ConversationStore, MessageStore, TaskResultStore
 from app.schemas.conversation import (
     ConversationItem,
     ConversationListData,
     ConversationMessageItem,
     ConversationMessageListData,
+    TaskResultSummary,
 )
 
 
@@ -17,10 +18,12 @@ class ConversationApplicationService:
         self,
         conversation_store: ConversationStore,
         message_store: MessageStore,
+        task_result_store: TaskResultStore | None = None,
     ) -> None:
         """注入会话及消息持久化协议。"""
         self._conversation_store = conversation_store
         self._message_store = message_store
+        self._task_result_store = task_result_store
 
     def list_conversations(
         self,
@@ -75,8 +78,44 @@ class ConversationApplicationService:
         has_more = len(records) > limit
         page = records[:limit]
         next_before_sequence = page[-1].sequence if has_more and page else None
+        result_map: dict[str, list[TaskResultSummary]] = {}
+        message_ids = [record.message_id for record in page]
+        if self._task_result_store is not None and message_ids:
+            for result in self._task_result_store.list_for_messages(
+                conversation_id,
+                message_ids,
+                principal_id,
+            ):
+                if result.message_id is None:
+                    continue
+                outputs = result.result_data.get("outputs", [])
+                first_output = (
+                    outputs[0]
+                    if isinstance(outputs, list)
+                    and outputs
+                    and isinstance(outputs[0], dict)
+                    else {}
+                )
+                result_map.setdefault(result.message_id, []).append(
+                    TaskResultSummary(
+                        task_result_id=result.task_result_id,
+                        agent_id=result.agent_id,
+                        result_type=result.result_type,
+                        generation_status=result.generation_status.value,
+                        image_url=(
+                            f"/api/task-results/{result.task_result_id}/image"
+                            if first_output.get("object_key")
+                            else None
+                        ),
+                        mime_type=first_output.get("mime_type"),
+                        width=first_output.get("width"),
+                        height=first_output.get("height"),
+                    )
+                )
         items = [
-            ConversationMessageItem.model_validate(record)
+            ConversationMessageItem.model_validate(record).model_copy(
+                update={"task_results": result_map.get(record.message_id, [])}
+            )
             for record in reversed(page)
         ]
         return ConversationMessageListData(

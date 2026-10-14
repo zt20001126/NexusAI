@@ -9,10 +9,10 @@ from agent.streaming.publisher import EventPublisher
 
 
 class AgentApplicationService:
-    """负责对话、恢复、取消和 SSE 心跳编排。"""
+    """负责一个已注册智能体的对话、恢复、取消和 SSE 心跳编排。"""
 
     def __init__(self, runner: AgentRunner, publisher: EventPublisher) -> None:
-        """注入唯一智能体运行器和传输事件发布器。"""
+        """注入对应智能体运行器和传输事件发布器。"""
         self._runner = runner
         self._publisher = publisher
 
@@ -22,12 +22,14 @@ class AgentApplicationService:
         message: str,
         conversation_id: str | None,
         principal_id: str,
+        attachment_ids: list[str] | None = None,
     ) -> list[AgentEvent]:
         """执行非流式对话并收集完整事件。"""
         events = self._runner.stream_chat(
             message=message,
             conversation_id=conversation_id,
             principal_id=principal_id,
+            attachment_ids=attachment_ids,
         )
         return await self._publisher.publish_all(events)
 
@@ -37,12 +39,14 @@ class AgentApplicationService:
         message: str,
         conversation_id: str | None,
         principal_id: str,
+        attachment_ids: list[str] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """执行流式对话，并在图长时间无输出时插入协议级心跳。"""
         events = self._runner.stream_chat(
             message=message,
             conversation_id=conversation_id,
             principal_id=principal_id,
+            attachment_ids=attachment_ids,
         )
         return self._publisher.with_heartbeat(events)
 

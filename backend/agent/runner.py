@@ -1,9 +1,8 @@
-"""传输层无关的单智能体运行器。"""
+"""传输层无关的单实例智能体运行器。"""
 
 import asyncio
 import json
 import logging
-import uuid
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any
@@ -20,12 +19,14 @@ from agent.errors import (
 )
 from agent.graph import build_agent_graph
 from agent.persistence.interfaces import (
+    AttachmentStore,
     ConversationStore,
     EventSequence,
     MessageStore,
     RunLock,
     RunStore,
     TaskDispatcher,
+    TaskResultStore,
 )
 from agent.persistence.memory import (
     DisabledTaskDispatcher,
@@ -35,6 +36,8 @@ from agent.persistence.memory import (
     MemoryMessageStore,
     MemoryRunLock,
     MemoryRunStore,
+    MemoryAttachmentStore,
+    MemoryTaskResultStore,
 )
 from agent.persistence.postgres import (
     PostgresConversationStore,
@@ -42,14 +45,17 @@ from agent.persistence.postgres import (
     PostgresRunLock,
     PostgresRunStore,
     PostgresRuntimeStore,
+    PostgresTaskResultStore,
 )
 from agent.schemas.run import RunRecord, RunStatus
+from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.question import QuestionPayload
 from agent.schemas.tool_result import ToolResult
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.tools.registry import PAUSE_TOOL_NAMES
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.settings import AppSettings
+from infra.snowflake import SnowflakeIdGenerator, get_snowflake_generator
 
 logger = logging.getLogger(__name__)
 STREAMING_RESPONSE_NODES = frozenset({"agent", "result"})
@@ -71,7 +77,7 @@ def _message_text(content: Any) -> str:
 
 
 class AgentRunner:
-    """执行唯一智能体图并生成稳定业务事件。"""
+    """执行一个已注册智能体的图并生成稳定业务事件。"""
 
     def __init__(
         self,
@@ -87,9 +93,14 @@ class AgentRunner:
         max_tool_calls: int,
         max_output_chars: int,
         run_timeout_seconds: int,
+        agent_id: str = "default",
+        task_result_store: TaskResultStore | None = None,
+        attachment_store: AttachmentStore | None = None,
+        id_generator: SnowflakeIdGenerator | None = None,
     ) -> None:
-        """注入已编译的唯一图和可替换基础设施，不维护智能体注册表。"""
+        """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
+        self._agent_id = agent_id
         self._run_store = run_store
         self._run_lock = run_lock
         self._conversation_store = conversation_store
@@ -100,6 +111,9 @@ class AgentRunner:
         self._max_tool_calls = max_tool_calls
         self._max_output_chars = max_output_chars
         self._run_timeout_seconds = run_timeout_seconds
+        self._task_result_store = task_result_store
+        self._attachment_store = attachment_store
+        self._id_generator = id_generator or get_snowflake_generator()
         self._cancel_events: dict[str, asyncio.Event] = {}
 
     def stream_chat(
@@ -108,28 +122,61 @@ class AgentRunner:
         message: str,
         conversation_id: str | None = None,
         principal_id: str = "local-development",
+        attachment_ids: list[str] | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        """启动一次新运行；会话标识始终按可信主体隔离。"""
-        resolved_id = conversation_id or uuid.uuid4().hex
+        """启动一次运行，并将会话绑定到可信主体和智能体。"""
+        resolved_id = conversation_id or self._id_generator.next_id_string()
+        resolved_attachments = attachment_ids or []
+        if resolved_attachments:
+            if self._attachment_store is None:
+                raise ValueError("当前智能体不支持图片附件")
+            self._attachment_store.validate_staged(resolved_attachments, principal_id)
         conversation = self._conversation_store.get(resolved_id)
-        if conversation is not None and conversation.get("principal_id") != principal_id:
+        if conversation is not None and (
+            conversation.get("principal_id") != principal_id
+            or conversation.get("agent_id", "default") != self._agent_id
+        ):
             raise ConversationAccessDeniedError()
-        self._conversation_store.save(resolved_id, {"principal_id": principal_id})
+        self._conversation_store.save(
+            resolved_id,
+            {"principal_id": principal_id, "agent_id": self._agent_id},
+        )
         if conversation is None:
             title = " ".join(message.split())[:50]
             self._conversation_store.set_title_if_empty(resolved_id, title)
+        task_result_id = self._id_generator.next_id_string()
         record = RunRecord(
-            run_id=uuid.uuid4().hex,
+            run_id=self._id_generator.next_id_string(),
             conversation_id=resolved_id,
             principal_id=principal_id,
             status=RunStatus.RUNNING,
+            metadata={
+                "task_result_id": task_result_id,
+                "attachment_ids": resolved_attachments,
+            },
+            agent_id=self._agent_id,
         )
         self._run_store.save(record)
-        self._message_store.save(resolved_id, record.run_id, "user", message)
+        message_id = self._message_store.save(resolved_id, record.run_id, "user", message)
+        if resolved_attachments:
+            if self._attachment_store is None:
+                raise ValueError("当前智能体不支持图片附件")
+            self._attachment_store.bind_to_message(
+                resolved_attachments,
+                principal_id,
+                resolved_id,
+                message_id,
+            )
         graph_input = {
             "messages": [HumanMessage(content=message)],
             "original_request": message,
             "resume_answers": {},
+            "agent_id": self._agent_id,
+            "principal_id": principal_id,
+            "conversation_id": resolved_id,
+            "run_id": record.run_id,
+            "task_result_id": task_result_id,
+            "attachment_ids": resolved_attachments,
         }
         return self._stream_graph(record=record, graph_input=graph_input)
 
@@ -148,6 +195,7 @@ class AgentRunner:
             or record.status != RunStatus.WAITING
             or record.conversation_id != conversation_id
             or record.principal_id != principal_id
+            or record.agent_id != self._agent_id
         ):
             raise RunNotResumableError()
         pending_question_ids = set(record.metadata.get("pending_question_ids", []))
@@ -168,6 +216,12 @@ class AgentRunner:
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
             "resume_answers": answers,
+            "agent_id": self._agent_id,
+            "principal_id": principal_id,
+            "conversation_id": conversation_id,
+            "run_id": record.run_id,
+            "task_result_id": record.metadata.get("task_result_id"),
+            "attachment_ids": record.metadata.get("attachment_ids", []),
         }
         return self._stream_graph(record=record, graph_input=graph_input)
 
@@ -192,7 +246,7 @@ class AgentRunner:
         record: RunRecord,
         graph_input: dict[str, Any],
     ) -> AsyncIterator[AgentEvent]:
-        """执行唯一图，并把 LangGraph 更新映射为稳定事件。"""
+        """执行此实例绑定的智能体图并映射为稳定事件。"""
         scope_key = self._scope_key(record)
         lock_acquired = False
         waiting_for_answer = False
@@ -344,10 +398,34 @@ class AgentRunner:
                 {"code": "AGENT_RUN_FAILED", "message": "智能体运行失败，请稍后重试"},
             )
         finally:
-            self._run_store.save(record)
-            if lock_acquired:
-                self._run_lock.release(scope_key)
-            self._cancel_events.pop(record.run_id, None)
+            try:
+                task_result_id = record.metadata.get("task_result_id")
+                if isinstance(task_result_id, str) and self._task_result_store is not None:
+                    try:
+                        if record.status == RunStatus.CANCELLED:
+                            self._task_result_store.set_status(
+                                task_result_id,
+                                record.principal_id,
+                                TaskResultStatus.CANCELLED,
+                            )
+                        elif record.status == RunStatus.FAILED:
+                            self._task_result_store.set_status(
+                                task_result_id,
+                                record.principal_id,
+                                TaskResultStatus.FAILED,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "任务结果终态写入失败 task_result_id=%s",
+                            task_result_id,
+                        )
+                self._run_store.save(record)
+            finally:
+                try:
+                    if lock_acquired:
+                        self._run_lock.release(scope_key)
+                finally:
+                    self._cancel_events.pop(record.run_id, None)
 
     @staticmethod
     async def _cancel_aware_stream(
@@ -403,12 +481,19 @@ class AgentRunner:
                     {"tool_name": tool_call.get("name", "")},
                 )
             if isinstance(message.content, str) and message.content:
-                self._message_store.save(
+                message_id = self._message_store.save(
                     record.conversation_id,
                     record.run_id,
                     "assistant",
                     message.content,
                 )
+                task_result_id = record.metadata.get("task_result_id")
+                if isinstance(task_result_id, str) and self._task_result_store is not None:
+                    self._task_result_store.link_message(
+                        task_result_id,
+                        message_id,
+                        record.principal_id,
+                    )
                 yield self._event(
                     record,
                     AgentEventType.MESSAGE_COMPLETED,
@@ -435,7 +520,7 @@ class AgentRunner:
                     {"code": "INVALID_QUESTION_PAYLOAD", "message": "追问信息格式不正确"},
                 )
                 return
-            self._message_store.save(
+            question_message_id = self._message_store.save(
                 record.conversation_id,
                 record.run_id,
                 "assistant",
@@ -444,11 +529,28 @@ class AgentRunner:
                     for question in questions.questions
                 ),
             )
+            task_result = payload.get("data", {}).get("task_result")
+            if (
+                isinstance(task_result, dict)
+                and isinstance(task_result.get("task_result_id"), str)
+                and self._task_result_store is not None
+            ):
+                self._task_result_store.link_message(
+                    task_result["task_result_id"],
+                    question_message_id,
+                    record.principal_id,
+                )
             yield self._event(
                 record,
                 AgentEventType.QUESTION_REQUIRED,
                 questions.model_dump(),
             )
+            if isinstance(task_result, dict):
+                yield self._event(
+                    record,
+                    AgentEventType.TASK_RESULT_UPDATED,
+                    task_result,
+                )
             return
         yield self._event(
             record,
@@ -459,6 +561,14 @@ class AgentRunner:
                 "data": payload.get("data", {}),
             },
         )
+        if message.name == "generate_image":
+            task_result = payload.get("data", {}).get("task_result")
+            if isinstance(task_result, dict):
+                yield self._event(
+                    record,
+                    AgentEventType.TASK_RESULT_UPDATED,
+                    task_result,
+                )
 
     @staticmethod
     def _safe_tool_payload(content: Any) -> dict[str, Any]:
@@ -491,7 +601,7 @@ class AgentRunner:
     @staticmethod
     def _scope_key(record: RunRecord) -> str:
         """用可信主体隔离锁和 Checkpoint 内部键。"""
-        return f"{record.principal_id}:{record.conversation_id}"
+        return f"{record.principal_id}:{record.agent_id}:{record.conversation_id}"
 
 
 def build_memory_runner(
@@ -501,6 +611,9 @@ def build_memory_runner(
     *,
     conversation_store: ConversationStore | None = None,
     message_store: MessageStore | None = None,
+    agent_id: str = "default",
+    task_result_store: TaskResultStore | None = None,
+    attachment_store: AttachmentStore | None = None,
 ) -> AgentRunner:
     """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
@@ -514,6 +627,10 @@ def build_memory_runner(
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,
+        agent_id=agent_id,
+        task_result_store=task_result_store or MemoryTaskResultStore(),
+        attachment_store=attachment_store or MemoryAttachmentStore(),
+        id_generator=get_snowflake_generator(settings.snowflake_worker_id),
     )
 
 
@@ -523,6 +640,9 @@ def build_postgres_runner(
     checkpointer: Any,
     runtime_store: PostgresRuntimeStore,
     model_provider: ChatModelProvider | None = None,
+    graph: Any | None = None,
+    agent_id: str = "default",
+    attachment_store: AttachmentStore | None = None,
 ) -> AgentRunner:
     """创建 PostgreSQL 持久化运行器，保留仅用于执行协调的进程内锁。"""
     return _build_runner(
@@ -534,6 +654,11 @@ def build_postgres_runner(
         message_store=PostgresMessageStore(runtime_store),
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
+        graph=graph,
+        agent_id=agent_id,
+        task_result_store=PostgresTaskResultStore(runtime_store),
+        attachment_store=attachment_store,
+        id_generator=get_snowflake_generator(settings.snowflake_worker_id),
     )
 
 
@@ -548,13 +673,21 @@ def _build_runner(
     event_sequence: EventSequence,
     model_provider: ChatModelProvider | None = None,
     graph: Any | None = None,
+    agent_id: str = "default",
+    task_result_store: TaskResultStore | None = None,
+    attachment_store: AttachmentStore | None = None,
+    id_generator: SnowflakeIdGenerator | None = None,
 ) -> AgentRunner:
-    """组装唯一智能体图和可替换运行基础设施。"""
+    """为一个 agent_id 组装图和可替换运行基础设施。"""
     if graph is None:
         provider = model_provider or OpenAICompatibleProvider(settings)
         graph = build_agent_graph(checkpointer, provider.create_chat_model())
     return AgentRunner(
         graph=graph,
+        agent_id=agent_id,
+        task_result_store=task_result_store,
+        attachment_store=attachment_store,
+        id_generator=id_generator,
         run_store=run_store,
         run_lock=run_lock,
         conversation_store=conversation_store,

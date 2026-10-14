@@ -21,3 +21,16 @@ def test_application_startup_requires_database_url() -> None:
         with TestClient(create_app(AppSettings(_env_file=None))):
             pass
 
+
+def test_image_provider_environment_variables_match_environment_template(monkeypatch) -> None:
+    """图片超时和文件大小配置使用 .env.example 中声明的环境变量名。"""
+    monkeypatch.setenv("TENCENT_TOKENHUB_TIMEOUT_SECONDS", "37")
+    monkeypatch.setenv("IMAGE_UPLOAD_MAX_BYTES", "1048576")
+    monkeypatch.setenv("IMAGE_RESULT_MAX_BYTES", "2097152")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.tokenhub_timeout_seconds == 37
+    assert settings.image_upload_max_bytes == 1_048_576
+    assert settings.image_result_max_bytes == 2_097_152
+

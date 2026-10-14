@@ -58,3 +58,17 @@ class ConversationAccessDeniedError(AgentError):
 
     def __init__(self) -> None:
         super().__init__("CONVERSATION_ACCESS_DENIED", "当前会话不可访问")
+
+
+class AttachmentAccessDeniedError(AgentError):
+    """上传附件不属于当前主体或会话。"""
+
+    def __init__(self) -> None:
+        super().__init__("ATTACHMENT_ACCESS_DENIED", "上传图片不可访问")
+
+
+class UnknownAgentError(AgentError):
+    """请求的智能体尚未注册。"""
+
+    def __init__(self) -> None:
+        super().__init__("UNKNOWN_AGENT", "请求的智能体不存在")

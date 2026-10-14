@@ -10,10 +10,29 @@ class ConversationItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    conversation_id: str = Field(description="会话标识")
+    conversation_id: str = Field(
+        pattern=r"^[1-9][0-9]{0,18}$",
+        description="会话雪花 ID",
+    )
     title: str | None = Field(description="会话标题")
     created_at: datetime = Field(description="会话创建时间")
     updated_at: datetime = Field(description="会话最近更新时间")
+    agent_id: str = Field(default="default", description="所属智能体标识")
+
+
+class TaskResultSummary(BaseModel):
+    """附加到消息历史的任务结果元数据，不包含二进制图片内容。"""
+
+    task_result_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="任务结果雪花 ID")
+    agent_id: str
+    result_type: str
+    generation_status: str
+    image_url: str | None = None
+    mime_type: str | None = None
+    width: int | None = None
+    height: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class ConversationListData(BaseModel):
@@ -31,13 +50,17 @@ class ConversationMessageItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    message_id: str = Field(description="消息标识")
-    conversation_id: str = Field(description="所属会话标识")
-    run_id: str | None = Field(description="产生消息的 Agent 运行标识")
+    message_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="消息雪花 ID")
+    conversation_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="所属会话雪花 ID")
+    run_id: str | None = Field(
+        pattern=r"^[1-9][0-9]{0,18}$",
+        description="产生消息的 Agent 运行雪花 ID",
+    )
     sequence: int = Field(description="会话内消息顺序")
     role: str = Field(description="消息角色：user 或 assistant")
     content: str = Field(description="消息正文")
     created_at: datetime = Field(description="消息创建时间")
+    task_results: list[TaskResultSummary] = Field(default_factory=list)
 
 
 class ConversationMessageListData(BaseModel):

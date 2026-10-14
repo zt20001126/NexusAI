@@ -24,3 +24,4 @@ class RunRecord:
     principal_id: str
     status: RunStatus
     metadata: dict[str, Any] = field(default_factory=dict)
+    agent_id: str = "default"

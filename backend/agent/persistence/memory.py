@@ -3,15 +3,24 @@
 import asyncio
 from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import uuid4
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.errors import BackendNotConfiguredError, RunBusyError
+from agent.errors import (
+    AttachmentAccessDeniedError,
+    BackendNotConfiguredError,
+    RunBusyError,
+)
 from agent.schemas.conversation import ConversationRecord, MessageRecord
 from agent.schemas.run import RunRecord
+from agent.schemas.task_result import (
+    ImageAttachmentRecord,
+    TaskResultRecord,
+    TaskResultStatus,
+)
+from infra.snowflake import get_snowflake_generator
 
 
 class MemoryCheckpointProvider:
@@ -69,6 +78,7 @@ class MemoryConversationStore:
                 title=value.get("_title"),
                 created_at=value["_created_at"],
                 updated_at=value["_updated_at"],
+                agent_id=value.get("agent_id", "default"),
             )
             for conversation_id, value in self._conversations.items()
             if value.get("principal_id") == principal_id
@@ -89,11 +99,12 @@ class MemoryMessageStore:
         run_id: str,
         role: str,
         content: str,
-    ) -> None:
+    ) -> str:
         """按写入顺序保存测试消息。"""
+        message_id = get_snowflake_generator().next_id_string()
         self.messages[conversation_id].append(
             {
-                "message_id": uuid4().hex,
+                "message_id": message_id,
                 "conversation_id": conversation_id,
                 "run_id": run_id,
                 "sequence": len(self.messages[conversation_id]) + 1,
@@ -102,6 +113,7 @@ class MemoryMessageStore:
                 "created_at": datetime.now(timezone.utc),
             }
         )
+        return message_id
 
     def list_by_conversation(
         self,
@@ -167,6 +179,202 @@ class MemoryEventSequence:
         """返回下一个序号。"""
         self._sequences[conversation_id] += 1
         return self._sequences[conversation_id]
+
+
+class MemoryTaskResultStore:
+    """保存结果记录的内存适配器，供图节点与 API 测试显式注入。"""
+
+    def __init__(self) -> None:
+        self.records: dict[str, TaskResultRecord] = {}
+
+    def save(self, record: TaskResultRecord) -> None:
+        """新增或替换结果状态，同时保留初次创建时间。"""
+        existing = self.records.get(record.task_result_id)
+        self.records[record.task_result_id] = TaskResultRecord(
+            **{
+                **record.__dict__,
+                "created_at": record.created_at or (
+                    existing.created_at if existing is not None else datetime.now(timezone.utc)
+                ),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
+    def set_status(
+        self,
+        task_result_id: str,
+        user_id: str,
+        status: TaskResultStatus,
+    ) -> bool:
+        """按结果所有者更新状态，不单独保存失败详情。"""
+        from dataclasses import replace
+
+        record = self.records.get(task_result_id)
+        if record is None or record.user_id != user_id:
+            return False
+        self.records[task_result_id] = replace(
+            record,
+            generation_status=status,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return True
+
+    def link_message(self, task_result_id: str, message_id: str, user_id: str) -> None:
+        """将结果关联到助手最终回复。"""
+        from dataclasses import replace
+
+        record = self.records.get(task_result_id)
+        if record is not None and record.user_id == user_id:
+            self.records[task_result_id] = replace(
+                record,
+                message_id=message_id,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    def get_owned(self, task_result_id: str, user_id: str) -> TaskResultRecord | None:
+        """按可信主体读取结果记录。"""
+        record = self.records.get(task_result_id)
+        return record if record is not None and record.user_id == user_id else None
+
+    def list_for_messages(
+        self,
+        conversation_id: str,
+        message_ids: list[str],
+        user_id: str,
+    ) -> list[TaskResultRecord]:
+        """按会话、消息和所有者读取历史结果。"""
+        message_id_set = set(message_ids)
+        return [
+            record
+            for record in self.records.values()
+            if record.user_id == user_id
+            and record.conversation_id == conversation_id
+            and record.message_id in message_id_set
+        ]
+
+
+class MemoryAttachmentStore:
+    """供测试显式使用的参考图片附件适配器。"""
+
+    def __init__(self) -> None:
+        self.records: dict[str, ImageAttachmentRecord] = {}
+        self.result_objects: dict[str, tuple[str, bytes]] = {}
+
+    def save(
+        self,
+        user_id: str,
+        file_name: str,
+        mime_type: str,
+        image_data: bytes,
+    ) -> ImageAttachmentRecord:
+        """创建用户私有的暂存参考图。"""
+        attachment_id = get_snowflake_generator().next_id_string()
+        record = ImageAttachmentRecord(
+            attachment_id=attachment_id,
+            user_id=user_id,
+            conversation_id=None,
+            message_id=None,
+            file_name=file_name,
+            mime_type=mime_type,
+            file_size=len(image_data),
+            image_data=image_data,
+            status="staged",
+            object_key=f"memory/references/{user_id}/{attachment_id}",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.records[record.attachment_id] = record
+        return record
+
+    def validate_staged(self, attachment_ids: list[str], user_id: str) -> None:
+        """在运行记录落库前确认附件属于当前用户且尚未绑定或过期。"""
+        if len(set(attachment_ids)) != len(attachment_ids):
+            raise AttachmentAccessDeniedError()
+        valid_until = datetime.now(timezone.utc) - timedelta(hours=24)
+        for attachment_id in attachment_ids:
+            record = self.records.get(attachment_id)
+            if (
+                record is None
+                or record.user_id != user_id
+                or record.status != "staged"
+                or record.created_at is None
+                or record.created_at < valid_until
+            ):
+                raise AttachmentAccessDeniedError()
+
+    def bind_to_message(
+        self,
+        attachment_ids: list[str],
+        user_id: str,
+        conversation_id: str,
+        message_id: str,
+    ) -> None:
+        """绑定本主体的暂存图片到聊天消息。"""
+        from dataclasses import replace
+
+        pending_records: list[ImageAttachmentRecord] = []
+        if len(set(attachment_ids)) != len(attachment_ids):
+            raise AttachmentAccessDeniedError()
+        for attachment_id in attachment_ids:
+            record = self.records.get(attachment_id)
+            if (
+                record is None
+                or record.user_id != user_id
+                or record.status != "staged"
+            ):
+                raise AttachmentAccessDeniedError()
+            pending_records.append(record)
+        for record in pending_records:
+            attachment_id = record.attachment_id
+            self.records[attachment_id] = replace(
+                record,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                status="attached",
+            )
+
+    def list_for_generation(
+        self,
+        attachment_ids: list[str],
+        user_id: str,
+        conversation_id: str,
+    ) -> list[ImageAttachmentRecord]:
+        """只返回当前用户在同一会话中已绑定的参考图。"""
+        records: list[ImageAttachmentRecord] = []
+        for attachment_id in attachment_ids:
+            record = self.records.get(attachment_id)
+            if (
+                record is None
+                or record.user_id != user_id
+                or record.conversation_id != conversation_id
+                or record.status != "attached"
+            ):
+                raise AttachmentAccessDeniedError()
+            records.append(record)
+        return records
+
+    def save_result(
+        self,
+        user_id: str,
+        task_result_id: str,
+        image_data: bytes,
+        mime_type: str,
+    ) -> Any:
+        """在测试适配器中保存结果字节并返回与 OSS 一致的元数据结构。"""
+        from infra.object_storage import StoredImageObject
+
+        object_key = f"memory/generated/{user_id}/{task_result_id}"
+        self.result_objects[object_key] = (mime_type, image_data)
+        return StoredImageObject(object_key, mime_type, len(image_data))
+
+    def read_result(self, object_key: str, user_id: str) -> tuple[bytes, str]:
+        """按测试用户隔离读取内存中的生成结果。"""
+        if not object_key.startswith(f"memory/generated/{user_id}/"):
+            raise AttachmentAccessDeniedError()
+        result = self.result_objects.get(object_key)
+        if result is None:
+            raise AttachmentAccessDeniedError()
+        mime_type, image_data = result
+        return image_data, mime_type
 
 
 class DisabledTaskDispatcher:

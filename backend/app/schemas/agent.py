@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agent.constants import MAX_REFERENCE_IMAGE_COUNT
+
 AnswerValue = str | int | float | bool | None | list[str]
 
 
@@ -17,10 +19,24 @@ class ChatRequest(BaseModel):
     )
     conversation_id: str | None = Field(
         default=None,
-        min_length=1,
-        max_length=128,
+        pattern=r"^[1-9][0-9]{0,18}$",
         description="可选的会话标识；为空时由 Agent runtime 创建",
     )
+    attachment_ids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_REFERENCE_IMAGE_COUNT,
+        description="已上传并暂存的参考图片标识，单次最多 3 张",
+    )
+
+    @field_validator("attachment_ids")
+    @classmethod
+    def validate_attachment_ids(cls, values: list[str]) -> list[str]:
+        """拒绝空白和重复标识，避免同一图片被意外重复发送。"""
+        if any(not value.isdigit() or value.startswith("0") or len(value) > 19 for value in values):
+            raise ValueError("附件标识不合法")
+        if len(set(values)) != len(values):
+            raise ValueError("附件标识不能重复")
+        return values
 
 
 class ResumeRequest(BaseModel):
@@ -29,8 +45,7 @@ class ResumeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conversation_id: str = Field(
-        min_length=1,
-        max_length=128,
+        pattern=r"^[1-9][0-9]{0,18}$",
         description="待恢复运行所属的会话标识",
     )
     answers: dict[str, AnswerValue] = Field(

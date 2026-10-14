@@ -1,5 +1,6 @@
 fastapi==0.123.5
 httpx==0.28.1
+oss2==2.19.1
 langchain-core==1.2.4
 langchain-openai==1.1.6
 langgraph==1.0.5

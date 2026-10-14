@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from app.dependencies.auth import get_principal_id
 from app.service.conversation import ConversationApplicationService
@@ -38,7 +40,7 @@ def list_conversations(
 
 @router.get("/{conversation_id}/messages")
 def list_conversation_messages(
-    conversation_id: str,
+    conversation_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
     request: Request,
     limit: int = Query(default=50, ge=1, le=100, description="每页消息数量"),
     before_sequence: int | None = Query(

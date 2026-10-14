@@ -4,6 +4,7 @@ import AgentInteractionCard from './components/AgentInteractionCard'
 import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
 import MessageList from './components/MessageList'
+import { MAX_REFERENCE_IMAGE_BYTES, MAX_REFERENCE_IMAGES } from './constants'
 import { useChatSession } from './hooks/useChatSession'
 
 /** 组合聊天页面的导航、消息流、追问卡片和输入框。 */
@@ -29,13 +30,13 @@ function ChatPage() {
     const valid = files.filter((file) =>
       (file.type === 'image/png' || file.type === 'image/jpeg')
       && file.size > 0
-      && file.size <= 20 * 1024 * 1024,
+      && file.size <= MAX_REFERENCE_IMAGE_BYTES,
     )
     if (valid.length !== files.length) {
-      setAttachmentError('仅支持不超过 20 MiB 的 PNG/JPEG 图片。')
+      setAttachmentError('仅支持不超过 5 MiB 的 PNG/JPEG 图片。')
     }
-    const remaining = Math.max(0, 20 - pendingImages.length)
-    if (valid.length > remaining) setAttachmentError('参考图片最多添加 20 张。')
+    const remaining = Math.max(0, MAX_REFERENCE_IMAGES - pendingImages.length)
+    if (valid.length > remaining) setAttachmentError('参考图片最多添加 3 张。')
     setPendingImages((current) => [...current, ...valid.slice(0, remaining)])
   }
 

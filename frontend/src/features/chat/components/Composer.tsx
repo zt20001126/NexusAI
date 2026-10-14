@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentDefinition } from '../api/agent'
+import { MAX_REFERENCE_IMAGES } from '../constants'
 
 interface ComposerProps {
   value: string
@@ -161,7 +162,7 @@ function Composer({
                 className="attach-button"
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={disabled || attachments.length >= 20}
+                disabled={disabled || attachments.length >= MAX_REFERENCE_IMAGES}
                 aria-label="添加参考图片"
                 title="添加参考图片"
               >
@@ -256,7 +257,7 @@ function Composer({
         </div>
       </div>
       <div className="composer-caption">
-        {supportsImageUpload ? '可添加最多 20 张 PNG/JPEG 参考图 · ' : ''}Enter 发送 · Shift + Enter 换行
+        {supportsImageUpload ? '最多添加 3 张 PNG/JPEG 参考图，每张不超过 5 MiB · ' : ''}Enter 发送 · Shift + Enter 换行
       </div>
     </div>
   )

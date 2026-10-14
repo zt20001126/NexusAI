@@ -3,7 +3,6 @@
 import asyncio
 from threading import Lock
 from typing import Any
-from uuid import uuid4
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -11,14 +10,24 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from agent.schemas.run import RunRecord, RunStatus
-from agent.errors import RunBusyError
+from agent.errors import ConversationAccessDeniedError, RunBusyError
 from agent.schemas.conversation import ConversationRecord, MessageRecord
+from agent.schemas.task_result import (
+    TaskResultRecord,
+    TaskResultStatus,
+)
+from agents.database_ids import agent_code_from_database_id, agent_database_id
+from infra.snowflake import SnowflakeIdGenerator, get_snowflake_generator, to_database_id
 
 
 class PostgresRuntimeStore:
     """集中管理会话、消息和运行记录的 PostgreSQL 连接池。"""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        id_generator: SnowflakeIdGenerator | None = None,
+    ) -> None:
         """创建连接池；连接串由配置层提供，不在此处读取环境变量。"""
         normalized_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
         self._pool = ConnectionPool(
@@ -28,6 +37,7 @@ class PostgresRuntimeStore:
             open=False,
             kwargs={"autocommit": True, "row_factory": dict_row},
         )
+        self.id_generator = id_generator or get_snowflake_generator()
 
     def __enter__(self) -> "PostgresRuntimeStore":
         """打开连接池并确保应用元数据表存在。"""
@@ -43,9 +53,17 @@ class PostgresRuntimeStore:
         """初始化应用业务表；LangGraph 检查点由其官方适配器单独管理。"""
         statements = (
             """
+            CREATE TABLE IF NOT EXISTS user_identities (
+                user_id BIGINT PRIMARY KEY,
+                external_principal TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS conversations (
-                conversation_id TEXT PRIMARY KEY,
-                owner_id TEXT NOT NULL,
+                conversation_id BIGINT PRIMARY KEY,
+                owner_id BIGINT NOT NULL REFERENCES user_identities(user_id),
+                agent_id BIGINT NOT NULL,
                 title TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -53,8 +71,9 @@ class PostgresRuntimeStore:
             """,
             """
             CREATE TABLE IF NOT EXISTS agent_runs (
-                run_id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                run_id BIGINT PRIMARY KEY,
+                conversation_id BIGINT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                agent_id BIGINT NOT NULL,
                 status TEXT NOT NULL CHECK (
                     status IN ('running', 'waiting', 'completed', 'cancelled', 'failed')
                 ),
@@ -69,9 +88,9 @@ class PostgresRuntimeStore:
             """,
             """
             CREATE TABLE IF NOT EXISTS messages (
-                message_id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                run_id TEXT REFERENCES agent_runs(run_id) ON DELETE SET NULL,
+                message_id BIGINT PRIMARY KEY,
+                conversation_id BIGINT NOT NULL,
+                run_id BIGINT REFERENCES agent_runs(run_id) ON DELETE SET NULL,
                 sequence BIGINT NOT NULL,
                 role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
                 content TEXT NOT NULL,
@@ -89,6 +108,48 @@ class PostgresRuntimeStore:
             CREATE INDEX IF NOT EXISTS idx_messages_conversation_sequence
             ON messages (conversation_id, sequence)
             """,
+            """
+            CREATE TABLE IF NOT EXISTS task_results (
+                task_result_id BIGINT PRIMARY KEY,
+                agent_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL REFERENCES user_identities(user_id),
+                conversation_id BIGINT NOT NULL
+                    REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                run_id BIGINT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+                message_id BIGINT REFERENCES messages(message_id) ON DELETE SET NULL,
+                result_type TEXT NOT NULL,
+                generation_status TEXT NOT NULL CHECK (
+                    generation_status IN (
+                        'pending', 'awaiting_input', 'running',
+                        'succeeded', 'failed', 'cancelled'
+                    )
+                ),
+                input_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                result_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_results_user_created
+            ON task_results (user_id, created_at DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_results_conversation_created
+            ON task_results (conversation_id, created_at)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_results_run
+            ON task_results (run_id)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_results_agent_created
+            ON task_results (agent_id, created_at)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_results_message
+            ON task_results (message_id)
+            """,
         )
         with self._pool.connection() as connection:
             for statement in statements:
@@ -96,31 +157,88 @@ class PostgresRuntimeStore:
             connection.execute("COMMENT ON TABLE conversations IS '智能体对话会话'")
             connection.execute("COMMENT ON TABLE messages IS '会话中的用户消息和助手回复'")
             connection.execute("COMMENT ON TABLE agent_runs IS '智能体运行状态与恢复信息'")
+            connection.execute("COMMENT ON TABLE user_identities IS '可信外部主体与内部雪花用户 ID 的映射'")
+            connection.execute("COMMENT ON TABLE task_results IS '所有智能体共享的任务结果及 OSS 对象元数据'")
+            connection.execute("COMMENT ON COLUMN task_results.input_data IS '任务输入、参数和参考图 OSS 对象元数据'")
+            connection.execute("COMMENT ON COLUMN task_results.result_data IS '生成结果 OSS 对象元数据及智能体扩展数据'")
+
+    def _resolve_user_id(
+        self,
+        connection: Any,
+        principal_id: str,
+        *,
+        create: bool,
+    ) -> int | None:
+        """将认证上下文中的外部主体映射为数据库使用的雪花用户 ID。"""
+        row = connection.execute(
+            "SELECT user_id FROM user_identities WHERE external_principal = %s",
+            (principal_id,),
+        ).fetchone()
+        if row is not None:
+            return row["user_id"]
+        if not create:
+            return None
+
+        generated_id = self.id_generator.next_id()
+        connection.execute(
+            """
+            INSERT INTO user_identities (user_id, external_principal)
+            VALUES (%s, %s)
+            ON CONFLICT (external_principal) DO NOTHING
+            """,
+            (generated_id, principal_id),
+        )
+        row = connection.execute(
+            "SELECT user_id FROM user_identities WHERE external_principal = %s",
+            (principal_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("无法分配数据库用户 ID")
+        return row["user_id"]
 
     def save(self, conversation_id: str, metadata: dict[str, Any]) -> None:
-        """新增或更新会话所有者。"""
+        """创建会话归属；冲突时不覆盖已有主体或智能体。"""
         owner_id = metadata.get("principal_id")
+        agent_id = metadata.get("agent_id", "default")
         if not isinstance(owner_id, str) or not owner_id:
             raise ValueError("会话必须包含有效 owner_id")
+        if not isinstance(agent_id, str) or not agent_id:
+            raise ValueError("会话必须包含有效 agent_id")
         with self._pool.connection() as connection:
+            user_id = self._resolve_user_id(connection, owner_id, create=True)
             connection.execute(
                 """
-                INSERT INTO conversations (conversation_id, owner_id)
-                VALUES (%s, %s)
-                ON CONFLICT (conversation_id) DO UPDATE
-                SET owner_id = EXCLUDED.owner_id, updated_at = NOW()
+                INSERT INTO conversations (conversation_id, owner_id, agent_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (conversation_id) DO NOTHING
                 """,
-                (conversation_id, owner_id),
+                (
+                    to_database_id(conversation_id),
+                    user_id,
+                    agent_database_id(agent_id),
+                ),
             )
 
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         """按会话标识读取元数据副本。"""
         with self._pool.connection() as connection:
             row = connection.execute(
-                "SELECT owner_id FROM conversations WHERE conversation_id = %s",
-                (conversation_id,),
+                """
+                SELECT identities.external_principal, conversations.agent_id
+                FROM conversations
+                JOIN user_identities AS identities ON identities.user_id = conversations.owner_id
+                WHERE conversations.conversation_id = %s
+                """,
+                (to_database_id(conversation_id),),
             ).fetchone()
-        return {"principal_id": row["owner_id"]} if row is not None else None
+        return (
+            {
+                "principal_id": row["external_principal"],
+                "agent_id": agent_code_from_database_id(row["agent_id"]),
+            }
+            if row is not None
+            else None
+        )
 
     def set_conversation_title_if_empty(self, conversation_id: str, title: str) -> None:
         """只在会话标题为空时保存首条用户消息摘要。"""
@@ -131,7 +249,7 @@ class PostgresRuntimeStore:
                 SET title = %s
                 WHERE conversation_id = %s AND (title IS NULL OR title = '')
                 """,
-                (title, conversation_id),
+                (title, to_database_id(conversation_id)),
             )
 
     def list_conversations(
@@ -142,17 +260,29 @@ class PostgresRuntimeStore:
     ) -> list[ConversationRecord]:
         """按更新时间倒序分页查询当前主体的会话。"""
         with self._pool.connection() as connection:
+            user_id = self._resolve_user_id(connection, principal_id, create=False)
+            if user_id is None:
+                return []
             rows = connection.execute(
                 """
-                SELECT conversation_id, title, created_at, updated_at
+                SELECT conversation_id, title, created_at, updated_at, agent_id
                 FROM conversations
                 WHERE owner_id = %s
                 ORDER BY updated_at DESC, conversation_id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (principal_id, limit, offset),
+                (user_id, limit, offset),
             ).fetchall()
-        return [ConversationRecord(**row) for row in rows]
+        return [
+            ConversationRecord(
+                conversation_id=str(row["conversation_id"]),
+                title=row["title"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                agent_id=agent_code_from_database_id(row["agent_id"]),
+            )
+            for row in rows
+        ]
 
     def save_message(
         self,
@@ -160,13 +290,16 @@ class PostgresRuntimeStore:
         run_id: str,
         role: str,
         content: str,
-    ) -> None:
-        """按会话锁分配消息序号并持久化消息。"""
+    ) -> str:
+        """按会话锁分配消息序号并返回持久化消息标识。"""
+        message_id = self.id_generator.next_id_string()
+        database_conversation_id = to_database_id(conversation_id)
+        database_run_id = to_database_id(run_id)
         with self._pool.connection() as connection:
             with connection.transaction():
                 conversation = connection.execute(
                     "SELECT 1 FROM conversations WHERE conversation_id = %s FOR UPDATE",
-                    (conversation_id,),
+                    (database_conversation_id,),
                 ).fetchone()
                 if conversation is None:
                     raise ValueError("保存消息前必须先创建会话")
@@ -175,7 +308,7 @@ class PostgresRuntimeStore:
                     SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
                     FROM messages WHERE conversation_id = %s
                     """,
-                    (conversation_id,),
+                    (database_conversation_id,),
                 ).fetchone()["next_sequence"]
                 connection.execute(
                     """
@@ -183,12 +316,20 @@ class PostgresRuntimeStore:
                         message_id, conversation_id, run_id, sequence, role, content
                     ) VALUES (%s, %s, %s, %s, %s, %s)
                     """,
-                    (uuid4().hex, conversation_id, run_id, sequence, role, content),
+                    (
+                        to_database_id(message_id),
+                        database_conversation_id,
+                        database_run_id,
+                        sequence,
+                        role,
+                        content,
+                    ),
                 )
                 connection.execute(
                     "UPDATE conversations SET updated_at = NOW() WHERE conversation_id = %s",
-                    (conversation_id,),
+                    (database_conversation_id,),
                 )
+        return message_id
 
     def list_messages(
         self,
@@ -208,9 +349,25 @@ class PostgresRuntimeStore:
                 ORDER BY sequence DESC
                 LIMIT %s
                 """,
-                (conversation_id, before_sequence, before_sequence, limit),
+                (
+                    to_database_id(conversation_id),
+                    before_sequence,
+                    before_sequence,
+                    limit,
+                ),
             ).fetchall()
-        return [MessageRecord(**row) for row in rows]
+        return [
+            MessageRecord(
+                message_id=str(row["message_id"]),
+                conversation_id=str(row["conversation_id"]),
+                run_id=str(row["run_id"]) if row["run_id"] is not None else None,
+                sequence=row["sequence"],
+                role=row["role"],
+                content=row["content"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
 
     def save_run(self, record: RunRecord) -> None:
         """持久化新增或更新的智能体运行记录。"""
@@ -218,17 +375,19 @@ class PostgresRuntimeStore:
             connection.execute(
                 """
                 INSERT INTO agent_runs (
-                    run_id, conversation_id, status, metadata
-                ) VALUES (%s, %s, %s, %s)
+                    run_id, conversation_id, agent_id, status, metadata
+                ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (run_id) DO UPDATE SET
                     conversation_id = EXCLUDED.conversation_id,
+                    agent_id = EXCLUDED.agent_id,
                     status = EXCLUDED.status,
                     metadata = EXCLUDED.metadata,
                     updated_at = NOW()
                 """,
                 (
-                    record.run_id,
-                    record.conversation_id,
+                    to_database_id(record.run_id),
+                    to_database_id(record.conversation_id),
+                    agent_database_id(record.agent_id),
                     record.status.value,
                     Jsonb(record.metadata),
                 ),
@@ -240,22 +399,222 @@ class PostgresRuntimeStore:
             row = connection.execute(
                 """
                 SELECT runs.run_id, runs.conversation_id, conversations.owner_id,
-                       runs.status, runs.metadata
+                       identities.external_principal, runs.agent_id, runs.status,
+                       runs.metadata
                 FROM agent_runs AS runs
                 JOIN conversations USING (conversation_id)
+                JOIN user_identities AS identities ON identities.user_id = conversations.owner_id
                 WHERE runs.run_id = %s
                 """,
-                (run_id,),
+                (to_database_id(run_id),),
             ).fetchone()
         if row is None:
             return None
         return RunRecord(
-            run_id=row["run_id"],
-            conversation_id=row["conversation_id"],
-            principal_id=row["owner_id"],
+            run_id=str(row["run_id"]),
+            conversation_id=str(row["conversation_id"]),
+            principal_id=row["external_principal"],
             status=RunStatus(row["status"]),
             metadata=dict(row["metadata"]),
+            agent_id=agent_code_from_database_id(row["agent_id"]),
         )
+
+    def save_task_result(self, record: TaskResultRecord) -> None:
+        """在验证会话、运行和主体归属后保存统一任务结果。"""
+        with self._pool.connection() as connection:
+            with connection.transaction():
+                user_id = self._resolve_user_id(connection, record.user_id, create=False)
+                if user_id is None:
+                    raise ConversationAccessDeniedError()
+                database_agent_id = agent_database_id(record.agent_id)
+                context = connection.execute(
+                    """
+                    SELECT 1
+                    FROM conversations AS conversations
+                    JOIN agent_runs AS runs
+                      ON runs.conversation_id = conversations.conversation_id
+                    WHERE conversations.conversation_id = %s
+                      AND conversations.owner_id = %s
+                      AND conversations.agent_id = %s
+                      AND runs.run_id = %s
+                      AND runs.agent_id = %s
+                    """,
+                    (
+                        to_database_id(record.conversation_id),
+                        user_id,
+                        database_agent_id,
+                        to_database_id(record.run_id),
+                        database_agent_id,
+                    ),
+                ).fetchone()
+                if context is None:
+                    raise ConversationAccessDeniedError()
+                cursor = connection.execute(
+                    """
+                    INSERT INTO task_results (
+                        task_result_id, agent_id, user_id, conversation_id, run_id,
+                        message_id, result_type, generation_status, input_data,
+                        result_data
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (task_result_id) DO UPDATE SET
+                        generation_status = EXCLUDED.generation_status,
+                        input_data = EXCLUDED.input_data,
+                        result_data = EXCLUDED.result_data,
+                        message_id = COALESCE(EXCLUDED.message_id, task_results.message_id),
+                        updated_at = NOW()
+                    WHERE task_results.user_id = EXCLUDED.user_id
+                      AND task_results.agent_id = EXCLUDED.agent_id
+                      AND task_results.conversation_id = EXCLUDED.conversation_id
+                      AND task_results.run_id = EXCLUDED.run_id
+                    """,
+                    (
+                        to_database_id(record.task_result_id),
+                        database_agent_id,
+                        user_id,
+                        to_database_id(record.conversation_id),
+                        to_database_id(record.run_id),
+                        to_database_id(record.message_id) if record.message_id else None,
+                        record.result_type,
+                        record.generation_status.value,
+                        Jsonb(record.input_data),
+                        Jsonb(record.result_data),
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConversationAccessDeniedError()
+
+    def set_task_result_status(
+        self,
+        task_result_id: str,
+        user_id: str,
+        status: TaskResultStatus,
+    ) -> bool:
+        """只更新结果状态；失败细节不单独持久化。"""
+        with self._pool.connection() as connection:
+            database_user_id = self._resolve_user_id(connection, user_id, create=False)
+            if database_user_id is None:
+                return False
+            cursor = connection.execute(
+                """
+                UPDATE task_results
+                SET generation_status = %s, updated_at = NOW()
+                WHERE task_result_id = %s AND user_id = %s
+                """,
+                (
+                    status.value,
+                    to_database_id(task_result_id),
+                    database_user_id,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def link_task_result_message(
+        self,
+        task_result_id: str,
+        message_id: str,
+        user_id: str,
+    ) -> None:
+        """仅更新任务结果的助手消息关联，不改变生成状态。"""
+        with self._pool.connection() as connection:
+            connection.execute(
+                """
+                UPDATE task_results
+                SET message_id = %s, updated_at = NOW()
+                WHERE task_result_id = %s AND user_id = %s
+                """,
+                (
+                    to_database_id(message_id),
+                    to_database_id(task_result_id),
+                    self._resolve_user_id(connection, user_id, create=False),
+                ),
+            )
+
+    def get_task_result(
+        self,
+        task_result_id: str,
+        user_id: str,
+    ) -> TaskResultRecord | None:
+        """按可信用户读取任务结果及 OSS 对象元数据。"""
+        with self._pool.connection() as connection:
+            database_user_id = self._resolve_user_id(connection, user_id, create=False)
+            if database_user_id is None:
+                return None
+            row = connection.execute(
+                """
+                SELECT task_results.*, identities.external_principal
+                FROM task_results
+                JOIN conversations USING (conversation_id)
+                JOIN user_identities AS identities ON identities.user_id = task_results.user_id
+                WHERE task_results.task_result_id = %s
+                  AND task_results.user_id = %s
+                  AND conversations.owner_id = %s
+                """,
+                (
+                    to_database_id(task_result_id),
+                    database_user_id,
+                    database_user_id,
+                ),
+            ).fetchone()
+        return self._task_result_from_row(row) if row is not None else None
+
+    def list_task_results_for_messages(
+        self,
+        conversation_id: str,
+        message_ids: list[str],
+        user_id: str,
+    ) -> list[TaskResultRecord]:
+        """按会话、消息标识和可信用户读取任务结果元数据。"""
+        if not message_ids:
+            return []
+        with self._pool.connection() as connection:
+            database_user_id = self._resolve_user_id(connection, user_id, create=False)
+            if database_user_id is None:
+                return []
+            rows = connection.execute(
+                """
+                SELECT task_results.task_result_id, task_results.agent_id,
+                       task_results.user_id, task_results.conversation_id,
+                       task_results.run_id, task_results.message_id,
+                       task_results.result_type, task_results.generation_status,
+                       task_results.input_data,
+                       task_results.result_data, task_results.created_at,
+                       task_results.updated_at,
+                       identities.external_principal
+                FROM task_results
+                JOIN user_identities AS identities ON identities.user_id = task_results.user_id
+                WHERE task_results.conversation_id = %s
+                  AND task_results.user_id = %s
+                  AND task_results.message_id = ANY(%s)
+                ORDER BY task_results.created_at
+                """,
+                (
+                    to_database_id(conversation_id),
+                    database_user_id,
+                    [to_database_id(message_id) for message_id in message_ids],
+                ),
+            ).fetchall()
+        return [self._task_result_from_row(row) for row in rows]
+
+    @staticmethod
+    def _task_result_from_row(row: dict[str, Any]) -> TaskResultRecord:
+        """将 PostgreSQL 行转换为内部任务结果记录。"""
+        return TaskResultRecord(
+            task_result_id=str(row["task_result_id"]),
+            agent_id=agent_code_from_database_id(row["agent_id"]),
+            user_id=row["external_principal"],
+            conversation_id=str(row["conversation_id"]),
+            run_id=str(row["run_id"]),
+            message_id=str(row["message_id"]) if row["message_id"] is not None else None,
+            result_type=row["result_type"],
+            generation_status=TaskResultStatus(row["generation_status"]),
+            input_data=dict(row["input_data"] or {}),
+            result_data=dict(row["result_data"] or {}),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
 
 
 class PostgresConversationStore:
@@ -313,9 +672,9 @@ class PostgresMessageStore:
         run_id: str,
         role: str,
         content: str,
-    ) -> None:
-        """保存一条会话消息。"""
-        self._store.save_message(conversation_id, run_id, role, content)
+    ) -> str:
+        """保存一条会话消息并返回消息标识。"""
+        return self._store.save_message(conversation_id, run_id, role, content)
 
     def list_by_conversation(
         self,
@@ -325,6 +684,53 @@ class PostgresMessageStore:
     ) -> list[MessageRecord]:
         """读取指定会话最新的一页消息。"""
         return self._store.list_messages(conversation_id, limit, before_sequence)
+
+
+class PostgresTaskResultStore:
+    """统一任务结果的 PostgreSQL 协议适配器。"""
+
+    def __init__(self, store: PostgresRuntimeStore) -> None:
+        """复用 Agent runtime 的 PostgreSQL 连接池。"""
+        self._store = store
+
+    def save(self, record: TaskResultRecord) -> None:
+        """保存或更新一个智能体结果。"""
+        self._store.save_task_result(record)
+
+    def set_status(
+        self,
+        task_result_id: str,
+        user_id: str,
+        status: TaskResultStatus,
+    ) -> bool:
+        """更新结果生命周期状态。"""
+        return self._store.set_task_result_status(
+            task_result_id,
+            user_id,
+            status,
+        )
+
+    def link_message(self, task_result_id: str, message_id: str, user_id: str) -> None:
+        """将生成结果与助手最终回复关联。"""
+        self._store.link_task_result_message(task_result_id, message_id, user_id)
+
+    def get_owned(self, task_result_id: str, user_id: str) -> TaskResultRecord | None:
+        """按可信用户读取结果和图片字节。"""
+        return self._store.get_task_result(task_result_id, user_id)
+
+    def list_for_messages(
+        self,
+        conversation_id: str,
+        message_ids: list[str],
+        user_id: str,
+    ) -> list[TaskResultRecord]:
+        """按消息标识读取结果元数据，不加载图片字节。"""
+        return self._store.list_task_results_for_messages(
+            conversation_id,
+            message_ids,
+            user_id,
+        )
+
 
 
 class PostgresRunLock:

@@ -1,6 +1,6 @@
 # 后端架构与扩展约定
 
-本文说明后端模块的职责、依赖方向，以及新增能力应放置的位置。项目启动方式见根目录 [README](../README.md)，数据库定义见[数据库结构说明](数据库表结构.md)。
+本文说明后端模块的职责、依赖方向，以及新增能力应放置的位置。项目启动方式见根目录 [README](../README.md)，接口定义见[API 接口文档](API接口文档.md)，数据库定义见[数据库结构说明](数据库表结构.md)。
 
 ## 请求与组装流程
 
@@ -8,55 +8,58 @@
 flowchart LR
     Client[HTTP 请求] --> Controller[app.controller]
     Controller --> Service[app.service]
-    Service --> Runtime[Agent runtime]
-    Runtime --> Persistence[agent.persistence]
+    Service --> Registry[AgentRegistry]
+    Registry --> Runtime[AgentRunner per agent]
+    Runtime --> Persistence[共享 PostgreSQL 存储]
     Controller --> Schemas[app.schemas]
     Main[app.main] --> Lifecycle[app.lifecycle]
-    Lifecycle --> Runtime
-    Lifecycle --> Infrastructure[Provider 与持久化适配器]
+    Lifecycle --> Registry
+    Lifecycle --> Infrastructure[模型 Provider 与持久化适配器]
 ```
 
-箭头表示调用或依赖方向。`app.lifecycle` 在应用启动时组装模型 Provider、Agent runtime 和持久化适配器；请求进入 Controller 后，由 Service 调用相应能力。
+`app.lifecycle` 启动时创建各智能体图和 Runner。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库适配器和 SSE 发布器。Controller 按 `agent_id` 从显式注册表取得对应应用 Service。
 
 ## 模块职责
 
 | 位置 | 职责 | 不负责 |
 |---|---|---|
-| `app/controller/` | 接收 HTTP 参数、解析依赖、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
+| `app/controller/` | 接收 HTTP 参数、解析身份、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
 | `app/service/` | 编排应用用例；不依赖 FastAPI 请求对象 | 直接执行 SQL |
-| `app/schemas/` | 定义 HTTP 请求和响应 DTO | 保存 Agent 内部状态或数据库实体 |
-| `agent/` | 管理图状态、节点、工具、运行和稳定事件 | 导入 `app` 或 FastAPI |
-| `agent/persistence/` | 持久化 Checkpoint 周边的会话、消息和运行状态 | 通用业务 Repository |
-| `infra/` | 集中管理设置及外部 Provider | 承载 HTTP 路由或 Agent 业务流程 |
-
-当前不单独创建 `app/repositories/`：会话、消息和运行记录属于 Agent runtime 的基础设施。只有出现独立于 Agent runtime 的业务数据时，才为该业务增加 Repository。
+| `app/schemas/` | 定义 HTTP 请求和响应 DTO | 保存图状态或数据库实体 |
+| `agent/` | 提供共享 Runner、稳定事件、追问协议、持久化协议；保留现有默认智能体图 | 导入 `app`、FastAPI 或 HTTP DTO |
+| `agents/` | 按业务目录保存独立智能体图、状态、节点、提示词、工具和 Provider 适配 | 复制公共 Runner、SSE 或持久化代码 |
+| `agents/registry.py` | 按稳定 `agent_id` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
+| `agent/persistence/` | 持久化会话、消息、运行和统一结果 | 通用 ORM Repository |
+| `infra/` | 集中管理配置及外部 Provider | 承载 HTTP 路由或业务图流程 |
 
 ## 依赖与数据边界
 
-- Controller 可以调用 Service；Service 可以调用 Agent runtime 或持久化协议。依赖只朝被调用方流动。
-- Agent 和基础设施模块不导入 `app`、FastAPI 或 HTTP DTO。
-- `app/schemas/` 保存 HTTP 请求与响应模型；`agent/schemas/` 保存图状态、运行记录、事件和工具载荷。两类模型不混用。
-- 当前没有 SQLAlchemy ORM。Agent 持久化适配器管理自己的 SQL 表；未来的业务 ORM Model 应放在对应业务模块，并与 API Schema 分开。
-- `agent/errors.py` 定义 Agent 领域异常；`app/exceptions/handlers.py` 将其转换为 HTTP 响应。
-- `infra/settings.py` 是配置入口。Controller、Service、Provider 和 Agent 通过依赖或构造注入使用配置；节点和工具不直接读取环境变量。
+- Controller 调用 Service；Service 按 `agent_id` 查找应用 Service 并调用 Runner。
+- `agent/`、`agents/` 和基础设施模块不导入 FastAPI Controller 或 HTTP DTO。
+- `app/schemas/` 保存 HTTP 请求与响应模型；`agent/schemas/` 保存运行记录、图问题、事件和任务结果记录。
+- 当前没有 SQLAlchemy ORM。共享 PostgreSQL 适配器管理会话、消息、运行和 `task_results`；图片字节由 `infra/aliyun_oss.py` 保存到私有 OSS。
+- `agent/errors.py` 定义运行时业务异常；`app/exceptions/handlers.py` 将其转换为 HTTP 响应。
+- `infra/settings.py` 是配置入口。Provider 和智能体节点通过构造注入使用配置；节点和工具不直接读取环境变量。
 - `app/dependencies/` 保存 HTTP 依赖，例如可信主体解析；`app/lifecycle.py` 负责运行资源的创建与释放。
 
 数据库持久化范围见[数据库结构说明](数据库表结构.md)。
 
-## 新增能力放置规则
+## 扩展默认智能体
 
-### 扩展 Agent
+`backend/agent/` 中的 `state.py`、`nodes/`、`tools/`、`prompts/` 和 `graph.py` 属于当前默认智能体。若要修改默认对话能力，可以继续在这些文件中扩展。`agent/tools/registry.py` 中的 `AGENT_TOOLS` 只登记默认图的工具。
 
-1. 在 `agent/state.py` 中增加有界、可序列化的状态字段。
-2. 在 `agent/nodes/` 中实现职责单一的节点；节点不依赖 HTTP 请求对象。
-3. 在 `agent/tools/` 中实现有类型约束的工具，并在 `registry.py` 的 `AGENT_TOOLS` 清单中登记。
-4. 在 `agent/prompts/` 中维护提示词；外部文档、工具结果和用户文本都视为不可信输入。
-5. 在 `agent/graph.py` 中连接节点、工具和停止条件，并为新增流程补充测试。
+## 新增独立智能体
 
-`AGENT_TOOLS` 是唯一智能体的工具清单，不是智能体注册中心。项目不需要复制 Agent 目录、定义 `agent_id` 或实现 Agent 发现与路由。
+1. 在 `backend/agents/<business_name>/` 新建业务状态、图、节点、系统提示词和专属工具。
+2. 在 `backend/agents/registry.py` 与 `AgentDefinition` 中登记稳定 `agent_id`、名称、描述和能力。
+3. 在 `app/lifecycle.py` 组装 Provider、图、Runner 和应用 Service；共享数据库、Checkpointer、问题协议和 SSE。
+4. 将业务结果元数据保存到统一 `task_results` 表；大文件放入对象存储并在 JSON 元数据中保留对象键。
+5. 为新图、追问恢复、Provider 错误、结果持久化和资源授权增加离线测试。
 
-### 增加普通业务数据
+当前淘宝图片智能体位于 `backend/agents/image_generation/`，标识为 `taobao_image`。图片业务实现不放入默认智能体的业务图目录。
 
-在 `app/modules/<业务名>/` 下按需增加 `controller/`、`service/`、`repository/`、`models/` 和 `schemas/`。只在确有独立业务持久化需求时添加 Model 和 Repository。
+## 增加普通业务数据
 
-MCP 接入属于工具能力时放在 Agent Tools 或独立集成模块；RAG 的文档处理、切分、Embedding、检索和生成应作为独立 AI 模块，不放进通用 Controller、Repository 或 Agent Service。
+在 `app/modules/<业务名>/` 下按需增加 `controller/`、`service/`、`repository/`、`models/` 和 `schemas/`。只有确有独立于智能体运行的数据需求时，才为该业务增加 Repository。
+
+MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG 的文档处理、切分、Embedding、检索和生成应作为独立 AI 模块，不放进通用 Controller、Repository 或 Agent Service。
