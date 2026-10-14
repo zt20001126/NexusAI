@@ -9,13 +9,34 @@ import { useChatSession } from './hooks/useChatSession'
 /** 组合聊天页面的导航、消息流、追问卡片和输入框。 */
 function ChatPage() {
   const [draft, setDraft] = useState('')
+  const [pendingImages, setPendingImages] = useState<File[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const chat = useChatSession()
 
   async function handleSend() {
     const message = draft.trim()
     if (!message || chat.sending) return
-    setDraft('')
-    await chat.sendMessage(message)
+    setAttachmentError(null)
+    const sent = await chat.sendMessage(message, pendingImages)
+    if (sent) {
+      setDraft('')
+      setPendingImages([])
+    }
+  }
+
+  function addAttachments(files: File[]) {
+    setAttachmentError(null)
+    const valid = files.filter((file) =>
+      (file.type === 'image/png' || file.type === 'image/jpeg')
+      && file.size > 0
+      && file.size <= 20 * 1024 * 1024,
+    )
+    if (valid.length !== files.length) {
+      setAttachmentError('仅支持不超过 20 MiB 的 PNG/JPEG 图片。')
+    }
+    const remaining = Math.max(0, 20 - pendingImages.length)
+    if (valid.length > remaining) setAttachmentError('参考图片最多添加 20 张。')
+    setPendingImages((current) => [...current, ...valid.slice(0, remaining)])
   }
 
   return (
@@ -28,8 +49,16 @@ function ChatPage() {
         loadingMore={chat.loadingMoreConversations}
         disabled={chat.sending}
         error={chat.sidebarError}
-        onCreate={chat.createConversation}
-        onSelect={chat.selectConversation}
+        onCreate={() => {
+          setPendingImages([])
+          setAttachmentError(null)
+          chat.createConversation()
+        }}
+        onSelect={(conversationId) => {
+          setPendingImages([])
+          setAttachmentError(null)
+          chat.selectConversation(conversationId)
+        }}
         onLoadMore={() => { void chat.loadMoreConversations() }}
         onRetry={() => { void chat.refreshConversations() }}
       />
@@ -65,7 +94,9 @@ function ChatPage() {
               onSubmit={(answers) => { void chat.resumeRun(answers) }}
             />
           )}
-          {chat.error && <div className="error-banner" role="alert">{chat.error}</div>}
+          {(chat.error || attachmentError) && (
+            <div className="error-banner" role="alert">{attachmentError || chat.error}</div>
+          )}
         </div>
 
         <Composer
@@ -75,6 +106,17 @@ function ChatPage() {
           onSend={() => { void handleSend() }}
           onCancel={() => { void chat.cancelRun() }}
           canCancel={chat.canCancel}
+          agents={chat.agents}
+          activeAgentId={chat.activeAgentId}
+          onSelectAgent={(agentId) => {
+            setPendingImages([])
+            setAttachmentError(null)
+            chat.selectAgent(agentId)
+          }}
+          supportsImageUpload={chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.supports_image_upload ?? false}
+          attachments={pendingImages}
+          onAddAttachments={addAttachments}
+          onRemoveAttachment={(index) => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
         />
       </section>
     </main>

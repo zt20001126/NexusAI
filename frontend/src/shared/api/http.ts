@@ -13,6 +13,14 @@ interface ApiEnvelope<T> {
   data?: T
   code?: string
   message?: string
+  detail?: string | Array<{ msg?: string }>
+}
+
+function readApiErrorMessage(body: ApiEnvelope<unknown> | null, status: number): string {
+  if (body?.message) return body.message
+  if (typeof body?.detail === 'string') return body.detail
+  if (Array.isArray(body?.detail) && body.detail[0]?.msg) return body.detail[0].msg
+  return `请求失败（HTTP ${status}）`
 }
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -26,10 +34,31 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !body?.success || body.data === undefined) {
-    throw new Error(body?.message ?? `请求失败（HTTP ${response.status}）`)
+    throw new Error(readApiErrorMessage(body, response.status))
   }
 
   return body.data
+}
+
+/** 上传原始文件内容，并读取项目统一 JSON 成功响应。 */
+export async function requestBinary<T>(
+  path: string,
+  body: Blob,
+  fileName: string,
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': body.type || 'application/octet-stream',
+    },
+    body,
+  })
+  const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
+  if (!response.ok || !envelope?.success || envelope.data === undefined) {
+    throw new Error(`${readApiErrorMessage(envelope, response.status)}（${fileName}）`)
+  }
+  return envelope.data
 }
 
 function parseEventBlock<T>(block: string): T | null {
@@ -61,7 +90,7 @@ export async function streamEvents<T>(
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiEnvelope<unknown> | null
-    throw new Error(body?.message ?? `请求失败（HTTP ${response.status}）`)
+    throw new Error(readApiErrorMessage(body, response.status))
   }
   if (!response.body) throw new Error('浏览器无法读取服务器的流式响应')
 

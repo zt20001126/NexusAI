@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question } from '../api/agent'
-import { cancelAgentRun, resumeAgentRun, streamChat } from '../api/agent'
-import type { AgentEvent } from '../api/agent'
+import {
+  cancelAgentRun,
+  getAgents,
+  resumeAgentRun,
+  streamChat,
+  uploadReferenceImage,
+} from '../api/agent'
+import type { AgentDefinition, AgentEvent } from '../api/agent'
 import {
   getConversationMessages,
   getConversations,
   type Conversation,
+  type TaskResultSummary,
 } from '../api/conversations'
 import { toDisplayMessage, type DisplayMessage } from '../model/messages'
 
@@ -17,6 +24,8 @@ interface PendingQuestion {
 
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
 export function useChatSession() {
+  const [agents, setAgents] = useState<AgentDefinition[]>([])
+  const [activeAgentId, setActiveAgentId] = useState('default')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMessage[]>([])
@@ -33,13 +42,31 @@ export function useChatSession() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const activeConversationRef = useRef<string | null>(null)
   const activeRunRef = useRef<string | null>(null)
+  const activeAgentRef = useRef('default')
 
   const selectConversation = useCallback((conversationId: string | null) => {
     activeConversationRef.current = conversationId
     setActiveConversationId(conversationId)
+    const conversation = conversations.find((item) => item.conversation_id === conversationId)
+    if (conversation) {
+      activeAgentRef.current = conversation.agent_id
+      setActiveAgentId(conversation.agent_id)
+    }
     setPendingQuestion(null)
     setError(null)
     setOlderCursor(null)
+  }, [conversations])
+
+  const selectAgent = useCallback((agentId: string) => {
+    activeAgentRef.current = agentId
+    setActiveAgentId(agentId)
+    activeConversationRef.current = null
+    setActiveConversationId(null)
+    setMessages([])
+    setPendingQuestion(null)
+    setError(null)
+    setOlderCursor(null)
+    setStatus('随时可以开始')
   }, [])
 
   const refreshConversations = useCallback(async () => {
@@ -66,6 +93,18 @@ export function useChatSession() {
 
   useEffect(() => {
     let mounted = true
+    void getAgents()
+      .then((items) => {
+        if (mounted) setAgents(items)
+      })
+      .catch((requestError: unknown) => {
+        if (mounted) setSidebarError(getErrorMessage(requestError))
+      })
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
     void getConversations()
       .then((page) => {
         if (!mounted) return
@@ -73,6 +112,8 @@ export function useChatSession() {
         setConversationHasMore(page.has_more)
         if (page.items[0]) {
           activeConversationRef.current = page.items[0].conversation_id
+          activeAgentRef.current = page.items[0].agent_id
+          setActiveAgentId(page.items[0].agent_id)
           setActiveConversationId(page.items[0].conversation_id)
         }
       })
@@ -147,6 +188,13 @@ export function useChatSession() {
         setStatus('等待你的补充信息')
         break
       }
+      case 'task_result.updated': {
+        const result = readTaskResult(event.data, activeAgentRef.current)
+        if (result) {
+          setMessages((current) => upsertAssistantResult(current, event.run_id, result))
+        }
+        break
+      }
       case 'run.completed':
         setPendingQuestion(null)
         activeRunRef.current = null
@@ -180,26 +228,38 @@ export function useChatSession() {
     }
   }
 
-  async function sendMessage(message: string) {
+  async function sendMessage(message: string, imageFiles: File[] = []) {
     const trimmedMessage = message.trim()
     if (!trimmedMessage || sending) return
 
     const conversationId = activeConversationRef.current
     setError(null)
     setPendingQuestion(null)
-    setMessages((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, role: 'user', content: trimmedMessage },
-    ])
     setSending(true)
     setStatus('正在连接…')
+    let sent = false
 
     try {
+      const uploadedImages = await Promise.all(
+        imageFiles.map((file) => uploadReferenceImage(file, activeAgentRef.current)),
+      )
+      setMessages((current) => [
+        ...current,
+        { id: `local-${Date.now()}`, role: 'user', content: trimmedMessage },
+      ])
       await streamChat(
-        { message: trimmedMessage, ...(conversationId ? { conversation_id: conversationId } : {}) },
+        {
+          message: trimmedMessage,
+          ...(conversationId ? { conversation_id: conversationId } : {}),
+          ...(uploadedImages.length > 0
+            ? { attachment_ids: uploadedImages.map((item) => item.attachment_id) }
+            : {}),
+        },
         handleAgentEvent,
+        activeAgentRef.current,
       )
       await finishTurn()
+      sent = true
     } catch (requestError) {
       setError(getErrorMessage(requestError))
       setStatus('请求未完成')
@@ -207,6 +267,7 @@ export function useChatSession() {
       activeRunRef.current = null
       setSending(false)
     }
+    return sent
   }
 
   async function resumeRun(answers: Record<string, string>) {
@@ -220,6 +281,7 @@ export function useChatSession() {
         pendingQuestion.conversationId,
         answers,
         handleAgentEvent,
+        activeAgentRef.current,
       )
       await finishTurn()
     } catch (requestError) {
@@ -235,7 +297,7 @@ export function useChatSession() {
     const runId = activeRunRef.current
     if (!runId) return
     try {
-      await cancelAgentRun(runId)
+      await cancelAgentRun(runId, activeAgentRef.current)
       setStatus('正在停止…')
     } catch (requestError) {
       setError(getErrorMessage(requestError))
@@ -273,9 +335,12 @@ export function useChatSession() {
   }
 
   function createConversation() {
-    selectConversation(null)
+    activeConversationRef.current = null
+    setActiveConversationId(null)
+    setPendingQuestion(null)
     setMessages([])
     setError(null)
+    setOlderCursor(null)
     setStatus('随时可以开始')
   }
 
@@ -284,6 +349,8 @@ export function useChatSession() {
   )
 
   return {
+    agents,
+    activeAgentId,
     conversations,
     activeConversation,
     activeConversationId,
@@ -301,6 +368,7 @@ export function useChatSession() {
     loadingOlder,
     canCancel: sending && activeRunRef.current !== null,
     selectConversation,
+    selectAgent,
     refreshConversations,
     sendMessage,
     resumeRun,
@@ -309,6 +377,56 @@ export function useChatSession() {
     loadMoreConversations,
     createConversation,
   }
+}
+
+function readTaskResult(data: Record<string, unknown>, agentId: string): TaskResultSummary | null {
+  const taskResultId = readString(data.task_result_id)
+  const status = readString(data.generation_status)
+  const allowedStatuses = ['pending', 'awaiting_input', 'running', 'succeeded', 'failed', 'cancelled']
+  if (!taskResultId || !allowedStatuses.includes(status)) return null
+  return {
+    task_result_id: taskResultId,
+    agent_id: readString(data.agent_id) || agentId,
+    result_type: readString(data.result_type) || 'image',
+    generation_status: status as TaskResultSummary['generation_status'],
+    image_url: readNullableString(data.image_url),
+    mime_type: readNullableString(data.mime_type),
+    width: readNullableNumber(data.width),
+    height: readNullableNumber(data.height),
+    error_code: readNullableString(data.error_code),
+    error_message: readNullableString(data.error_message),
+  }
+}
+
+function upsertAssistantResult(
+  messages: DisplayMessage[],
+  runId: string,
+  result: TaskResultSummary,
+): DisplayMessage[] {
+  const id = `assistant-${runId}`
+  const existingIndex = messages.findIndex((message) => message.id === id)
+  if (existingIndex === -1) {
+    return [...messages, { id, role: 'assistant', content: '', taskResults: [result] }]
+  }
+  return messages.map((message, index) => {
+    if (index !== existingIndex) return message
+    const results = message.taskResults ?? []
+    return {
+      ...message,
+      taskResults: [
+        ...results.filter((item) => item.task_result_id !== result.task_result_id),
+        result,
+      ],
+    }
+  })
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function readNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
 }
 
 function readString(value: unknown): string {

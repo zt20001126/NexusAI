@@ -1,6 +1,6 @@
 /** Agent 对话、追问恢复和运行取消 API。 */
 
-import { requestJson, streamEvents } from '../../../shared/api/http'
+import { requestBinary, requestJson, streamEvents } from '../../../shared/api/http'
 
 export interface AgentEvent {
   event_id: string
@@ -15,6 +15,21 @@ export interface AgentEvent {
 export interface ChatRequest {
   message: string
   conversation_id?: string
+  attachment_ids?: string[]
+}
+
+export interface AgentDefinition {
+  agent_id: string
+  name: string
+  description: string
+  supports_image_upload: boolean
+}
+
+export interface UploadedImage {
+  attachment_id: string
+  file_name: string
+  mime_type: string
+  file_size: number
 }
 
 interface QuestionBase {
@@ -36,8 +51,9 @@ export type Question = QuestionBase & (
 export async function streamChat(
   payload: ChatRequest,
   onEvent: (event: AgentEvent) => void,
+  agentId = 'default',
 ): Promise<void> {
-  await streamEvents('/api/agent/chat/stream', payload, onEvent)
+  await streamEvents(`/api/agents/${encodeURIComponent(agentId)}/chat/stream`, payload, onEvent)
 }
 
 export async function resumeAgentRun(
@@ -45,16 +61,26 @@ export async function resumeAgentRun(
   conversationId: string,
   answers: Record<string, string>,
   onEvent: (event: AgentEvent) => void,
+  agentId = 'default',
 ): Promise<void> {
   await streamEvents(
-    `/api/agent/runs/${encodeURIComponent(runId)}/resume`,
+    `/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/resume`,
     { conversation_id: conversationId, answers },
     onEvent,
   )
 }
 
-export function cancelAgentRun(runId: string): Promise<{ run_id: string; cancel_requested: boolean }> {
-  return requestJson(`/api/agent/runs/${encodeURIComponent(runId)}/cancel`, {
+export function cancelAgentRun(runId: string, agentId = 'default'): Promise<{ run_id: string; cancel_requested: boolean }> {
+  return requestJson(`/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST',
   })
+}
+
+export function getAgents(): Promise<AgentDefinition[]> {
+  return requestJson('/api/agents')
+}
+
+export function uploadReferenceImage(file: File, agentId: string): Promise<UploadedImage> {
+  const query = new URLSearchParams({ agent_id: agentId, file_name: file.name })
+  return requestBinary(`/api/uploads/images?${query.toString()}`, file, file.name)
 }

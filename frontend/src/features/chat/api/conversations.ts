@@ -7,6 +7,20 @@ export interface Conversation {
   title: string | null
   created_at: string
   updated_at: string
+  agent_id: string
+}
+
+export interface TaskResultSummary {
+  task_result_id: string
+  agent_id: string
+  result_type: string
+  generation_status: 'pending' | 'awaiting_input' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  image_url: string | null
+  mime_type: string | null
+  width: number | null
+  height: number | null
+  error_code: string | null
+  error_message: string | null
 }
 
 export interface ConversationPage {
@@ -25,6 +39,7 @@ export interface ConversationMessage {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  task_results: TaskResultSummary[]
 }
 
 export interface MessagePage {

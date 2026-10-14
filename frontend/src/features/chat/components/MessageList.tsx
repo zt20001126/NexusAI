@@ -85,7 +85,22 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
                     </div>
                   )
                   : <span>{message.content}</span>
-                : <span className="typing-dots">正在思考…</span>}
+                : message.taskResults?.length
+                  ? null
+                  : <span className="typing-dots">正在思考…</span>}
+              {message.taskResults?.map((result) => (
+                <div className="task-result-card" key={result.task_result_id}>
+                  {result.generation_status === 'succeeded' && result.image_url ? (
+                    <a href={result.image_url} target="_blank" rel="noreferrer">
+                      <img src={result.image_url} alt="生成的淘宝商品图片" loading="lazy" />
+                    </a>
+                  ) : result.generation_status === 'failed' ? (
+                    <p role="status">图片生成失败：{result.error_message || '请调整描述后重试。'}</p>
+                  ) : (
+                    <p role="status">{taskResultStatusText(result.generation_status)}</p>
+                  )}
+                </div>
+              ))}
               {message.streaming && <span className="stream-caret" aria-hidden="true" />}
             </div>
           </div>
@@ -103,6 +118,16 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
     </div>
     </div>
   )
+}
+
+function taskResultStatusText(status: string): string {
+  switch (status) {
+    case 'pending': return '图片任务已创建…'
+    case 'awaiting_input': return '等待图片参数…'
+    case 'running': return '正在生成图片…'
+    case 'cancelled': return '图片生成已取消。'
+    default: return '正在准备图片结果…'
+  }
 }
 
 export default MessageList
