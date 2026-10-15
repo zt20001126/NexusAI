@@ -602,14 +602,13 @@ class AgentRunner:
                 "data": payload.get("data", {}),
             },
         )
-        if message.name == "generate_image":
-            task_result = payload.get("data", {}).get("task_result")
-            if isinstance(task_result, dict):
-                yield self._event(
-                    record,
-                    AgentEventType.TASK_RESULT_UPDATED,
-                    task_result,
-                )
+        task_result = payload.get("data", {}).get("task_result")
+        if isinstance(task_result, dict):
+            yield self._event(
+                record,
+                AgentEventType.TASK_RESULT_UPDATED,
+                task_result,
+            )
 
     @staticmethod
     def _safe_tool_payload(content: Any) -> dict[str, Any]:

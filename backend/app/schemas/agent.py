@@ -66,7 +66,15 @@ class ResumeRequest(BaseModel):
                 raise ValueError("问题标识长度不合法")
             if isinstance(value, str) and len(value) > 2_000:
                 raise ValueError("单个答案文本不能超过 2000 个字符")
+            if isinstance(value, str) and not value.strip():
+                raise ValueError("必要问题不能提交空白答案")
+            if value is None:
+                raise ValueError("必要问题不能提交空答案")
             if isinstance(value, list):
-                if len(value) > 20 or any(len(item) > 500 for item in value):
+                if (
+                    not value
+                    or len(value) > 20
+                    or any(not item.strip() or len(item) > 500 for item in value)
+                ):
                     raise ValueError("多选答案超出允许范围")
         return answers

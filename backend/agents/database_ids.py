@@ -17,6 +17,7 @@ def _static_agent_id(sequence: int) -> int:
 AGENT_DATABASE_IDS: dict[str, int] = {
     "default": _static_agent_id(1),
     "taobao_image": _static_agent_id(2),
+    "listing_agent": _static_agent_id(3),
 }
 AGENT_CODES_BY_DATABASE_ID = {value: key for key, value in AGENT_DATABASE_IDS.items()}
 

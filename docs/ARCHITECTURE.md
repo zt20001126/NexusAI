@@ -67,6 +67,12 @@ flowchart LR
 
 当前淘宝图片智能体位于 `backend/agents/image_generation/`，标识为 `taobao_image`。图片业务实现不放入默认智能体的业务图目录。
 
+### Listing 生成智能体
+
+Listing 生成能力位于 backend/agents/listing_agent/，稳定标识为 listing_agent。其图先经 TokenHub 视觉模型识别图片中的外观、包装文字和可见特征，再由 DeepSeek 规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 task_results.result_data。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
+
+完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。新增的视觉模型名配置为 TENCENT_TOKENHUB_VISION_MODEL，复用现有 TokenHub 凭据和超时配置。
+
 ## 增加普通业务数据
 
 在 `app/modules/<业务名>/` 下按需增加 `router/`、`service/`、`crud/`、`models/` 和 `schemas/`。CRUD 负责该业务的数据读写；只有确有独立的数据需求时才新增对应模块，不为每张表机械地增加一层抽象。

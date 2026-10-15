@@ -9,6 +9,7 @@ from agents.definition import AgentDefinition
 
 DEFAULT_AGENT_ID = "default"
 TAOBAO_IMAGE_AGENT_ID = "taobao_image"
+LISTING_AGENT_ID = "listing_agent"
 DEFAULT_AGENT_NAME = "通用智能体"
 DEFAULT_AGENT_DESCRIPTION = "处理常见对话、需求梳理和信息问答"
 

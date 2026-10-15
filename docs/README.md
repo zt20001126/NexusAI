@@ -9,6 +9,8 @@
 | [后端架构与扩展约定](ARCHITECTURE.md) | 后端分层、依赖方向和新增能力的放置规则 | 开始修改后端或智能体前 |
 | [API 接口文档](API接口文档.md) | 智能体路由、上传、SSE 事件及结果读取接口 | 开发前端集成或 API 客户端时 |
 | [数据库结构说明](数据库表结构.md) | 应用表字段、关系、索引和 Checkpointer 存储范围 | 修改持久化代码或 SQL 前 |
+| [淘宝 Listing 生成智能体 PRD](agents/listing/prd.md) | Listing 生成范围、输入输出和已确认产品规则 | 使用或扩展 Listing 智能体时 |
+| [淘宝 Listing 生成智能体技术设计](agents/listing/tdd.md) | Listing 图流程、Provider、JSON Schema 和 API | 修改 Listing 后端或前端集成时 |
 | [任务级变更记录约定](changes/README.md) | 记录文件命名、内容模板和记录要求 | 开始重要变更或补充任务记录时 |
 | [项目变更日志](../CHANGELOG.md) | 面向项目使用者的未发布与已发布变化 | 查看项目版本变化时 |
 | [阿里云 OSS 与雪花 ID 测试报告](测试报告/2026-10-14-阿里云OSS与雪花ID.md) | OSS 适配器、业务链路、迁移 SQL 语法和自动化测试结果 | 检查本次存储与数据库改造时 |

@@ -32,6 +32,28 @@ export interface UploadedImage {
   file_size: number
 }
 
+export interface ListingOutputVersion {
+  version: number
+  title: string
+  selling_points: string[]
+  description: string
+  keywords: string[]
+  product_attributes: Record<string, string>
+}
+
+export interface ListingTaskResult {
+  task_result_id: string
+  agent_id: string
+  result_type: 'listing'
+  generation_status: string
+  result_data: {
+    schema_version: string
+    product_facts: Record<string, unknown>
+    image_analysis: Record<string, unknown>
+    versions: ListingOutputVersion[]
+  }
+}
+
 interface QuestionBase {
   id: string
   title: string
@@ -78,6 +100,10 @@ export function cancelAgentRun(runId: string, agentId = 'default'): Promise<{ ru
 
 export function getAgents(): Promise<AgentDefinition[]> {
   return requestJson('/api/agents')
+}
+
+export function getListingTaskResult(taskResultId: string): Promise<ListingTaskResult> {
+  return requestJson('/api/task-results/' + encodeURIComponent(taskResultId))
 }
 
 export function uploadReferenceImage(file: File, agentId: string): Promise<UploadedImage> {

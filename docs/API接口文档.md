@@ -31,6 +31,12 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
       "name": "淘宝电商图片助手",
       "description": "为淘宝商家生成商品主图和详情页图片",
       "supports_image_upload": true
+    },
+    {
+      "agent_id": "listing_agent",
+      "name": "Listing生成智能体",
+      "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
+      "supports_image_upload": true
     }
   ]
 }
@@ -67,7 +73,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-答案 key 必须与待回答问题 ID 集合完全匹配；单个文本答案最多 2,000 个字符。
+答案 key 必须与待回答问题 ID 集合完全匹配；单个文本答案最多 2,000 个字符。空白字符串、null 和空多选答案会被拒绝。
 
 ### `POST /api/agents/{agent_id}/runs/{run_id}/cancel`
 
@@ -104,12 +110,18 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 | `tool.started` | `tool_name` |
 | `tool.completed` | `tool_name`、`success`、安全的工具结果 `data` |
 | `question.required` | 结构化 `questions` 数组；每题包含 ID、题型、常见选项等 |
-| `task_result.updated` | `task_result_id`、`generation_status`、可选稳定 `image_url`、尺寸或安全错误信息 |
+| `task_result.updated` | 通用字段为 `task_result_id`、`agent_id`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
 | `run.completed` | 空对象 |
 | `run.cancelled` | 空对象 |
 | `run.failed` | 稳定错误 `code` 与用户可读 `message` |
 
 图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。SSE 事件不持久化，当前不支持断线重放。
+
+### GET /api/task-results/{task_result_id}
+
+读取 Listing 任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是 Listing 类型时统一返回 HTTP 404。
+
+成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。result_data 中含 schema_version、商品事实、图片识别结果及 3 个版本。接口不返回 input_data、图片字节、OSS 内部对象键或模型凭据。
 
 ## 上传参考图片
 
@@ -151,6 +163,14 @@ Content-Type: image/png
 
 - `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
 - `GET /api/conversations/{conversation_id}/messages?limit=50&before_sequence=...` 返回按时间正序排列的消息。助手消息可含 `task_results` 数组，提供生成状态、稳定图片路径和错误摘要，不含图片二进制内容。
+
+## 淘宝 Listing 生成智能体
+
+listing_agent 使用 TokenHub 多模态 Chat Completions（默认 hy-vision-2.0-instruct）识别商品外观、可读包装文字和可见特征，并使用现有 DeepSeek ChatModel 判断必要信息及生成文案。视觉模型配置为 TENCENT_TOKENHUB_VISION_MODEL；TokenHub 鉴权和超时使用现有 TENCENT_TOKENHUB_API_KEY、TENCENT_TOKENHUB_BASE_URL 和 TENCENT_TOKENHUB_TIMEOUT_SECONDS。
+
+Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，并在单个 question.required 事件中返回当前整批问题。答案需完整且非空；恢复后仍有新的必要信息缺口时会继续呈现下一批。
+
+成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
 ## 淘宝图片智能体参数
 

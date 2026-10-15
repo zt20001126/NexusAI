@@ -4,7 +4,11 @@ import AgentInteractionCard from './components/AgentInteractionCard'
 import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
 import MessageList from './components/MessageList'
-import { MAX_REFERENCE_IMAGE_BYTES, MAX_REFERENCE_IMAGES } from './constants'
+import {
+  LISTING_AGENT_ID,
+  MAX_REFERENCE_IMAGE_BYTES,
+  MAX_REFERENCE_IMAGES,
+} from './constants'
 import { useChatSession } from './hooks/useChatSession'
 
 /** 组合聊天页面的导航、消息流、追问卡片和输入框。 */
@@ -16,7 +20,14 @@ function ChatPage() {
 
   async function handleSend() {
     const message = draft.trim()
+      || (chat.activeAgentId === LISTING_AGENT_ID && pendingImages.length > 0
+        ? '请根据已上传的商品图片生成淘宝 Listing。'
+        : '')
     if (!message || chat.sending) return
+    if (chat.activeAgentId === LISTING_AGENT_ID && pendingImages.length === 0) {
+      setAttachmentError('Listing 生成需要至少上传一张商品图片。')
+      return
+    }
     setAttachmentError(null)
     const sent = await chat.sendMessage(message, pendingImages)
     if (sent) {

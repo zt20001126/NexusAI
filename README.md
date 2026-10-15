@@ -30,6 +30,7 @@ backend/
   agents/                    独立业务智能体与注册中心
     registry.py              agent_id 到定义和应用服务的显式映射
     image_generation/        淘宝电商图片图、节点、TokenHub 工具与 Provider
+    listing_agent/           淘宝 Listing 图片识别、必要信息追问和多版本生成
   infra/                     集中配置与外部服务适配
   tests/                     节点、运行器、SSE、API 与契约测试
   main.py                    Uvicorn 入口
@@ -56,6 +57,7 @@ scripts/                     项目级辅助脚本（按需添加）
 
 ## 已具备的基础能力
 
+- 淘宝 Listing 生成智能体：识别商品外观与包装文字，核实必要信息后生成 3 个可选版本，并保存完整 JSON 结果
 - 多智能体发现与按 `agent_id` 调用：普通响应、SSE 流式响应、恢复和取消
 - LangGraph 显式状态、节点、工具与条件边
 - `question.required` 结构化追问和相同 Checkpoint 恢复
@@ -172,6 +174,10 @@ SSE 事件通过 `event_id` 标识当前进程内的递增游标。当前 HTTP A
 5. 为节点、工具失败、追问恢复、持久化和授权接口增加离线测试。
 
 默认图使用 `backend/infra/model_provider.py` 中的 Provider 创建 DeepSeek 模型，并绑定 `backend/agent/tools/registry.py` 登记的工具。图片图通过注入的 TokenHub Provider 调用生图服务。模型配置集中在 `AppSettings`；不要在节点或工具中直接读取环境变量，也不要把数据库连接、密钥或 HTTP 响应对象写入图状态。
+
+### Listing 生成智能体
+
+在选择 Listing 生成智能体后上传商品图片，并可在消息中附加任意已知商品信息。系统会一次性询问当前必要信息；全部问题回答后生成 3 个版本，详情描述为纯文本。视觉模型通过 TENCENT_TOKENHUB_VISION_MODEL 配置，默认为 hy-vision-2.0-instruct，完整 JSON 可在对话结果卡片中查看和切换版本。
 
 ## 数据库配置
 
