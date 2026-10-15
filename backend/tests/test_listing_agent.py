@@ -3,17 +3,13 @@
 import base64
 import json
 
-import httpx
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from agents.listing_agent.nodes import create_plan_node
-from agents.listing_agent.providers.tokenhub_vision import (
-    TokenHubVisionClient,
-    TokenHubVisionError,
-)
+from agent.persistence.memory import MemoryAttachmentStore
+from agents.listing_agent.nodes import create_plan_node, create_vision_node
 from agents.listing_agent.schemas import ListingImageAnalysis, ListingPlan, ListingResult
-from infra.settings import AppSettings
 
 
 def _listing_result(description: str = "适合日常使用的便携水杯。") -> dict[str, object]:
@@ -88,9 +84,8 @@ def test_listing_plan_rejects_unstable_ids_and_unsupported_question_types() -> N
 
 
 @pytest.mark.asyncio
-async def test_tokenhub_vision_sends_images_and_parses_ocr_observations() -> None:
-    """视觉请求把图片作为 Base64 image_url 发送并校验结构化观察。"""
-    captured: dict[str, object] = {}
+async def test_deepseek_vision_sends_images_and_parses_ocr_observations() -> None:
+    """视觉节点向 DeepSeek ChatModel 发送 Base64 图片并校验结构化观察。"""
     analysis = ListingImageAnalysis(
         candidate_category="咖啡杯",
         visible_features=["白色杯身"],
@@ -99,43 +94,37 @@ async def test_tokenhub_vision_sends_images_and_parses_ocr_observations() -> Non
         uncertain_observations=["材质无法从图片确认"],
     )
 
-    def respond(request: httpx.Request) -> httpx.Response:
-        captured["authorization"] = request.headers.get("authorization")
-        captured["body"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": analysis.model_dump_json()}}]},
-        )
+    class _RecordingChatModel:
+        def __init__(self) -> None:
+            self.messages: list[BaseMessage] = []
 
-    client = TokenHubVisionClient(
-        AppSettings(tokenhub_api_key="test-secret", _env_file=None),
-        transport=httpx.MockTransport(respond),
+        async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+            self.messages = messages
+            return AIMessage(content=analysis.model_dump_json())
+
+    attachment_store = MemoryAttachmentStore()
+    attachment = attachment_store.save("seller", "cup.png", "image/png", b"picture-bytes")
+    attachment_store.bind_to_message(
+        [attachment.attachment_id], "seller", "conversation", "message"
     )
-    result = await client.analyze([("image/png", b"picture-bytes")])
+    chat_model = _RecordingChatModel()
+    node = create_vision_node(chat_model, attachment_store)
 
-    request_body = captured["body"]
-    assert captured["authorization"] == "Bearer test-secret"
-    assert request_body["model"] == "hy-vision-2.0-instruct"
-    image_url = request_body["messages"][0]["content"][1]["image_url"]["url"]
+    result = await node(
+        {
+            "attachment_ids": [attachment.attachment_id],
+            "principal_id": "seller",
+            "conversation_id": "conversation",
+        }
+    )
+
+    assert isinstance(chat_model.messages[0], SystemMessage)
+    assert isinstance(chat_model.messages[1], HumanMessage)
+    user_content = chat_model.messages[1].content
+    assert isinstance(user_content, list)
+    image_url = user_content[1]["image_url"]["url"]
     assert image_url == f"data:image/png;base64,{base64.b64encode(b'picture-bytes').decode()}"
-    assert result.packaging_text == ["容量 350ml"]
-
-
-@pytest.mark.asyncio
-async def test_tokenhub_vision_maps_provider_errors_without_leaking_body() -> None:
-    """视觉 Provider 将上游错误转换为稳定提示，避免泄漏响应正文。"""
-    client = TokenHubVisionClient(
-        AppSettings(tokenhub_api_key="test-secret", _env_file=None),
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(401, text="private-upstream-detail")
-        ),
-    )
-
-    with pytest.raises(TokenHubVisionError) as raised:
-        await client.analyze([("image/jpeg", b"picture")])
-
-    assert raised.value.code == "TOKENHUB_AUTH_FAILED"
-    assert "private-upstream-detail" not in raised.value.public_message
+    assert result["image_analysis"]["packaging_text"] == ["容量 350ml"]
 
 
 @pytest.mark.asyncio

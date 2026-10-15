@@ -11,13 +11,12 @@ from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
 from agents.definition import AgentDefinition
-from agents.image_generation.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
-from agents.image_generation.graph import build_image_agent_graph
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import TokenHubImageClient
+from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
+from agents.image_agent.graph import build_image_agent_graph
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
 from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
-from agents.listing_agent.providers.tokenhub_vision import TokenHubVisionClient
 from agents.registry import (
     COMMON_AGENT_DESCRIPTION,
     COMMON_AGENT_NAME,
@@ -114,7 +113,6 @@ def build_lifespan(
                 listing_graph = build_listing_agent_graph(
                     checkpointer,
                     resolved_model_provider.create_chat_model(),
-                    TokenHubVisionClient(settings),
                     task_result_store,
                     image_storage,
                 )

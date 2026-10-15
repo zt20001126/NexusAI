@@ -17,7 +17,7 @@
 ## 后端
 
 - [x] 新增独立 Listing 图、运行状态、提示词及 Pydantic 输入和输出 Schema。
-- [x] 使用 TokenHub hy-vision-2.0-instruct 识别商品外观、包装文字、可见声明和不确定观察。
+- [x] 复用已配置的 DeepSeek Flash 多模态模型识别商品外观、包装文字、可见声明和不确定观察。
 - [x] 视觉节点按用户和会话授权读取最多 3 张 PNG/JPEG 附件。
 - [x] 使用 DeepSeek 判断当前必要信息并批量追问。
 - [x] 校验非空答案及问题 ID 集合，并从相同 Checkpoint 恢复。

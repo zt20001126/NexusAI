@@ -166,7 +166,7 @@ Content-Type: image/png
 
 ## listing生成智能体
 
-listing_agent 使用 TokenHub 多模态 Chat Completions（默认 hy-vision-2.0-instruct）识别商品外观、可读包装文字和可见特征，并使用现有 DeepSeek ChatModel 判断必要信息及生成文案。视觉模型配置为 TENCENT_TOKENHUB_VISION_MODEL；TokenHub 鉴权和超时使用现有 TENCENT_TOKENHUB_API_KEY、TENCENT_TOKENHUB_BASE_URL 和 TENCENT_TOKENHUB_TIMEOUT_SECONDS。
+listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通过多模态 Chat Completions 识别商品外观、可读包装文字和可见特征，并使用同一模型判断必要信息及生成文案。图片以 Base64 `image_url` 内容块传入，模型名称、鉴权、地址和超时均使用现有 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 仍用于 `image_agent` 的生图能力。
 
 Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，并在单个 question.required 事件中返回当前整批问题。答案需完整且非空；恢复后仍有新的必要信息缺口时会继续呈现下一批。
 

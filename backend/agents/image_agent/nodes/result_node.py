@@ -6,7 +6,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agent.schemas.tool_result import ToolResult
-from agents.image_generation.state import ImageAgentState
+from agents.image_agent.state import ImageAgentState
 
 
 def result_node(state: ImageAgentState) -> dict[str, list[AIMessage]]:

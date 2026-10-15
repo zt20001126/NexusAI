@@ -3,12 +3,12 @@
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agents.image_generation.constants import IMAGE_PROMPT_MAX_LENGTH
-from agents.image_generation.prompts.system import (
+from agents.image_agent.constants import IMAGE_PROMPT_MAX_LENGTH
+from agents.image_agent.prompts.system import (
     IMAGE_PROMPT_SYSTEM,
     UNRELATED_REQUEST_REPLY,
 )
-from agents.image_generation.state import ImageAgentState
+from agents.image_agent.state import ImageAgentState
 
 
 def create_chat_node(chat_model: BaseChatModel):

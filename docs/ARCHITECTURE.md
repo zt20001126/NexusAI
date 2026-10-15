@@ -72,9 +72,9 @@ flowchart LR
 
 ### listing生成智能体
 
-listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图先经 TokenHub 视觉模型识别图片中的外观、包装文字和可见特征，再由 DeepSeek 规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result_data`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
+listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result_data`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
 
-完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。新增的视觉模型名配置为 TENCENT_TOKENHUB_VISION_MODEL，复用现有 TokenHub 凭据和超时配置。
+完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。识图、信息规划和文案生成共用 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 与 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 继续用于图片智能体的生图能力。
 
 ## 增加普通业务数据
 

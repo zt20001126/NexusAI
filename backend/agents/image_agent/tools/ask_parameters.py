@@ -5,8 +5,8 @@ from langchain_core.tools import tool
 from agent.persistence.interfaces import TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agent.schemas.tool_result import ToolResult
-from agents.image_generation.constants import IMAGE_AGENT_ID, IMAGE_RESULT_TYPE
-from agents.image_generation.schemas import ImageQuestionToolInput
+from agents.image_agent.constants import IMAGE_AGENT_ID, IMAGE_RESULT_TYPE
+from agents.image_agent.schemas import ImageQuestionToolInput
 
 
 def create_ask_image_parameters_tool(task_result_store: TaskResultStore):

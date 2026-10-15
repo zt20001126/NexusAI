@@ -16,9 +16,7 @@ from agents.listing_agent.nodes import (
     create_plan_node,
     create_vision_node,
     result_node,
-    route_after_plan,
 )
-from agents.listing_agent.providers.tokenhub_vision import TokenHubVisionClient
 from agents.listing_agent.state import ListingAgentState
 from agents.listing_agent.tools.task_result import create_listing_task_result_tools
 
@@ -26,6 +24,13 @@ from agents.listing_agent.tools.task_result import create_listing_task_result_to
 def route_initial(state: ListingAgentState) -> Literal["vision_node", "plan_node"]:
     """恢复时沿用已保存的视觉结果，避免重复发送图片。"""
     return "plan_node" if state.get("image_analysis") else "vision_node"
+
+
+def route_after_plan(
+    state: ListingAgentState,
+) -> Literal["ask_node", "generation_node"]:
+    """有必要核实的信息时先追问；否则进入生成。"""
+    return "ask_node" if state.get("questions") else "generation_node"
 
 
 def route_after_generation(state: ListingAgentState) -> Literal["tool_node"]:
@@ -46,14 +51,13 @@ def route_after_listing_tools(state: ListingAgentState) -> Literal["__end__", "r
 def build_listing_agent_graph(
     checkpointer: Any,
     chat_model: BaseChatModel,
-    vision_client: TokenHubVisionClient,
     task_result_store: TaskResultStore,
     attachment_store: AttachmentStore,
 ) -> Any:
-    """构建独立 Listing 图并注入模型、附件及任务结果协议。"""
+    """构建 Listing 图并复用 DeepSeek ChatModel 处理图片与文本。"""
     ask_tool, save_tool = create_listing_task_result_tools(task_result_store)
     graph = StateGraph(ListingAgentState)
-    graph.add_node("vision_node", create_vision_node(vision_client, attachment_store))
+    graph.add_node("vision_node", create_vision_node(chat_model, attachment_store))
     graph.add_node("plan_node", create_plan_node(chat_model))
     graph.add_node("ask_node", create_ask_node())
     graph.add_node("generation_node", create_generation_node(chat_model))

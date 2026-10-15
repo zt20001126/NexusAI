@@ -11,18 +11,18 @@ from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.interfaces import AttachmentStore, TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agent.schemas.tool_result import ToolResult
-from agents.image_generation.constants import (
+from agents.image_agent.constants import (
     IMAGE_AGENT_ID,
     IMAGE_PROMPT_MAX_LENGTH,
     IMAGE_RESULT_TYPE,
     IMAGE_RESULT_URL_PREFIX,
 )
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import (
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import (
     TokenHubImageClient,
     TokenHubImageError,
 )
-from agents.image_generation.schemas import GenerateImageToolInput
+from agents.image_agent.schemas import GenerateImageToolInput
 from infra.object_storage import ObjectStorageError, StoredImageObject
 from infra.settings import AppSettings
 

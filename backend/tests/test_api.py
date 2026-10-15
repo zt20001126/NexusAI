@@ -26,13 +26,12 @@ from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.task_result import TaskResultApplicationService
 from agents.definition import AgentDefinition
-from agents.image_generation.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
-from agents.image_generation.graph import build_image_agent_graph
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import TokenHubImageClient
+from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
+from agents.image_agent.graph import build_image_agent_graph
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
 from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
-from agents.listing_agent.providers.tokenhub_vision import TokenHubVisionClient
 from agents.listing_agent.schemas import ListingImageAnalysis
 from agents.registry import (
     COMMON_AGENT_DESCRIPTION,
@@ -120,6 +119,13 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         )
         listing_model = FakeListChatModel(
             responses=[
+                ListingImageAnalysis(
+                    candidate_category="便携水杯",
+                    visible_features=["蓝色杯身", "带杯盖"],
+                    packaging_text=[],
+                    visible_claims=[],
+                    uncertain_observations=[],
+                ).model_dump_json(),
                 json.dumps(
                     {
                         "product_facts": {"商品类别": "便携水杯"},
@@ -167,28 +173,9 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                 ),
             ]
         )
-        listing_settings = AppSettings(
-            tokenhub_api_key="test-token",
-            image_upload_max_bytes=settings.image_upload_max_bytes,
-            _env_file=None,
-        )
-        vision_payload = ListingImageAnalysis(
-            candidate_category="便携水杯",
-            visible_features=["蓝色杯身", "带杯盖"],
-            packaging_text=[],
-            visible_claims=[],
-            uncertain_observations=[],
-        ).model_dump_json()
-        vision_transport = httpx.MockTransport(
-            lambda request: httpx.Response(
-                200,
-                json={"choices": [{"message": {"content": vision_payload}}]},
-            )
-        )
         listing_graph = build_listing_agent_graph(
             MemorySaver(),
             listing_model,
-            TokenHubVisionClient(listing_settings, transport=vision_transport),
             task_result_store,
             attachment_store,
         )

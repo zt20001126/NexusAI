@@ -10,8 +10,8 @@ from agent.constants import (
     MAX_REFERENCE_IMAGE_COUNT,
     MAX_REFERENCE_IMAGE_TOTAL_BYTES,
 )
-from agents.image_generation.constants import DEFAULT_REFERENCE_RESIZE_MAX_PIXELS
-from agents.image_generation.schemas import ImageGenerationOptions, TokenHubImageResult
+from agents.image_agent.constants import DEFAULT_REFERENCE_RESIZE_MAX_PIXELS
+from agents.image_agent.schemas import ImageGenerationOptions, TokenHubImageResult
 from infra.settings import AppSettings
 
 

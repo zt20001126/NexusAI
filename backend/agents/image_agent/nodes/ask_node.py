@@ -5,13 +5,13 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from agents.image_generation.parameter_policy import (
+from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
     apply_answers,
 )
-from agents.image_generation.schemas import ImageGenerationOptions
-from agents.image_generation.state import ImageAgentState
+from agents.image_agent.schemas import ImageGenerationOptions
+from agents.image_agent.state import ImageAgentState
 
 
 async def ask_node(state: ImageAgentState) -> dict[str, object]:

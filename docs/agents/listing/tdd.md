@@ -11,24 +11,24 @@
 
 | 能力 | 实现 |
 |---|---|
-| 图片识别 | TokenHub Chat Completions 多模态接口，默认模型 hy-vision-2.0-instruct |
-| 文案规划与生成 | 通过现有 DeepSeek ChatModel Provider 调用 |
+| 图片识别 | 复用现有 DeepSeek ChatModel Provider，通过多模态 Chat Completions 传入 Base64 图片 |
+| 文案规划与生成 | 复用同一个 DeepSeek ChatModel Provider 调用 |
 | 编排 | 独立 LangGraph 图；统一追问、恢复、取消和事件协议 |
 | 持久化 | task_results.result_type=listing；完整 JSON 写入 result_data |
 | 图片 | 经 AttachmentStore 按用户和会话读取；图片字节不写入 Checkpoint 或 PostgreSQL |
 | 前端 | 复用图片上传、结构化追问和历史消息；新增三个版本切换展示 |
 
-视觉模型使用现有 TENCENT_TOKENHUB_API_KEY 和 TENCENT_TOKENHUB_BASE_URL；模型名可通过 TENCENT_TOKENHUB_VISION_MODEL 修改。超时复用 TENCENT_TOKENHUB_TIMEOUT_SECONDS。文案模型使用现有 DEEPSEEK_* 配置。
+图片识别、必要信息规划和文案生成共用 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS`；默认模型为 `deepseek-flash`。图片识别通过 `HumanMessage` 的文本块和 `image_url` 图片块调用多模态 Chat Completions，不新增视觉专用模型客户端或 TokenHub 视觉模型配置。TokenHub 配置继续服务于图片智能体的生图能力。
 
 ## 2. 目录和依赖边界
 
-- agents/listing_agent/ 保存 Listing 状态、Pydantic Schema、提示词、图节点、TokenHub 视觉客户端及任务结果工具。
-- `bootstrap.runtime` 负责构建模型、视觉客户端、图和 Runner，并在 AgentRegistry 注册 listing_agent。
+- `agents/listing_agent/` 保存 Listing 状态、Pydantic Schema、提示词、图节点及任务结果工具。
+- `bootstrap.runtime` 负责构建 DeepSeek ChatModel、图和 Runner，并在 AgentRegistry 注册 listing_agent。
 - app.service.task_result 按可信主体读取 Listing 结果；Router 只解析身份和响应 DTO。
 - task_results 的静态 agent ID 映射新增 listing_agent；不新增数据库表或迁移。
 - 前端聊天功能新增 Listing API 类型、结果卡片和选择器内容；图片上传继续使用共享接口。
 
-模型节点调用 ChatModel；Provider 封装 TokenHub HTTP 请求。Router 和 Service 不调用模型，不执行 SQL。
+模型节点通过 ChatModel 执行多模态识图、问题规划和文案生成。Router 和 Service 不调用模型，不执行 SQL。
 
 ## 3. 图流程
 
@@ -93,14 +93,14 @@ result_data 使用以下结构，版本固定为 1、2、3：
 
 ## 7. 模型边界和失败处理
 
-- 视觉请求使用 Base64 data URI，通过 TokenHub Bearer 鉴权；设置调用超时，并把鉴权、超时、限流、服务错误和畸形 JSON 映射为稳定错误。
-- 图片大小、类型、数量和总字节均在 Provider 边界复核；日志不记录 Base64 或上游响应正文。
+- 视觉节点将 PNG/JPEG 转为 Base64 data URI，以 `image_url` 内容块附加在 DeepSeek ChatModel 的用户消息中；复核图片类型、数量、单张和总字节上限，日志不记录 Base64 图片内容。
+- DeepSeek 视觉、规划和生成请求共用现有模型配置、超时及重试；畸形识图 JSON 会被 Schema 校验拒绝。
 - DeepSeek 返回值必须为符合 Pydantic Schema 的 JSON；缺字段、版本数量错误或详情文本含格式标记时运行失败，不保存为 succeeded。
 - 提示词要求不杜撰材质、规格、功效、认证、销量、排名和品牌授权等不可验证信息。由于首版必要信息规划由模型完成，这一事实约束仍依赖模型遵循提示词；后续可增加淘宝类目规则和确定性事实校验。
 - 对失败运行沿用共享 Runner 的安全事件和任务状态；成功输出由共享结果 Store 做按所有者校验的幂等写入。
 
 ## 8. 验证
 
-- 后端离线测试覆盖 TokenHub 图片请求与错误、Listing Schema、问题 ID 过滤、批量追问、恢复生成、三版 JSON 持久化及越权读取。
+- 后端离线测试覆盖 DeepSeek 多模态消息图片传入与识图 Schema、Listing Schema、问题 ID 过滤、批量追问、恢复生成、三版 JSON 持久化及越权读取。
 - 前端使用 TypeScript 检查并通过 Vite 生产构建。
 - 不新增数据库迁移；task_results 已有 JSONB 字段可保存 Listing 输出。

@@ -9,15 +9,15 @@ from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agent.tools.registry import PAUSE_TOOL_NAMES
-from agents.image_generation.nodes.ask_node import ask_node
-from agents.image_generation.nodes.chat_node import create_chat_node
-from agents.image_generation.nodes.result_node import result_node
-from agents.image_generation.nodes.validation_node import validation_node
-from agents.image_generation.state import ImageAgentState
-from agents.image_generation.tools.ask_parameters import create_ask_image_parameters_tool
-from agents.image_generation.tools.generate_image import create_generate_image_tool
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import TokenHubImageClient
+from agents.image_agent.nodes.ask_node import ask_node
+from agents.image_agent.nodes.chat_node import create_chat_node
+from agents.image_agent.nodes.result_node import result_node
+from agents.image_agent.nodes.validation_node import validation_node
+from agents.image_agent.state import ImageAgentState
+from agents.image_agent.tools.ask_parameters import create_ask_image_parameters_tool
+from agents.image_agent.tools.generate_image import create_generate_image_tool
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
 from agent.persistence.interfaces import AttachmentStore, TaskResultStore
 from infra.settings import AppSettings
 

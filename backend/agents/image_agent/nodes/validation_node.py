@@ -1,6 +1,6 @@
 """校验消息是否明确请求生成淘宝电商图片。"""
 
-from agents.image_generation.state import ImageAgentState
+from agents.image_agent.state import ImageAgentState
 
 IMAGE_TERMS = ("图片", "主图", "商品图", "展示图", "详情页图", "详情图", "生图")
 GENERATION_TERMS = ("生成", "制作", "设计", "画", "做", "需要", "帮我")
@@ -22,7 +22,7 @@ async def validation_node(state: ImageAgentState) -> dict[str, object]:
     ):
         return {}
 
-    from agents.image_generation.parameter_policy import extract_documented_options
+    from agents.image_agent.parameter_policy import extract_documented_options
 
     request = state.get("original_request", "").strip()[:20_000]
     has_image_term = any(term in request for term in IMAGE_TERMS)

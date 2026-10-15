@@ -22,6 +22,8 @@
 
 ### Changed
 
+- Listing 图片识别改为复用已配置的 DeepSeek 多模态模型，不再单独配置 `hy-vision-2.0-instruct`。
+- 将 Listing 智能体的节点拆分到独立模块，并集中管理图路由，保留原节点导入路径兼容。
 - 将 FastAPI 应用创建和运行时依赖组装迁移至 `backend/bootstrap/`，入口、测试和架构文档统一使用新的组合根结构。
 - 统一智能体标识为 `common_agent`、`image_agent`、`listing_agent`，展示名统一为“通用智能体”“图片智能体”“listing生成智能体”；数据库雪花 ID 保持不变，历史 Checkpoint 线程键继续兼容。
 - 为应用 PostgreSQL 持久化引入 SQLAlchemy ORM，按数据实体拆分 CRUD、模型与数据库会话管理。

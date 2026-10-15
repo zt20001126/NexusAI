@@ -55,12 +55,6 @@ class AppSettings(BaseSettings):
             "TENCENT_HY_IMAGE_ENDPOINT", "tencent_hy_image_endpoint"
         ),
     )
-    tokenhub_vision_model: str = Field(
-        default="hy-vision-2.0-instruct",
-        validation_alias=AliasChoices(
-            "TENCENT_TOKENHUB_VISION_MODEL", "tokenhub_vision_model"
-        ),
-    )
     tokenhub_timeout_seconds: int = Field(
         default=180,
         ge=1,
