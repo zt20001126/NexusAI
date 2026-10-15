@@ -11,7 +11,11 @@ from agents.listing_agent.constants import (
     LISTING_SAVE_TOOL_NAME,
     LISTING_VERSION_COUNT,
 )
-from agents.listing_agent.schemas import AskListingQuestionsInput, SaveListingResultInput
+from agents.listing_agent.schemas import (
+    AskListingQuestionsInput,
+    ListingImageAnalysis,
+    SaveListingResultInput,
+)
 
 
 def create_listing_task_result_tools(task_result_store: TaskResultStore):
@@ -26,7 +30,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
         run_id: str,
         original_request: str,
         attachment_ids: list[str],
-        image_analysis: dict[str, object],
+        image_analysis: ListingImageAnalysis,
         product_facts: dict[str, object],
         confirmed_answers: dict[str, object],
     ) -> str:
@@ -44,7 +48,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
                 input_data={
                     "original_request": original_request,
                     "attachment_ids": attachment_ids,
-                    "image_analysis": image_analysis,
+                    "image_analysis": image_analysis.model_dump(mode="json"),
                     "product_facts": product_facts,
                     "confirmed_answers": confirmed_answers,
                 },

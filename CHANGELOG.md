@@ -48,6 +48,8 @@
 
 ### Fixed
 
+- 修复 Listing 追问题目较多时表单超出窗口后被裁切、无法通过鼠标滚轮查看的问题；聊天内容区现可纵向滚动。
+- 修复 Listing 追问工具将 `ListingImageAnalysis` Pydantic 对象直接写入任务结果 JSONB、导致 psycopg JSON 序列化失败的问题；持久化前显式转换为 JSON 兼容字典。
 - 修复阿里云 OSS 参考图片预检使用 objectMeta 接口读不到对象自定义元数据、导致有效上传被拒绝的问题；改用普通 HEAD 元数据校验。
 - 修复后端仍运行旧 Docker 镜像、导致聊天页智能体列表没有显示 `listing_agent` 的问题。
 - 修复 SQLAlchemy/psycopg 执行任务结果 upsert 时 `rowcount` 返回 `-1`、将成功写入误判为访问拒绝的问题；状态更新改用 `RETURNING` 判断命中记录。

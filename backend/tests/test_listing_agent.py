@@ -7,9 +7,14 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from agent.persistence.memory import MemoryAttachmentStore
+from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agents.listing_agent.nodes import create_plan_node, create_vision_node
-from agents.listing_agent.schemas import ListingImageAnalysis, ListingPlan, ListingResult
+from agents.listing_agent.schemas import (
+    ListingImageAnalysis,
+    ListingPlan,
+    ListingResult,
+)
+from agents.listing_agent.tools.task_result import create_listing_task_result_tools
 
 
 def _listing_result(description: str = "适合日常使用的便携水杯。") -> dict[str, object]:
@@ -81,6 +86,45 @@ def test_listing_plan_rejects_unstable_ids_and_unsupported_question_types() -> N
                 ]
             }
         )
+
+
+def test_ask_listing_questions_persists_json_compatible_image_analysis() -> None:
+    """追问工具将嵌套 Pydantic 图片分析对象转换为可持久化 JSON。"""
+    task_result_store = MemoryTaskResultStore()
+    ask_tool, _ = create_listing_task_result_tools(task_result_store)
+    image_analysis = {
+        "candidate_category": "水杯",
+        "visible_features": ["蓝色杯身"],
+        "packaging_text": [],
+        "visible_claims": [],
+        "uncertain_observations": [],
+    }
+
+    ask_tool.invoke(
+        {
+            "questions": [
+                {
+                    "id": "brand",
+                    "title": "品牌",
+                    "prompt": "请确认商品品牌。",
+                    "allow_custom_input": True,
+                }
+            ],
+            "task_result_id": "task-result-1",
+            "principal_id": "seller-1",
+            "conversation_id": "conversation-1",
+            "run_id": "run-1",
+            "original_request": "生成商品 Listing",
+            "attachment_ids": ["attachment-1"],
+            "image_analysis": image_analysis,
+            "product_facts": {"类别": "水杯"},
+            "confirmed_answers": {},
+        }
+    )
+
+    record = task_result_store.records["task-result-1"]
+    assert record.input_data["image_analysis"] == image_analysis
+    assert json.loads(json.dumps(record.input_data)) == record.input_data
 
 
 @pytest.mark.asyncio
