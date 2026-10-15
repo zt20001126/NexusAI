@@ -47,6 +47,11 @@ from agent.persistence.postgres import (
     PostgresRuntimeStore,
     PostgresTaskResultStore,
 )
+from agent.title import (
+    ConversationTitleGenerator,
+    ModelConversationTitleGenerator,
+    fallback_conversation_title,
+)
 from agent.schemas.run import RunRecord, RunStatus
 from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.question import QuestionPayload
@@ -96,6 +101,7 @@ class AgentRunner:
         agent_id: str = "default",
         task_result_store: TaskResultStore | None = None,
         attachment_store: AttachmentStore | None = None,
+        title_generator: ConversationTitleGenerator | None = None,
         id_generator: SnowflakeIdGenerator | None = None,
     ) -> None:
         """注入单个智能体图和共享运行时基础设施。"""
@@ -113,6 +119,7 @@ class AgentRunner:
         self._run_timeout_seconds = run_timeout_seconds
         self._task_result_store = task_result_store
         self._attachment_store = attachment_store
+        self._title_generator = title_generator
         self._id_generator = id_generator or get_snowflake_generator()
         self._cancel_events: dict[str, asyncio.Event] = {}
 
@@ -141,9 +148,7 @@ class AgentRunner:
             resolved_id,
             {"principal_id": principal_id, "agent_id": self._agent_id},
         )
-        if conversation is None:
-            title = " ".join(message.split())[:50]
-            self._conversation_store.set_title_if_empty(resolved_id, title)
+        title_source_message = message if conversation is None else None
         task_result_id = self._id_generator.next_id_string()
         record = RunRecord(
             run_id=self._id_generator.next_id_string(),
@@ -178,7 +183,11 @@ class AgentRunner:
             "task_result_id": task_result_id,
             "attachment_ids": resolved_attachments,
         }
-        return self._stream_graph(record=record, graph_input=graph_input)
+        return self._stream_graph(
+            record=record,
+            graph_input=graph_input,
+            title_source_message=title_source_message,
+        )
 
     def resume(
         self,
@@ -245,6 +254,7 @@ class AgentRunner:
         *,
         record: RunRecord,
         graph_input: dict[str, Any],
+        title_source_message: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """执行此实例绑定的智能体图并映射为稳定事件。"""
         scope_key = self._scope_key(record)
@@ -254,9 +264,15 @@ class AgentRunner:
         output_char_count = 0
         streamed_text_by_node: dict[str, str] = {}
         cancel_event = self._cancel_events.setdefault(record.run_id, asyncio.Event())
+        title_task: asyncio.Task[str | None] | None = None
         try:
             await self._run_lock.acquire(scope_key)
             lock_acquired = True
+            if title_source_message is not None and self._title_generator is not None:
+                # 首轮标题调用在后台并行执行，不阻塞智能体开始输出。
+                title_task = asyncio.create_task(
+                    self._title_generator.generate_title(title_source_message)
+                )
             yield self._event(record, AgentEventType.RUN_STARTED)
             config = {
                 "configurable": {"thread_id": scope_key},
@@ -399,6 +415,12 @@ class AgentRunner:
             )
         finally:
             try:
+                if title_task is not None and title_source_message is not None:
+                    await self._persist_conversation_title(
+                        title_task,
+                        record.conversation_id,
+                        title_source_message,
+                    )
                 task_result_id = record.metadata.get("task_result_id")
                 if isinstance(task_result_id, str) and self._task_result_store is not None:
                     try:
@@ -426,6 +448,33 @@ class AgentRunner:
                         self._run_lock.release(scope_key)
                 finally:
                     self._cancel_events.pop(record.run_id, None)
+
+    async def _persist_conversation_title(
+        self,
+        title_task: asyncio.Task[str | None],
+        conversation_id: str,
+        first_user_message: str,
+    ) -> None:
+        """等待并持久化首轮标题；模型异常时回退且不影响对话结果。"""
+        try:
+            generated_title = await title_task
+        except asyncio.CancelledError:
+            generated_title = None
+        except Exception:
+            logger.exception(
+                "会话标题生成任务失败 conversation_id=%s",
+                conversation_id,
+            )
+            generated_title = None
+
+        title = generated_title or fallback_conversation_title(first_user_message)
+        try:
+            self._conversation_store.set_title_if_empty(
+                conversation_id,
+                title,
+            )
+        except Exception:
+            logger.exception("会话标题保存失败 conversation_id=%s", conversation_id)
 
     @staticmethod
     async def _cancel_aware_stream(
@@ -614,6 +663,7 @@ def build_memory_runner(
     agent_id: str = "default",
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
+    title_generator: ConversationTitleGenerator | None = None,
 ) -> AgentRunner:
     """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
@@ -630,6 +680,7 @@ def build_memory_runner(
         agent_id=agent_id,
         task_result_store=task_result_store or MemoryTaskResultStore(),
         attachment_store=attachment_store or MemoryAttachmentStore(),
+        title_generator=title_generator,
         id_generator=get_snowflake_generator(settings.snowflake_worker_id),
     )
 
@@ -643,6 +694,7 @@ def build_postgres_runner(
     graph: Any | None = None,
     agent_id: str = "default",
     attachment_store: AttachmentStore | None = None,
+    title_generator: ConversationTitleGenerator | None = None,
 ) -> AgentRunner:
     """创建 PostgreSQL 持久化运行器，保留仅用于执行协调的进程内锁。"""
     return _build_runner(
@@ -658,6 +710,7 @@ def build_postgres_runner(
         agent_id=agent_id,
         task_result_store=PostgresTaskResultStore(runtime_store),
         attachment_store=attachment_store,
+        title_generator=title_generator,
         id_generator=get_snowflake_generator(settings.snowflake_worker_id),
     )
 
@@ -676,17 +729,23 @@ def _build_runner(
     agent_id: str = "default",
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
+    title_generator: ConversationTitleGenerator | None = None,
     id_generator: SnowflakeIdGenerator | None = None,
 ) -> AgentRunner:
     """为一个 agent_id 组装图和可替换运行基础设施。"""
+    provider = model_provider or OpenAICompatibleProvider(settings)
     if graph is None:
-        provider = model_provider or OpenAICompatibleProvider(settings)
         graph = build_agent_graph(checkpointer, provider.create_chat_model())
+    resolved_title_generator = title_generator or ModelConversationTitleGenerator(
+        provider,
+        settings.conversation_title_timeout_seconds,
+    )
     return AgentRunner(
         graph=graph,
         agent_id=agent_id,
         task_result_store=task_result_store,
         attachment_store=attachment_store,
+        title_generator=resolved_title_generator,
         id_generator=id_generator,
         run_store=run_store,
         run_lock=run_lock,

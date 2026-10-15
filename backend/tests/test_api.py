@@ -35,10 +35,19 @@ from agents.registry import (
     TAOBAO_IMAGE_AGENT_ID,
     AgentRegistry,
 )
+from agent.title import ConversationTitleGenerator
 from infra.settings import AppSettings
 from tests.fake_models import ScriptedToolCallingProvider
 
 TEST_PNG = b"\x89PNG\r\n\x1a\nmock-image-bytes"
+
+
+class _FixedTitleGenerator:
+    """API 测试使用固定标题，避免访问真实模型服务。"""
+
+    async def generate_title(self, first_user_message: str) -> str | None:
+        del first_user_message
+        return "模型生成的业务标题"
 
 
 def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingProvider):
@@ -48,11 +57,13 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         conversation_store = MemoryConversationStore()
         message_store = MemoryMessageStore()
+        title_generator: ConversationTitleGenerator = _FixedTitleGenerator()
         runner = build_memory_runner(
             settings,
             model_provider=model_provider,
             conversation_store=conversation_store,
             message_store=message_store,
+            title_generator=title_generator,
         )
         event_sequence = MemoryEventSequence()
         task_result_store = MemoryTaskResultStore()
@@ -101,6 +112,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             agent_id=TAOBAO_IMAGE_AGENT_ID,
             task_result_store=task_result_store,
             attachment_store=attachment_store,
+            title_generator=title_generator,
         )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
@@ -395,7 +407,7 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
     conversations = conversations_response.json()["data"]["items"]
     assert conversations_response.status_code == 200
     assert conversations[0]["conversation_id"] == conversation_id
-    assert conversations[0]["title"] == "帮我梳理业务"
+    assert conversations[0]["title"] == "模型生成的业务标题"
 
     assert latest_page_response.status_code == 200
     assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]

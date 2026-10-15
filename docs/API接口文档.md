@@ -149,7 +149,7 @@ Content-Type: image/png
 
 ## 会话历史
 
-- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id`。
+- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
 - `GET /api/conversations/{conversation_id}/messages?limit=50&before_sequence=...` 返回按时间正序排列的消息。助手消息可含 `task_results` 数组，提供生成状态、稳定图片路径和错误摘要，不含图片二进制内容。
 
 ## 淘宝图片智能体参数

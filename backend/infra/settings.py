@@ -106,4 +106,5 @@ class AppSettings(BaseSettings):
     agent_max_tool_calls: int = Field(default=20, ge=1, le=100)
     agent_max_output_chars: int = Field(default=100_000, ge=1_000, le=1_000_000)
     agent_run_timeout_seconds: int = Field(default=180, ge=1, le=3600)
+    conversation_title_timeout_seconds: int = Field(default=8, ge=1, le=60)
     sse_heartbeat_seconds: int = Field(default=15, ge=5, le=60)
