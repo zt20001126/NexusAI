@@ -11,9 +11,11 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent.errors import InvalidResumeAnswersError
+from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
 from agent.streaming.events import AgentEvent, AgentEventType
+from agent.title import ConversationTitleGenerator
 from infra.settings import AppSettings
 from tests.fake_models import ScriptedToolCallingProvider
 
@@ -245,3 +247,79 @@ async def test_conversation_id_is_scoped_to_principal_and_agent() -> None:
             conversation_id="owned-conversation",
             principal_id="developer-b",
         )
+
+
+class _FixedTitleGenerator:
+    """记录首轮标题请求并返回固定模型结果。"""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def generate_title(self, first_user_message: str) -> str | None:
+        self.messages.append(first_user_message)
+        return "模型理解后的标题"
+
+
+async def _reply_node(state: _SlowState) -> dict[str, list[AIMessage]]:
+    """为标题运行时测试提供不访问网络的快速回复节点。"""
+    del state
+    return {"messages": [AIMessage(content="收到")]}
+
+
+def _reply_graph_factory(checkpointer: object) -> object:
+    """创建用于验证标题生成时机的简短对话图。"""
+    graph = StateGraph(_SlowState)
+    graph.add_node("reply", _reply_node)
+    graph.add_edge(START, "reply")
+    return graph.compile(checkpointer=checkpointer)
+
+
+async def test_title_is_generated_only_for_first_message_of_new_conversation() -> None:
+    """同一会话仅首轮调用模型命名，后续消息不会覆盖生成标题。"""
+    title_generator: ConversationTitleGenerator = _FixedTitleGenerator()
+    conversation_store = MemoryConversationStore()
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=_reply_graph_factory(MemorySaver()),
+        conversation_store=conversation_store,
+        title_generator=title_generator,
+    )
+
+    first_events = await _collect_events(
+        runtime.stream_chat(message="首条用户消息描述了一个查询助手")
+    )
+    conversation_id = first_events[0].conversation_id
+    await _collect_events(
+        runtime.stream_chat(
+            message="第二轮补充信息",
+            conversation_id=conversation_id,
+        )
+    )
+
+    conversations = conversation_store.list_by_owner("local-development", 10, 0)
+    assert title_generator.messages == ["首条用户消息描述了一个查询助手"]
+    assert conversations[0].title == "模型理解后的标题"
+
+
+class _UnavailableTitleGenerator:
+    """模拟标题模型没有返回可用结果。"""
+
+    async def generate_title(self, first_user_message: str) -> str | None:
+        del first_user_message
+        return None
+
+
+async def test_title_falls_back_to_first_message_when_model_returns_no_title() -> None:
+    """标题模型未返回内容时仍保存规范化后的首条消息摘要。"""
+    conversation_store = MemoryConversationStore()
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=_reply_graph_factory(MemorySaver()),
+        conversation_store=conversation_store,
+        title_generator=_UnavailableTitleGenerator(),
+    )
+
+    await _collect_events(runtime.stream_chat(message="  生成   回退标题  "))
+
+    conversations = conversation_store.list_by_owner("local-development", 10, 0)
+    assert conversations[0].title == "生成 回退标题"

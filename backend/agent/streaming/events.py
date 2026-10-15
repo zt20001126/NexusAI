@@ -17,6 +17,7 @@ class AgentEventType(StrEnum):
     TOOL_STARTED = "tool.started"
     TOOL_COMPLETED = "tool.completed"
     QUESTION_REQUIRED = "question.required"
+    TASK_RESULT_UPDATED = "task_result.updated"
     RUN_COMPLETED = "run.completed"
     RUN_CANCELLED = "run.cancelled"
     RUN_FAILED = "run.failed"

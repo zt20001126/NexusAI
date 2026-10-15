@@ -12,6 +12,7 @@ class ConversationRecord:
     title: str | None
     created_at: datetime
     updated_at: datetime
+    agent_id: str = "default"
 
 
 @dataclass(frozen=True)

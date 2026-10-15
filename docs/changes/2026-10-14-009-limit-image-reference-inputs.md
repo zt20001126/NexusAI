@@ -1,0 +1,46 @@
+# 明确生图尺寸追问与参考图上限
+
+- 日期：2026-10-14
+- 变更类型：缺陷修复
+- 影响范围：淘宝图片智能体、参考图上传 API、聊天输入组件及对应产品/技术文档
+
+## 背景
+
+用户确认每次生图都需要追问尺寸，并要求参考图最多 3 张、每张不超过 5 MiB。未提交的暂存参考图暂时不需要清理。
+
+## 变更内容
+
+- 每次新的生图请求都发出尺寸/像素档位问题；恢复该运行时使用用户回答，不重复追问。
+- 将 API、图片工具和前端参考图数量上限统一为 3 张。
+- 将参考图上传上限调整为每张 5 MiB，并在 TokenHub 请求边界限制单图大小、张数和总原始字节数。
+- 更新 PRD、TDD、API 文档、TODO、环境变量示例和项目 Changelog。
+- 暂存但未提交的参考图不增加自动清理行为。
+
+## 涉及文件
+
+- `backend/agent/constants.py`：定义共享的参考图数量及字节数限制。
+- `backend/app/schemas/agent.py`、`backend/agents/image_generation/schemas.py`：限制单次聊天和图片工具最多接收 3 张参考图。
+- `backend/infra/settings.py`、`backend/app/controller/agents.py`、`backend/agents/image_generation/providers/tokenhub_client.py`：把单图限制设为最多 5 MiB，并限制请求内总原始字节数。
+- `backend/agents/image_generation/nodes/ask_node.py`、`backend/agents/image_generation/parameter_policy.py`：每次新生图运行询问尺寸，并以回答覆盖文本中已提取的尺寸值。
+- `frontend/src/features/chat/constants.ts`、`frontend/src/features/chat/ChatPage.tsx`、`frontend/src/features/chat/components/Composer.tsx`：同步前端选择数量、文件大小校验和提示。
+- `backend/.env.example`、`docs/API接口文档.md`、`prd.md`、`tdd.md`、`todo.md`、`CHANGELOG.md`：同步限制和清理策略说明。
+
+## 设计决策
+
+- 5 MiB 按 `5 * 1024 * 1024` 字节计算；配置允许部署者设置更低的上传上限，但不能超过 5 MiB。
+- 尺寸问题每个新生图运行询问一次；有效恢复答案用于继续当前运行，不重新提问。
+- 按当前需求不实现暂存参考图的自动清理。
+
+## 测试与验证
+
+- 命令：`git diff --check`
+- 结果：退出码 0，无空白错误；Git 提示部分现有工作区文件会按配置转换 LF/CRLF。
+- 未运行自动化测试；本轮没有收到执行测试的要求。
+
+## 潜在影响
+
+- 超过 3 张或单张超过部署上限的参考图请求会被拒绝；旧暂存对象不在本次变更中清理。
+
+## 后续事项
+
+- 暂无。

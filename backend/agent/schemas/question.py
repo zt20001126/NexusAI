@@ -1,5 +1,7 @@
 """人机协作问题协议。"""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -12,6 +14,13 @@ class Question(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     prompt: str = Field(min_length=1, max_length=500)
     allow_custom_input: bool = True
+    type: Literal["TextQuestion", "SingleChoice", "MultiChoice", "Confirmation", "FileUpload"] = (
+        "TextQuestion"
+    )
+    options: list[str] = Field(default_factory=list, max_length=100)
+    placeholder: str | None = Field(default=None, max_length=200)
+    accept: str | None = Field(default=None, max_length=200)
+    multiple: bool = False
 
 
 class QuestionPayload(BaseModel):
