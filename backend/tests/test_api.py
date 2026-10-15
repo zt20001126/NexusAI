@@ -10,7 +10,12 @@ from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
+from agent.constants import (
+    COMMON_AGENT_ID,
+    IMAGE_AGENT_ID,
+    LISTING_AGENT_ID,
+    RESEARCH_AGENT_ID,
+)
 from agent.persistence.memory import (
     MemoryAttachmentStore,
     MemoryConversationStore,
@@ -24,6 +29,7 @@ from app.dependencies.auth import get_principal_id
 from bootstrap.application import create_app
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
+from app.service.research import ResearchApplicationService
 from app.service.task_result import TaskResultApplicationService
 from agents.definition import AgentDefinition
 from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
@@ -32,6 +38,9 @@ from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
 from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
+from agents.research_agent.constants import RESEARCH_AGENT_DESCRIPTION, RESEARCH_AGENT_NAME
+from agents.research_agent.graph import build_research_agent_graph
+from agents.research_agent.providers.openalex_client import OpenAlexClient
 from agents.listing_agent.schemas import ListingImageAnalysis
 from agents.registry import (
     COMMON_AGENT_DESCRIPTION,
@@ -189,11 +198,56 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             attachment_store=attachment_store,
             title_generator=title_generator,
         )
+        research_transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "https://openalex.org/W123",
+                            "title": "A Research Paper",
+                            "publication_year": 2024,
+                            "publication_date": "2024-05-12",
+                            "language": "en",
+                            "authorships": [
+                                {"author": {"display_name": "Example Author"}}
+                            ],
+                            "primary_location": {
+                                "source": {"display_name": "Example Journal"}
+                            },
+                            "best_oa_location": {
+                                "pdf_url": "https://example.org/paper.pdf"
+                            },
+                            "abstract_inverted_index": {"Research": [0], "paper": [1]},
+                            "doi": "https://doi.org/10.1234/example",
+                            "cited_by_count": 7,
+                        }
+                    ]
+                },
+            )
+        )
+        research_graph = build_research_agent_graph(
+            MemorySaver(),
+            model_provider.create_chat_model(),
+            OpenAlexClient(settings, transport=research_transport),
+            task_result_store,
+            settings.research_max_search_rounds,
+        )
+        research_runner = build_memory_runner(
+            settings,
+            graph=research_graph,
+            conversation_store=conversation_store,
+            message_store=message_store,
+            agent_id=RESEARCH_AGENT_ID,
+            task_result_store=task_result_store,
+            title_generator=title_generator,
+        )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
             COMMON_AGENT_ID: AgentApplicationService(runner, publisher),
             IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
             LISTING_AGENT_ID: AgentApplicationService(listing_runner, publisher),
+            RESEARCH_AGENT_ID: AgentApplicationService(research_runner, publisher),
         }
         app.state.settings = settings
         app.state.agent_service = services[COMMON_AGENT_ID]
@@ -207,11 +261,22 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                     LISTING_AGENT_DESCRIPTION,
                     True,
                 ),
+                AgentDefinition(
+                    RESEARCH_AGENT_ID,
+                    RESEARCH_AGENT_NAME,
+                    RESEARCH_AGENT_DESCRIPTION,
+                    False,
+                ),
             ],
             services,
         )
         app.state.task_result_store = task_result_store
-        app.state.task_result_service = TaskResultApplicationService(task_result_store)
+        task_result_service = TaskResultApplicationService(task_result_store)
+        app.state.task_result_service = task_result_service
+        app.state.research_service = ResearchApplicationService(
+            services[RESEARCH_AGENT_ID],
+            task_result_service,
+        )
         app.state.attachment_store = attachment_store
         app.state.conversation_service = ConversationApplicationService(
             conversation_store,
@@ -247,8 +312,8 @@ def test_single_agent_uses_fixed_chat_route() -> None:
     assert response.status_code == 200
 
 
-def test_multi_agent_discovery_includes_listing_agent() -> None:
-    """公开注册的通用助手、淘宝图片助手和 Listing 智能体。"""
+def test_multi_agent_discovery_includes_research_agent() -> None:
+    """公开注册的通用助手、图片助手、Listing 和科研检索智能体。"""
     with _client() as client:
         response = client.get("/api/agents")
 
@@ -260,7 +325,87 @@ def test_multi_agent_discovery_includes_listing_agent() -> None:
         (COMMON_AGENT_ID, "通用智能体"),
         (IMAGE_AGENT_ID, "图片智能体"),
         (LISTING_AGENT_ID, "listing生成智能体"),
+        (RESEARCH_AGENT_ID, "科研文献检索智能体"),
     ]
+
+
+def test_research_rest_search_returns_papers_and_reusable_session() -> None:
+    """REST 检索返回结构化论文，并允许后续请求复用数字会话 ID。"""
+    with _client() as client:
+        response = client.post(
+            "/api/v1/research/search",
+            json={
+                "message": "查找关于科研方法的论文",
+                "limit": 1,
+                "year_from": 2020,
+                "year_to": 2025,
+                "language": "en",
+            },
+        )
+        detail = response.json()["data"]
+        history = client.get(f"/api/conversations/{detail['session_id']}/messages")
+        assistant_message = next(
+            item for item in history.json()["data"]["items"] if item["role"] == "assistant"
+        )
+        task_result_id = assistant_message["task_results"][0]["task_result_id"]
+        stored_result = client.get(f"/api/task-results/{task_result_id}")
+        continued = client.post(
+            "/api/v1/research/search",
+            json={
+                "message": "查找关于科研方法的论文",
+                "session_id": detail["session_id"],
+                "limit": 1,
+                "year_from": 2020,
+                "year_to": 2025,
+                "language": "en",
+            },
+        )
+        client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
+        unauthorized = client.get(f"/api/task-results/{task_result_id}")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert detail["status"] == "success"
+    assert detail["returned_count"] == 1
+    assert detail["papers"][0]["title"] == "A Research Paper"
+    assert detail["session_id"].isdigit()
+    assert stored_result.status_code == 200
+    assert stored_result.json()["data"]["result_type"] == "research_search"
+    assert stored_result.json()["data"]["result_data"]["papers"][0]["doi"] == "10.1234/example"
+    assert continued.status_code == 200
+    assert continued.json()["data"]["session_id"] == detail["session_id"]
+    assert unauthorized.status_code == 404
+
+
+def test_research_rest_returns_no_results_as_a_business_status() -> None:
+    """有效请求无匹配论文时仍返回 HTTP 成功和 no_results 状态。"""
+    with _client() as client:
+        response = client.post(
+            "/api/v1/research/search",
+            json={
+                "message": "查找科研论文",
+                "limit": 5,
+                "year_from": 2026,
+                "year_to": 2026,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "no_results"
+    assert response.json()["data"]["papers"] == []
+
+
+def test_research_rest_returns_partial_when_fewer_papers_match() -> None:
+    """OpenAlex 返回数量低于请求值时保留论文并标记 partial。"""
+    with _client() as client:
+        response = client.post(
+            "/api/v1/research/search",
+            json={"message": "查找科研论文", "limit": 5},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "partial"
+    assert response.json()["data"]["returned_count"] == 1
 
 
 def test_stream_chat_uses_stable_sse_event_contract() -> None:

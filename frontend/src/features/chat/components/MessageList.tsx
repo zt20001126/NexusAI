@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { DisplayMessage } from '../model/messages'
 import ListingResultCard from './ListingResultCard'
+import ResearchResultCard from './ResearchResultCard'
 
 interface MessageListProps {
   messages: DisplayMessage[]
@@ -93,6 +94,8 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
                 <div className="task-result-card" key={result.task_result_id}>
                   {result.result_type === 'listing' ? (
                     <ListingResultCard result={result} />
+                  ) : result.result_type === 'research_search' ? (
+                    <ResearchResultCard result={result} />
                   ) : result.generation_status === 'succeeded' && result.image_url ? (
                     <a href={result.image_url} target="_blank" rel="noreferrer">
                       <img src={result.image_url} alt="生成的淘宝商品图片" loading="lazy" />

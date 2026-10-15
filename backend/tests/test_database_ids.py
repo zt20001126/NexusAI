@@ -2,7 +2,12 @@
 
 import pytest
 
-from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
+from agent.constants import (
+    COMMON_AGENT_ID,
+    IMAGE_AGENT_ID,
+    LISTING_AGENT_ID,
+    RESEARCH_AGENT_ID,
+)
 from agent.runner import AgentRunner
 from agent.schemas.run import RunRecord, RunStatus
 from agents.database_ids import agent_code_from_database_id, agent_database_id
@@ -14,6 +19,7 @@ from agents.database_ids import agent_code_from_database_id, agent_database_id
         (COMMON_AGENT_ID, 132_633_958_813_786_113),
         (IMAGE_AGENT_ID, 132_633_958_813_786_114),
         (LISTING_AGENT_ID, 132_633_958_813_786_115),
+        (RESEARCH_AGENT_ID, 132_633_958_813_786_116),
     ],
 )
 def test_standard_agent_codes_keep_stable_database_ids(

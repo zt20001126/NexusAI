@@ -43,3 +43,18 @@ def test_conversation_title_timeout_is_configurable(monkeypatch) -> None:
 
     assert settings.conversation_title_timeout_seconds == 12
 
+
+def test_openalex_configuration_uses_environment_aliases(monkeypatch) -> None:
+    """OpenAlex 凭据及重试配置可由部署环境覆盖。"""
+    monkeypatch.setenv("OPENALEX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENALEX_TIMEOUT_SECONDS", "31")
+    monkeypatch.setenv("OPENALEX_MAX_RETRIES", "4")
+    monkeypatch.setenv("RESEARCH_MAX_SEARCH_ROUNDS", "2")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.openalex_api_key.get_secret_value() == "test-key"
+    assert settings.openalex_timeout_seconds == 31
+    assert settings.openalex_max_retries == 4
+    assert settings.research_max_search_rounds == 2
+

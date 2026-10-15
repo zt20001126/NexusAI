@@ -4,6 +4,10 @@ from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agent.constants import MAX_REFERENCE_IMAGE_BYTES
+from agents.research_agent.constants import (
+    RESEARCH_DEFAULT_MAX_ROUNDS,
+    RESEARCH_MAX_SEARCH_ROUNDS,
+)
 
 
 class AppSettings(BaseSettings):
@@ -61,6 +65,44 @@ class AppSettings(BaseSettings):
         le=600,
         validation_alias=AliasChoices(
             "TENCENT_TOKENHUB_TIMEOUT_SECONDS", "tokenhub_timeout_seconds"
+        ),
+    )
+
+    # OpenAlex 免密可用；配置密钥后通过 Bearer Header 提高服务端额度。
+    openalex_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("OPENALEX_API_KEY", "openalex_api_key"),
+    )
+    openalex_timeout_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=120,
+        validation_alias=AliasChoices(
+            "OPENALEX_TIMEOUT_SECONDS", "openalex_timeout_seconds"
+        ),
+    )
+    openalex_max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        validation_alias=AliasChoices(
+            "OPENALEX_MAX_RETRIES", "openalex_max_retries"
+        ),
+    )
+    openalex_retry_delay_seconds: float = Field(
+        default=0.5,
+        ge=0,
+        le=5,
+        validation_alias=AliasChoices(
+            "OPENALEX_RETRY_DELAY_SECONDS", "openalex_retry_delay_seconds"
+        ),
+    )
+    research_max_search_rounds: int = Field(
+        default=RESEARCH_DEFAULT_MAX_ROUNDS,
+        ge=1,
+        le=RESEARCH_MAX_SEARCH_ROUNDS,
+        validation_alias=AliasChoices(
+            "RESEARCH_MAX_SEARCH_ROUNDS", "research_max_search_rounds"
         ),
     )
     # 图片上传上限允许通过环境变量下调，但不能超过参考图业务上限。

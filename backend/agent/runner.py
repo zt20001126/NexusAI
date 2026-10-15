@@ -123,6 +123,7 @@ class AgentRunner:
         conversation_id: str | None = None,
         principal_id: str = "local-development",
         attachment_ids: list[str] | None = None,
+        graph_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """启动一次运行，并将会话绑定到可信主体和智能体。"""
         resolved_id = conversation_id or self._id_generator.next_id_string()
@@ -165,7 +166,8 @@ class AgentRunner:
                 resolved_id,
                 message_id,
             )
-        graph_input = {
+        graph_input = dict(graph_context or {})
+        graph_input.update({
             "messages": [HumanMessage(content=message)],
             "original_request": message,
             "resume_answers": {},
@@ -175,7 +177,7 @@ class AgentRunner:
             "run_id": record.run_id,
             "task_result_id": task_result_id,
             "attachment_ids": resolved_attachments,
-        }
+        })
         return self._stream_graph(
             record=record,
             graph_input=graph_input,

@@ -1,6 +1,6 @@
 # NexusAI 多智能体基础框架
 
-这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）和 listing生成智能体（`listing_agent`）。
+这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）、listing生成智能体（`listing_agent`）和科研文献检索智能体（`research_agent`）。
 
 ![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
 
@@ -31,6 +31,7 @@ backend/
     registry.py              agent_id 到定义和应用服务的显式映射
     image_generation/        淘宝电商图片图、节点、TokenHub 工具与 Provider
     listing_agent/           淘宝 Listing 图片识别、必要信息追问和多版本生成
+    research_agent/          OpenAlex 学术论文检索、标准化和结果保存
   infra/                     集中配置与外部服务适配
   tests/                     节点、运行器、SSE、API 与契约测试
   main.py                    Uvicorn 入口
@@ -128,7 +129,7 @@ Compose 配置位于 `backend/compose.yaml`，包含以下服务：
 
 ## API 与 SSE
 
-当前前端支持从智能体选择器切换到图片智能体。智能体代码统一为 `common_agent`、`image_agent` 和 `listing_agent`；新接口使用 `agent_id` 路径：
+当前前端支持从智能体选择器切换已注册的智能体。智能体代码统一为 `common_agent`、`image_agent`、`listing_agent` 和 `research_agent`；新接口使用 `agent_id` 路径：
 
 ```powershell
 curl.exe http://127.0.0.1:8000/api/agents
@@ -201,3 +202,13 @@ cd backend
 ```
 
 测试不访问真实 LLM、数据库或其他第三方服务。
+
+## 科研文献检索智能体
+
+项目现包含科研文献检索智能体 research_agent，可在聊天页智能体选择器中使用，也可调用专用 REST 接口：
+
+~~~powershell
+curl.exe -X POST http://127.0.0.1:8000/api/v1/research/search -H "Content-Type: application/json" -d '{"message":"检索 2020 年以来关于图神经网络的论文","limit":10,"year_from":2020,"language":"en"}'
+~~~
+
+查询结果通过共享 task_results 表保存，不新增数据库表或迁移。OpenAlex API Key 可选；运行时超时、重试次数、退避间隔和最大查询轮数见 backend/.env.example。接口字段和状态详见 docs/API接口文档.md。

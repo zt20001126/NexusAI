@@ -17,6 +17,12 @@ function ChatPage() {
   const [pendingImages, setPendingImages] = useState<File[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const chat = useChatSession()
+  const pendingQuestionKey = chat.pendingQuestion
+    ? JSON.stringify({
+        runId: chat.pendingQuestion.runId,
+        questions: chat.pendingQuestion.questions.map(({ id, title, prompt }) => [id, title, prompt]),
+      })
+    : undefined
 
   async function handleSend() {
     const message = draft.trim()
@@ -101,6 +107,7 @@ function ChatPage() {
           />
           {chat.pendingQuestion && chat.pendingQuestion.questions.length > 0 && (
             <AgentInteractionCard
+              key={pendingQuestionKey}
               questions={chat.pendingQuestion.questions}
               disabled={chat.sending}
               onSubmit={(answers) => { void chat.resumeRun(answers) }}

@@ -81,3 +81,9 @@ listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `
 在 `app/modules/<业务名>/` 下按需增加 `router/`、`service/`、`crud/`、`models/` 和 `schemas/`。CRUD 负责该业务的数据读写；只有确有独立的数据需求时才新增对应模块，不为每张表机械地增加一层抽象。
 
 MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG 的文档处理、切分、Embedding、检索和生成应作为独立 AI 模块，不放进通用 Router、CRUD 或 Agent Service。
+
+### 科研文献检索智能体
+
+科研文献检索位于 backend/agents/research_agent/，稳定标识为 research_agent。图节点调用现有 ChatModel 解析检索词和约束，再由异步 HTTPX OpenAlex Client 查询 Works API。论文字段只从 OpenAlex 响应映射，摘要由其倒排索引重建；作者、DOI、年份、语言和引用量均由标准化器校验、过滤和去重。
+
+单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 task_results.result_data；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用任务所有者校验，前端按 research_search 展示论文卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。

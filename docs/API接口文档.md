@@ -6,7 +6,7 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果和附件标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`image_agent` 或 `listing_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
+会话、运行、消息、任务结果和附件标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`image_agent`、`listing_agent` 或 `research_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
@@ -37,6 +37,12 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
       "name": "listing生成智能体",
       "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
       "supports_image_upload": true
+    },
+    {
+      "agent_id": "research_agent",
+      "name": "科研文献检索智能体",
+      "description": "根据研究主题检索 OpenAlex 学术论文，并保存可追溯的结构化结果。",
+      "supports_image_upload": false
     }
   ]
 }
@@ -119,9 +125,9 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 ### GET /api/task-results/{task_result_id}
 
-读取 Listing 任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是 Listing 类型时统一返回 HTTP 404。
+读取 Listing 或科研文献检索任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是允许公开的结果类型时统一返回 HTTP 404。
 
-成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。result_data 中含 schema_version、商品事实、图片识别结果及 3 个版本。接口不返回 input_data、图片字节、OSS 内部对象键或模型凭据。
+成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回 input_data、图片字节、OSS 内部对象键或模型凭据。
 
 ## 上传参考图片
 
@@ -175,3 +181,61 @@ Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张�
 ## 图片智能体参数
 
 `image_agent` 使用 TokenHub Hy-Image-3.5-preview。每次图片生成请求都会通过常见选项询问尺寸或输出面积档位，用户本轮选择作为最终值；恢复追问时不会重复询问。`seed`、`footnote` 和参考图 `resize_max_pixels` 只有在用户提出相应要求但没有给出值时才追问；其余情况采用请求值或 TokenHub 文档默认值（参考图面积默认 1,048,576）。参考图最多 3 张，每张最多 5 MiB。`session`、`model` 和 `messages` 由服务端组装。API 文档没有定义输出张数或独立清晰度参数，因此接口和问答不引入这两个字段。完整上游字段及限制请见[腾讯混元生图接入文档](https://cloud.tencent.com/document/product/1823/135745)。
+
+## 科研文献检索智能体
+
+research_agent 可从智能体选择器使用通用聊天 SSE，也提供一次返回结构化结果的 REST 接口。REST 请求复用 Agent Runner、当前用户的会话和 task_results；session_id 是数字雪花 conversation_id 的别名。新会话省略该字段，后续请求传回响应中的 ID。
+
+### POST /api/v1/research/search
+
+请求字段示例：
+
+~~~json
+{
+  "message": "检索 2020 年以来关于图神经网络的英文论文",
+  "session_id": null,
+  "limit": 10,
+  "year_from": 2020,
+  "year_to": 2025,
+  "language": "en",
+  "sort": "relevance"
+}
+~~~
+
+message 必填且长度为 2–20,000；limit 范围为 1–50。session_id 可省略，或使用数字雪花 ID。年份、语言和排序条件可选；支持 relevance、citation_count 和 publication_date。显式年份与语言筛选由服务端固定应用到所有查询轮次。
+
+成功响应使用项目统一 envelope，data 字段形如：
+
+~~~json
+{
+  "success": true,
+  "data": {
+    "session_id": "123456789012345678",
+    "status": "success",
+    "query": "检索 2020 年以来关于图神经网络的英文论文",
+    "papers": [
+      {
+        "id": "https://openalex.org/W123",
+        "title": "论文标题",
+        "authors": ["作者姓名"],
+        "year": 2024,
+        "language": "en",
+        "publication_date": "2024-06-01",
+        "venue": "期刊名称",
+        "abstract": null,
+        "doi": "10.example/example",
+        "citation_count": 12,
+        "paper_url": "https://openalex.org/W123",
+        "pdf_url": null,
+        "source": "OpenAlex"
+      }
+    ],
+    "returned_count": 1,
+    "message": "找到符合条件的论文。"
+  }
+}
+~~~
+
+status 为 success、partial、no_results 或 failed。有效查询无匹配论文时仍返回 HTTP 200 和 no_results；已取得部分可用结果时返回 partial。论文完整字段保存在 task_results.result_data，Checkpoint 和 SSE 工具事件只携带任务 ID、业务状态和数量摘要。OpenAlex API Key 可选，通过 OPENALEX_API_KEY 配置；超时、有限重试和最多 3 轮查询由 OPENALEX_TIMEOUT_SECONDS、OPENALEX_MAX_RETRIES、OPENALEX_RETRY_DELAY_SECONDS 和 RESEARCH_MAX_SEARCH_ROUNDS 控制。
+
+GET /api/task-results/{task_result_id} 按所有者读取该结果的完整论文 JSON；越权、未知和未公开的结果类型统一返回 HTTP 404。
