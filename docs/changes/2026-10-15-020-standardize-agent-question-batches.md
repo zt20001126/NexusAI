@@ -1,0 +1,57 @@
+# 规范化智能体追问批次
+
+- 日期：2026-10-15
+- 变更类型：新功能
+- 影响范围：共享追问协议、Listing 与图片智能体、聊天追问表单和 API 文档
+
+## 背景
+
+当前共享追问协议允许单批包含多达 20 道题，没有限制单次运行的提问轮数；题目格式和恢复答案也缺少统一校验。前端文件题只提交文件名，未实际上传文件。
+
+## 变更内容
+
+- 每批最多 5 道题，单次运行最多 3 批；超限时以 `QUESTION_ROUND_LIMIT` 结束，不猜测缺失信息。
+- 规范题目 ID、标题、题干、选项、题型及单选/多选自定义输入配置；同批题目 ID 和选项不能重复。
+- 恢复答案按当前批次、题型和选项校验；多选答案使用字符串数组，并限制答案和选项大小。
+- 前端追问卡片显示轮数、题号、题型和必答状态，统一选择控件与自定义输入。
+- 文件选择不再作为结构化题型；文件应使用现有附件上传流程。
+- 更新 Listing 产品/技术文档、API 文档和项目 `[Unreleased]` 摘要。
+
+## 涉及文件
+
+- `backend/agent/constants.py`：定义共享题数、轮数、选项和答案边界。
+- `backend/agent/schemas/question.py`：规范题目载荷并校验答案。
+- `backend/agent/runner.py`：记录轮数和待答问题，限制追问批次并发布轮数元数据。
+- `backend/app/schemas/agent.py`：限制恢复请求的题数、答案和多选数组。
+- `backend/agents/image_agent/nodes/ask_node.py`、`backend/agents/image_agent/schemas.py`：对齐共享题目协议。
+- `backend/agents/listing_agent/constants.py`、`backend/agents/listing_agent/nodes/ask.py`、`backend/agents/listing_agent/prompts.py`：对齐批次限制和生成提示。
+- `frontend/src/features/chat/ChatPage.tsx`、`frontend/src/features/chat/api/agent.ts`、`frontend/src/features/chat/components/AgentInteractionCard.tsx`、`frontend/src/features/chat/constants.ts`、`frontend/src/features/chat/hooks/useChatSession.ts`：传递轮数信息并实现规范化表单和结构化答案。
+- `frontend/src/features/chat/model/currentQuestionAnswers.mjs`、`frontend/src/features/chat/model/currentQuestionAnswers.d.mts`：支持文本或多选数组答案。
+- `frontend/src/index.css`：调整题目卡片、选项和轮数提示样式。
+- `docs/API接口文档.md`、`docs/agents/listing/prd.md`、`docs/agents/listing/tdd.md`：同步协议和产品规则。
+- `CHANGELOG.md`：更新 `[Unreleased]` 摘要。
+
+## 设计决策
+
+- 题数和轮数在共享后端常量中定义，并在前端常量中镜像；事件同时返回当前轮数和最大轮数。
+- 恢复时使用 Runner 保存的待答问题校验题型和选项，避免只依赖客户端提交的 ID。
+- 结构化协议不接收文件名作为文件答案；真实文件继续通过聊天附件上传流程提交。
+
+## 测试与验证
+
+- 命令：`npm run build`（工作目录：`frontend/`）
+- 结果：TypeScript 检查通过，Vite 生产构建成功。
+- 命令：`python -m compileall -q agent agents app`（工作目录：`backend/`）
+- 结果：后端 Python 源码语法编译通过。
+- 命令：`git diff --check`
+- 结果：通过，没有空白错误。
+- 未运行自动化测试：本次请求为实现代码，未要求运行测试。
+
+## 潜在影响
+
+- 结构化追问不再接受 `FileUpload` 题型；需要上传的文件应使用聊天附件流程。
+- 多选答案继续遵循既有最多 20 项边界；现有选择题最多 100 个选项。
+
+## 后续事项
+
+- 无。

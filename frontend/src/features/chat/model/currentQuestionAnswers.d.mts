@@ -1,5 +1,5 @@
-/** 只保留当前追问批次的答案，避免前一批状态进入恢复请求。 */
+/** 只保留当前追问批次的文本或多选数组答案。 */
 export function selectCurrentQuestionAnswers(
   questionIds: string[],
-  answers: Record<string, string>,
-): Record<string, string>
+  answers: Record<string, string | string[]>,
+): Record<string, string | string[]>

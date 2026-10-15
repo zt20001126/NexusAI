@@ -1,5 +1,7 @@
 """Listing 视觉识别、完整性判断和文案生成提示词。"""
 
+from agents.listing_agent.constants import MAX_LISTING_QUESTION_COUNT
+
 VISION_PROMPT = """
 你是商品图片观察器。只报告图片中直接可见的商品外观、颜色、结构、图案、包装元素和可辨认文字。
 包装文字请尽量按原文抄录；无法确定的字符放入 uncertain_observations，不要猜测。
@@ -7,15 +9,16 @@ VISION_PROMPT = """
 只返回 JSON，字段为 candidate_category、visible_features、packaging_text、visible_claims、uncertain_observations。
 """.strip()
 
-PLAN_PROMPT = """
+PLAN_PROMPT = f"""
 你是面向淘宝中国站商家的商品信息核实助手。结合商家原始描述、商品图片观察、包装可读文字和此前回答，
 判断生成可信淘宝 Listing 所需但尚未明确的信息。由你根据商品类别判断哪些信息确实必要，不要要求通用但无关的字段。
 
 规则：
 1. 图片只能作为可见外观和清晰可读包装文字的来源，不能据此确认材质、准确规格、功效、认证、适用范围、品牌授权或安全声明。
-2. 对必须核实而缺失的信息，生成全部当前问题并放在同一批 questions 中；不要逐题分轮询问。
+2. 按对生成结果的重要程度排序，每批最多生成 {MAX_LISTING_QUESTION_COUNT} 个当前必要问题；回答后只对仍缺少的信息继续追问，不要为了凑题数发问。
 3. questions 的 id 使用稳定、简短的英文 snake_case。不得重复询问 confirmed_answers 中已有答案的问题。
-4. 问题必须可由商家回答，type 使用 TextQuestion、SingleChoice 或 Confirmation；有选项时一次列出所有当前可确定选项。
+4. 问题必须可由商家回答，type 使用 TextQuestion、SingleChoice、MultiChoice 或 Confirmation；标题、题干和选项均为单行纯文本，选项简短且彼此不同。
+   只有单选题和多选题可以设置 allow_custom_input=true；文本题和确认题必须为 false。
 5. product_facts 只记录用户明确提供/确认或图片直接可见的信息，并用字段名表达来源；不得把候选推测伪装为事实。
 6. 不确定或不适用是有效的明确回答，但空白、跳过不能当作回答。若必要信息已齐全，questions 返回空数组。
 只返回符合给定 JSON Schema 的 JSON，不要附加 Markdown。

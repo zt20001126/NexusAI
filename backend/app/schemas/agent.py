@@ -2,7 +2,13 @@
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agent.constants import MAX_REFERENCE_IMAGE_COUNT
+from agent.constants import (
+    MAX_QUESTION_ANSWER_CHARS,
+    MAX_QUESTION_SELECTION_CHARS,
+    MAX_QUESTION_SELECTION_COUNT,
+    MAX_QUESTIONS_PER_BATCH,
+    MAX_REFERENCE_IMAGE_COUNT,
+)
 
 AnswerValue = str | int | float | bool | None | list[str]
 
@@ -50,7 +56,7 @@ class ResumeRequest(BaseModel):
     )
     answers: dict[str, AnswerValue] = Field(
         min_length=1,
-        max_length=20,
+        max_length=MAX_QUESTIONS_PER_BATCH,
         description="按问题标识提交的结构化答案",
     )
 
@@ -64,8 +70,10 @@ class ResumeRequest(BaseModel):
         for question_id, value in answers.items():
             if not question_id or len(question_id) > 64:
                 raise ValueError("问题标识长度不合法")
-            if isinstance(value, str) and len(value) > 2_000:
-                raise ValueError("单个答案文本不能超过 2000 个字符")
+            if isinstance(value, str) and len(value) > MAX_QUESTION_ANSWER_CHARS:
+                raise ValueError(
+                    f"单个答案文本不能超过 {MAX_QUESTION_ANSWER_CHARS} 个字符"
+                )
             if isinstance(value, str) and not value.strip():
                 raise ValueError("必要问题不能提交空白答案")
             if value is None:
@@ -73,8 +81,12 @@ class ResumeRequest(BaseModel):
             if isinstance(value, list):
                 if (
                     not value
-                    or len(value) > 20
-                    or any(not item.strip() or len(item) > 500 for item in value)
+                    or len(value) > MAX_QUESTION_SELECTION_COUNT
+                    or any(
+                        not item.strip() or len(item) > MAX_QUESTION_SELECTION_CHARS
+                        for item in value
+                    )
+                    or len(value) != len(set(value))
                 ):
-                    raise ValueError("多选答案超出允许范围")
+                    raise ValueError("多选答案为空、重复或超出允许范围")
         return answers

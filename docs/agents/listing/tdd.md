@@ -39,7 +39,7 @@
          -> 没有缺口：generation_node -> save_listing_result -> result_node -> END
 
 - vision_node 按当前可信用户、会话和附件 ID 读取最多 3 张 PNG/JPEG 图片，要求模型返回商品类别候选、可见特征、包装文字、可见声明及不确定观察。
-- plan_node 将原始商家消息、视觉观察和此前回答交给模型，要求其按商品类别判断必要信息并一次性生成当前全部问题。它合并非空答案，并按稳定问题 ID 过滤已回答问题。
+- plan_node 将原始商家消息、视觉观察和此前回答交给模型，要求其按商品类别判断必要信息并生成当前问题批次。它合并非空答案，并按稳定问题 ID 过滤已回答问题。
 - ask_listing_questions 将任务状态和当前输入快照保存为 awaiting_input。现有 Runner 记录问题 ID，并在完全匹配的答案集合到达后恢复相同 Checkpoint。
 - generation_node 只有在 plan_node 返回空问题批次后才生成 Listing。输出必须通过 ListingResult Pydantic 校验。
 - save_listing_result 将成功结果及输入摘要写入 task_results。共享 Runner 从工具结果中发布 task_result.updated，助手回复后由前端读取 JSON。
@@ -48,8 +48,9 @@
 
 ## 4. 必填问题规则
 
-- 每次追问最多 20 项，当前批次通过一个 question.required 事件整体返回。
-- 现有前端卡片要求提交所有问题；ResumeRequest 拒绝空字符串、空列表和 null，Runner 还校验答案 ID 集合必须与待答问题完全一致。
+- 每批追问最多 5 项，当前批次通过一个 question.required 事件整体返回；单次运行最多追问 3 批。
+- 前端卡片显示轮数、题号、题型和必答状态，并要求提交当前批次所有问题；ResumeRequest 和 Runner 校验答案边界，Runner 还按题型校验答案 ID、选项和答案类型。
+- 达到 3 批上限后运行以 `QUESTION_ROUND_LIMIT` 失败结束，提示用户在聊天框补充剩余信息，不猜测缺失事实或生成结果。
 - 商家可明确回答“不清楚”等内容；这属于答案，不应被文案生成器改写成已知事实。
 - 必要信息判断由模型结合商品类别完成，首版没有静态淘宝类目属性配置，也不声称覆盖淘宝实时类目规则。
 

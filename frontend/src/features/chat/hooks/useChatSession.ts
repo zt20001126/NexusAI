@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Question } from '../api/agent'
-import { COMMON_AGENT_ID } from '../constants'
+import type { Question, QuestionAnswer } from '../api/agent'
+import { COMMON_AGENT_ID, MAX_QUESTION_ROUNDS_PER_RUN } from '../constants'
 import {
   cancelAgentRun,
   getAgents,
@@ -21,6 +21,8 @@ interface PendingQuestion {
   conversationId: string
   runId: string
   questions: Question[]
+  questionRound: number
+  maxQuestionRounds: number
 }
 
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
@@ -197,7 +199,14 @@ export function useChatSession() {
         const questions = Array.isArray(event.data.questions)
           ? event.data.questions as Question[]
           : []
-        setPendingQuestion({ conversationId: event.conversation_id, runId: event.run_id, questions })
+        setPendingQuestion({
+          conversationId: event.conversation_id,
+          runId: event.run_id,
+          questions,
+          questionRound: readInteger(event.data.question_round) ?? 1,
+          maxQuestionRounds: readInteger(event.data.max_question_rounds)
+            ?? MAX_QUESTION_ROUNDS_PER_RUN,
+        })
         setStatus('等待你的补充信息')
         break
       }
@@ -215,10 +224,12 @@ export function useChatSession() {
         break
       case 'run.cancelled':
         activeRunRef.current = null
+        setPendingQuestion(null)
         setStatus('已停止生成')
         break
       case 'run.failed':
         activeRunRef.current = null
+        setPendingQuestion(null)
         setStatus('本轮未完成')
         setError(readString(event.data.message) || '对话执行失败，请重试。')
         break
@@ -283,7 +294,7 @@ export function useChatSession() {
     return sent
   }
 
-  async function resumeRun(answers: Record<string, string>) {
+  async function resumeRun(answers: Record<string, QuestionAnswer>) {
     if (!pendingQuestion || sending) return
     setError(null)
     setSending(true)
@@ -436,6 +447,10 @@ function readNullableNumber(value: unknown): number | null {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function readInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
 
 function upsertAssistantMessage(

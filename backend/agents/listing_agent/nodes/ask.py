@@ -14,7 +14,7 @@ def create_ask_node() -> Callable[..., dict[str, list[AIMessage]]]:
     """创建由服务端补全可信身份的批量追问工具调用节点。"""
 
     def ask_node(state: ListingAgentState) -> dict[str, list[AIMessage]]:
-        """一次提交当前全部问题，并保留商品识别及事实快照。"""
+        """提交当前批次的问题，并保留商品识别及事实快照。"""
         arguments = {
             "questions": state.get("questions", []),
             "task_result_id": state.get("task_result_id", ""),

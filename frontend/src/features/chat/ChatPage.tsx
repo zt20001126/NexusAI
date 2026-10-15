@@ -46,6 +46,7 @@ function ChatPage() {
   const pendingQuestionKey = chat.pendingQuestion
     ? JSON.stringify({
         runId: chat.pendingQuestion.runId,
+        questionRound: chat.pendingQuestion.questionRound,
         questions: chat.pendingQuestion.questions.map(({ id, title, prompt }) => [id, title, prompt]),
       })
     : undefined
@@ -140,6 +141,8 @@ function ChatPage() {
             <AgentInteractionCard
               key={pendingQuestionKey}
               questions={chat.pendingQuestion.questions}
+              questionRound={chat.pendingQuestion.questionRound}
+              maxQuestionRounds={chat.pendingQuestion.maxQuestionRounds}
               disabled={chat.sending}
               onSubmit={(answers) => { void chat.resumeRun(answers) }}
             />
