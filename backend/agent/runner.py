@@ -10,7 +10,11 @@ from typing import Any
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
-from agent.constants import COMMON_AGENT_ID, CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY
+from agent.constants import (
+    CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
+    COMMON_AGENT_ID,
+    MAX_QUESTION_ROUNDS_PER_RUN,
+)
 from agent.errors import (
     ConversationAccessDeniedError,
     InvalidResumeAnswersError,
@@ -152,6 +156,7 @@ class AgentRunner:
             metadata={
                 "task_result_id": task_result_id,
                 "attachment_ids": resolved_attachments,
+                "question_round_count": 0,
             },
             agent_id=self._agent_id,
         )
@@ -205,6 +210,15 @@ class AgentRunner:
         pending_question_ids = set(record.metadata.get("pending_question_ids", []))
         if not pending_question_ids or set(answers) != pending_question_ids:
             raise InvalidResumeAnswersError()
+        pending_questions_data = record.metadata.get("pending_questions")
+        if isinstance(pending_questions_data, list):
+            try:
+                QuestionPayload(questions=pending_questions_data).validate_answers(answers)
+            except ValueError as error:
+                raise InvalidResumeAnswersError() from error
+        if "question_round_count" not in record.metadata:
+            # 兼容升级前创建、只持久化了问题 ID 的等待中运行。
+            record.metadata["question_round_count"] = 1
         record.status = RunStatus.RUNNING
         self._run_store.save(record)
         answer_text = "\n".join(
@@ -352,11 +366,6 @@ class AgentRunner:
                                         return
                                 if event.event_type == AgentEventType.QUESTION_REQUIRED:
                                     waiting_for_answer = True
-                                    record.metadata["pending_question_ids"] = [
-                                        item["id"]
-                                        for item in event.data.get("questions", [])
-                                        if isinstance(item, dict) and isinstance(item.get("id"), str)
-                                    ]
                                 yield event
                                 if event.event_type == AgentEventType.RUN_FAILED:
                                     record.status = RunStatus.FAILED
@@ -564,6 +573,36 @@ class AgentRunner:
                     {"code": "INVALID_QUESTION_PAYLOAD", "message": "追问信息格式不正确"},
                 )
                 return
+            question_round_count = record.metadata.get("question_round_count", 0)
+            if (
+                not isinstance(question_round_count, int)
+                or isinstance(question_round_count, bool)
+            ):
+                question_round_count = 0
+            if question_round_count >= MAX_QUESTION_ROUNDS_PER_RUN:
+                record.status = RunStatus.FAILED
+                yield self._event(
+                    record,
+                    AgentEventType.RUN_FAILED,
+                    {
+                        "code": "QUESTION_ROUND_LIMIT",
+                        "message": (
+                            f"本次处理最多补充 {MAX_QUESTION_ROUNDS_PER_RUN} 轮，"
+                            "仍有必要信息缺失。请在聊天框中一次性补充剩余信息后重新提交；"
+                            "系统不会根据缺失信息猜测并生成结果。"
+                        ),
+                    },
+                )
+                return
+            question_round = question_round_count + 1
+            record.metadata["question_round_count"] = question_round
+            question_data = questions.model_dump(mode="json")
+            question_data["question_round"] = question_round
+            question_data["max_question_rounds"] = MAX_QUESTION_ROUNDS_PER_RUN
+            record.metadata["pending_questions"] = question_data["questions"]
+            record.metadata["pending_question_ids"] = [
+                question.id for question in questions.questions
+            ]
             question_message_id = self._message_store.save(
                 record.conversation_id,
                 record.run_id,
@@ -587,7 +626,7 @@ class AgentRunner:
             yield self._event(
                 record,
                 AgentEventType.QUESTION_REQUIRED,
-                questions.model_dump(),
+                question_data,
             )
             if isinstance(task_result, dict):
                 yield self._event(

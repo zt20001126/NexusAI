@@ -10,32 +10,29 @@ from agent.constants import (
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
+    LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
 )
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
-from agents.definition import AgentDefinition
-from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
 from agents.image_agent.graph import build_image_agent_graph
 from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
-from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
-from agents.research_agent.constants import (
-    RESEARCH_AGENT_DESCRIPTION,
-    RESEARCH_AGENT_NAME,
-)
+from agents.labor_law_agent.embedding import create_legal_embedding_model
+from agents.labor_law_agent.graph import build_labor_law_agent_graph
+from agents.labor_law_agent.retrieval import LegalRetrievalService
 from agents.research_agent.graph import build_research_agent_graph
 from agents.research_agent.providers.openalex_client import OpenAlexClient
 from agents.registry import (
-    COMMON_AGENT_DESCRIPTION,
-    COMMON_AGENT_NAME,
     AgentRegistry,
+    PROJECT_AGENT_DEFINITIONS,
 )
 from app.crud import (
     PostgresConversationStore,
     PostgresMessageStore,
+    PostgresLegalKnowledgeStore,
     PostgresRunLock,
     PostgresRunStore,
     PostgresTaskResultStore,
@@ -144,6 +141,24 @@ def build_lifespan(
                     agent_id=RESEARCH_AGENT_ID,
                     graph=research_graph,
                 )
+                legal_knowledge_store = PostgresLegalKnowledgeStore(database)
+                legal_retrieval_service = LegalRetrievalService(
+                    repository=legal_knowledge_store,
+                    embedding_model=create_legal_embedding_model(settings),
+                    top_k=settings.legal_rag_top_k,
+                    candidate_count=settings.legal_rag_candidate_count,
+                    min_similarity=settings.legal_rag_min_similarity,
+                )
+                labor_law_graph = build_labor_law_agent_graph(
+                    checkpointer,
+                    resolved_model_provider.create_chat_model(),
+                    legal_retrieval_service,
+                    settings.legal_rag_max_context_chars,
+                )
+                labor_law_runner = create_postgres_runner(
+                    agent_id=LABOR_LAW_AGENT_ID,
+                    graph=labor_law_graph,
+                )
                 _install_runtime_state(
                     app_instance,
                     settings,
@@ -152,6 +167,7 @@ def build_lifespan(
                         IMAGE_AGENT_ID: image_runner,
                         LISTING_AGENT_ID: listing_runner,
                         RESEARCH_AGENT_ID: research_runner,
+                        LABOR_LAW_AGENT_ID: labor_law_runner,
                     },
                     MemoryEventSequence(),
                     conversation_store,
@@ -180,35 +196,7 @@ def _install_runtime_state(
         agent_id: AgentApplicationService(runner, publisher)
         for agent_id, runner in runners.items()
     }
-    registry = AgentRegistry(
-        [
-            AgentDefinition(
-                agent_id=COMMON_AGENT_ID,
-                name=COMMON_AGENT_NAME,
-                description=COMMON_AGENT_DESCRIPTION,
-                supports_image_upload=False,
-            ),
-            AgentDefinition(
-                agent_id=IMAGE_AGENT_ID,
-                name=IMAGE_AGENT_NAME,
-                description=IMAGE_AGENT_DESCRIPTION,
-                supports_image_upload=True,
-            ),
-            AgentDefinition(
-                agent_id=LISTING_AGENT_ID,
-                name=LISTING_AGENT_NAME,
-                description=LISTING_AGENT_DESCRIPTION,
-                supports_image_upload=True,
-            ),
-            AgentDefinition(
-                agent_id=RESEARCH_AGENT_ID,
-                name=RESEARCH_AGENT_NAME,
-                description=RESEARCH_AGENT_DESCRIPTION,
-                supports_image_upload=False,
-            ),
-        ],
-        services,
-    )
+    registry = AgentRegistry(PROJECT_AGENT_DEFINITIONS, services)
     app_instance.state.settings = settings
     app_instance.state.agent_registry = registry
     app_instance.state.agent_runner = runners[COMMON_AGENT_ID]

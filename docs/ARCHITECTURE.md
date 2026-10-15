@@ -87,3 +87,7 @@ MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG
 科研文献检索位于 backend/agents/research_agent/，稳定标识为 research_agent。图节点调用现有 ChatModel 解析检索词和约束，再由异步 HTTPX OpenAlex Client 查询 Works API。论文字段只从 OpenAlex 响应映射，摘要由其倒排索引重建；作者、DOI、年份、语言和引用量均由标准化器校验、过滤和去重。
 
 单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 task_results.result_data；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用任务所有者校验，前端按 research_search 展示论文卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。
+
+### 劳动法律问答智能体
+
+劳动法律问答位于 `backend/agents/labor_law_agent/`，稳定标识为 `labor_law_agent`。用户通过聊天页“开启新对话”进入现有智能体选择器；该智能体使用与项目其他智能体相同的聊天 API 和运行时。法律原件放在该目录的 `data/legal_corpus/source/`，由导入命令解析并按法律版本、条文写入 PostgreSQL + pgvector；对话查询组合条号/关键词检索与向量检索，再将检索证据交给模型生成回答。服务端根据已检索法条 ID 输出名称、条号、原文和官方来源，依据不足时返回固定说明。Embedding 使用 TokenHub Kinfra 模型，并复用项目已有 `TENCENT_TOKENHUB_API_KEY`；限定访问范围的 Key 需获准调用该模型。

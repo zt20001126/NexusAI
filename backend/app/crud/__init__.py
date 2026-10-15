@@ -2,6 +2,7 @@
 
 from app.crud.conversation import PostgresConversationStore
 from app.crud.message import PostgresMessageStore
+from app.crud.legal_knowledge import PostgresLegalKnowledgeStore
 from app.crud.run import PostgresRunStore
 from app.crud.run_lock import PostgresRunLock
 from app.crud.task_result import PostgresTaskResultStore
@@ -9,6 +10,7 @@ from app.crud.task_result import PostgresTaskResultStore
 __all__ = [
     "PostgresConversationStore",
     "PostgresMessageStore",
+    "PostgresLegalKnowledgeStore",
     "PostgresRunLock",
     "PostgresRunStore",
     "PostgresTaskResultStore",

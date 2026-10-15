@@ -13,7 +13,7 @@ from agent.schemas.tool_result import ToolResult
 def summarize_goal(
     goal: Annotated[str, Field(min_length=1, max_length=2_000)],
 ) -> str:
-    """将确认后的业务目标整理成后续节点可消费的结构化结果。"""
+    """仅在用户明确要求整理业务目标时，将目标整理为结构化结果。"""
     normalized_goal = goal.strip()
     result = ToolResult(
         success=True,

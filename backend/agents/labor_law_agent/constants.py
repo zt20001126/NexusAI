@@ -1,0 +1,47 @@
+"""集中维护劳动法律智能体、语料和检索边界配置。"""
+
+from agent.constants import LABOR_LAW_AGENT_ID
+
+LABOR_LAW_AGENT_NAME = "劳动法律问答"
+LABOR_LAW_AGENT_DESCRIPTION = "检索中国大陆全国性劳动法律法规，回答时展示具体条文和官方来源。"
+LEGAL_CORPUS_DIR = "data/legal_corpus"
+LEGAL_CORPUS_SOURCE_DIR = f"{LEGAL_CORPUS_DIR}/source"
+LEGAL_CORPUS_MANIFEST_NAME = "manifest.json"
+LEGAL_SOURCE_FORMATS = frozenset(
+    {".md", ".markdown", ".pdf", ".txt", ".html", ".htm", ".docx"}
+)
+LEGAL_ARTICLE_HEADING_PATTERN = (
+    r"^第[零〇一二三四五六七八九十百千万两0-9]+条"
+    r"(?:之[零〇一二三四五六七八九十0-9]+)?"
+)
+LEGAL_DEFAULT_KEYWORD_LIMIT = 30
+LEGAL_RRF_K = 60
+LEGAL_MIN_KEYWORD_MATCHES = 2
+LEGAL_DEFAULT_ABSTENTION = "知识库依据不足，暂时无法根据已收录的全国性劳动法律法规回答这个问题。"
+LEGAL_RETRIEVAL_FAILURE = "法律知识库检索暂时不可用，当前无法核对法条，请稍后重试。"
+LEGAL_GENERATION_FAILURE = "检索到的法条未能通过回答校验，因此没有生成法律结论。请稍后重试。"
+LEGAL_REFERENCE_VALIDATION_FAILURE = "回答未能通过法条引用校验，因此没有生成法律结论。请稍后重试。"
+LEGAL_EMBEDDING_DIMENSIONS = 1_024
+LEGAL_EMBEDDING_BATCH_SIZE = 128
+LEGAL_STATUS_EFFECTIVE = "effective"
+
+__all__ = [
+    "LABOR_LAW_AGENT_ID",
+    "LABOR_LAW_AGENT_NAME",
+    "LABOR_LAW_AGENT_DESCRIPTION",
+    "LEGAL_CORPUS_DIR",
+    "LEGAL_CORPUS_SOURCE_DIR",
+    "LEGAL_CORPUS_MANIFEST_NAME",
+    "LEGAL_SOURCE_FORMATS",
+    "LEGAL_ARTICLE_HEADING_PATTERN",
+    "LEGAL_DEFAULT_KEYWORD_LIMIT",
+    "LEGAL_RRF_K",
+    "LEGAL_MIN_KEYWORD_MATCHES",
+    "LEGAL_DEFAULT_ABSTENTION",
+    "LEGAL_RETRIEVAL_FAILURE",
+    "LEGAL_GENERATION_FAILURE",
+    "LEGAL_REFERENCE_VALIDATION_FAILURE",
+    "LEGAL_EMBEDDING_DIMENSIONS",
+    "LEGAL_EMBEDDING_BATCH_SIZE",
+    "LEGAL_STATUS_EFFECTIVE",
+]

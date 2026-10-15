@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getApiDocsUrl } from '../../shared/api/http'
 import AgentInteractionCard from './components/AgentInteractionCard'
+import AgentSelectionDialog from './components/AgentSelectionDialog'
 import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
 import MessageList from './components/MessageList'
@@ -16,13 +17,41 @@ function ChatPage() {
   const [draft, setDraft] = useState('')
   const [pendingImages, setPendingImages] = useState<File[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [agentSelectionOpen, setAgentSelectionOpen] = useState(false)
+  const [newConversationReady, setNewConversationReady] = useState(false)
   const chat = useChatSession()
+  useEffect(() => {
+    if (!chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
+      setAgentSelectionOpen(true)
+    }
+  }, [chat.activeConversationId, chat.sidebarLoading, newConversationReady])
+
+  function openAgentSelection() {
+    setAgentSelectionOpen(true)
+  }
+
+  function selectAgent(agentId: string) {
+    setDraft('')
+    setPendingImages([])
+    setAttachmentError(null)
+    chat.selectAgent(agentId)
+    setNewConversationReady(true)
+    setAgentSelectionOpen(false)
+  }
+
+  function cancelAgentSelection() {
+    setAgentSelectionOpen(false)
+  }
+
   const pendingQuestionKey = chat.pendingQuestion
     ? JSON.stringify({
         runId: chat.pendingQuestion.runId,
+        questionRound: chat.pendingQuestion.questionRound,
         questions: chat.pendingQuestion.questions.map(({ id, title, prompt }) => [id, title, prompt]),
       })
     : undefined
+  const activeAgentName = chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.name
+    || (chat.agentsLoading ? '智能体加载中' : '智能体不可用')
 
   async function handleSend() {
     const message = draft.trim()
@@ -35,10 +64,15 @@ function ChatPage() {
       return
     }
     setAttachmentError(null)
-    const sent = await chat.sendMessage(message, pendingImages)
-    if (sent) {
-      setDraft('')
-      setPendingImages([])
+    const submittedDraft = draft
+    const submittedImages = pendingImages
+    setDraft('')
+    setPendingImages([])
+
+    const sent = await chat.sendMessage(message, submittedImages)
+    if (!sent) {
+      setDraft((current) => current || submittedDraft)
+      setPendingImages((current) => current.length > 0 ? current : submittedImages)
     }
   }
 
@@ -67,14 +101,12 @@ function ChatPage() {
         loadingMore={chat.loadingMoreConversations}
         disabled={chat.sending}
         error={chat.sidebarError}
-        onCreate={() => {
-          setPendingImages([])
-          setAttachmentError(null)
-          chat.createConversation()
-        }}
+        onCreate={openAgentSelection}
         onSelect={(conversationId) => {
           setPendingImages([])
           setAttachmentError(null)
+          setNewConversationReady(false)
+          setAgentSelectionOpen(false)
           chat.selectConversation(conversationId)
         }}
         onLoadMore={() => { void chat.loadMoreConversations() }}
@@ -87,11 +119,11 @@ function ChatPage() {
             <img className="mobile-brand-mark" src="/brand/nexusai-icon.png" alt="" />
             <div>
               <strong>{chat.activeConversation?.title || (chat.activeConversationId ? '会话' : '新对话')}</strong>
-              <span><i className="status-dot" /> {chat.status}</span>
+              <span><i className="status-dot" /> {activeAgentName} · {chat.status}</span>
             </div>
           </div>
           <a href={getApiDocsUrl()} target="_blank" rel="noreferrer" className="docs-link">API 文档 ↗</a>
-          <button className="mobile-new-conversation" type="button" onClick={chat.createConversation} disabled={chat.sending}>＋ 新对话</button>
+          <button className="mobile-new-conversation" type="button" onClick={openAgentSelection} disabled={chat.sending}>＋ 新对话</button>
         </header>
 
         <div className="chat-content">
@@ -109,6 +141,8 @@ function ChatPage() {
             <AgentInteractionCard
               key={pendingQuestionKey}
               questions={chat.pendingQuestion.questions}
+              questionRound={chat.pendingQuestion.questionRound}
+              maxQuestionRounds={chat.pendingQuestion.maxQuestionRounds}
               disabled={chat.sending}
               onSubmit={(answers) => { void chat.resumeRun(answers) }}
             />
@@ -120,24 +154,27 @@ function ChatPage() {
 
         <Composer
           value={draft}
-          disabled={chat.sending || Boolean(chat.pendingQuestion)}
+          disabled={chat.sending || Boolean(chat.pendingQuestion) || agentSelectionOpen || (!chat.activeConversationId && !newConversationReady)}
           onChange={setDraft}
           onSend={() => { void handleSend() }}
           onCancel={() => { void chat.cancelRun() }}
           canCancel={chat.canCancel}
-          agents={chat.agents}
-          activeAgentId={chat.activeAgentId}
-          onSelectAgent={(agentId) => {
-            setPendingImages([])
-            setAttachmentError(null)
-            chat.selectAgent(agentId)
-          }}
           supportsImageUpload={chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.supports_image_upload ?? false}
           attachments={pendingImages}
           onAddAttachments={addAttachments}
           onRemoveAttachment={(index) => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
         />
       </section>
+      <AgentSelectionDialog
+        open={agentSelectionOpen}
+        canCancel={Boolean(chat.activeConversationId) || newConversationReady}
+        agents={chat.agents}
+        agentsLoading={chat.agentsLoading}
+        agentsError={chat.agentsError}
+        onSelect={selectAgent}
+        onCancel={cancelAgentSelection}
+        onRetry={() => { void chat.loadAgents() }}
+      />
     </main>
   )
 }

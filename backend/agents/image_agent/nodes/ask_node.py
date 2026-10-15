@@ -54,7 +54,7 @@ async def ask_node(state: ImageAgentState) -> dict[str, object]:
                     "title": "图片水印文字",
                     "prompt": "请输入要放在图片右下角的文字，最多 16 个字符。",
                     "type": "TextQuestion",
-                    "allow_custom_input": True,
+                    "allow_custom_input": False,
                     "placeholder": "输入水印文字",
                 }
             )
@@ -74,7 +74,7 @@ async def ask_node(state: ImageAgentState) -> dict[str, object]:
                     "title": "生成种子",
                     "prompt": "请输入 0 到 9223372036854775807 之间的整数，用于尝试复现生成结果。",
                     "type": "TextQuestion",
-                    "allow_custom_input": True,
+                    "allow_custom_input": False,
                     "placeholder": "输入整数 seed",
                 }
             )

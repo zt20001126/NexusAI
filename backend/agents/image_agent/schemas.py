@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agent.constants import MAX_REFERENCE_IMAGE_COUNT
+from agent.constants import MAX_QUESTIONS_PER_BATCH, MAX_REFERENCE_IMAGE_COUNT
 from agent.schemas.question import Question
 
 
@@ -61,7 +61,11 @@ class ImageQuestionToolInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[Question] = Field(min_length=1, max_length=5, description="参数追问项")
+    questions: list[Question] = Field(
+        min_length=1,
+        max_length=MAX_QUESTIONS_PER_BATCH,
+        description=f"参数追问项，最多 {MAX_QUESTIONS_PER_BATCH} 题",
+    )
     task_result_id: str = Field(min_length=1, max_length=64, description="统一结果标识")
     principal_id: str = Field(min_length=1, max_length=256, description="可信主体标识")
     conversation_id: str = Field(min_length=1, max_length=128, description="会话标识")

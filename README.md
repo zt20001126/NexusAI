@@ -1,6 +1,6 @@
 # NexusAI 多智能体基础框架
 
-这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）、listing生成智能体（`listing_agent`）和科研文献检索智能体（`research_agent`）。
+这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）、listing生成智能体（`listing_agent`）、科研文献检索智能体（`research_agent`）和劳动法律问答（`labor_law_agent`）。
 
 ![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
 
@@ -32,6 +32,7 @@ backend/
     image_generation/        淘宝电商图片图、节点、TokenHub 工具与 Provider
     listing_agent/           淘宝 Listing 图片识别、必要信息追问和多版本生成
     research_agent/          OpenAlex 学术论文检索、标准化和结果保存
+    labor_law_agent/         劳动法规解析、按条文入库、混合检索和依据回答
   infra/                     集中配置与外部服务适配
   tests/                     节点、运行器、SSE、API 与契约测试
   main.py                    Uvicorn 入口
@@ -129,7 +130,7 @@ Compose 配置位于 `backend/compose.yaml`，包含以下服务：
 
 ## API 与 SSE
 
-当前前端支持从智能体选择器切换已注册的智能体。智能体代码统一为 `common_agent`、`image_agent`、`listing_agent` 和 `research_agent`；新接口使用 `agent_id` 路径：
+当前前端在开始新对话时展示已注册的智能体。点击侧栏“开启新对话”（移动端点击“新对话”），再选择“劳动法律问答”即可进入 RAG 问答；不需要单独的知识库管理页或用户上传入口。智能体代码包括 `common_agent`、`image_agent`、`listing_agent`、`research_agent` 和 `labor_law_agent`；新接口使用 `agent_id` 路径：
 
 ```powershell
 curl.exe http://127.0.0.1:8000/api/agents
