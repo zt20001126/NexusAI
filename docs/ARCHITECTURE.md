@@ -9,24 +9,26 @@ flowchart LR
     Client[HTTP 请求] --> Router[app.router]
     Router --> Service[app.service]
     Service --> Registry[AgentRegistry]
-    Registry --> Runtime[AgentRunner per agent]
-    Runtime --> PersistencePort[agent.persistence.interfaces]
+    Registry --> Runner[AgentRunner per agent]
+    Runner --> PersistencePort[agent.persistence.interfaces]
     PersistenceCRUD[app.crud] -. 实现 .-> PersistencePort
     Router --> Schemas[app.schemas]
-    Main[app.main] --> Lifecycle[app.lifecycle]
-    Lifecycle --> Registry
-    Lifecycle --> PersistenceCRUD
+    Entry[main.py] --> Application[bootstrap.application]
+    Application --> BootstrapRuntime[bootstrap.runtime]
+    BootstrapRuntime --> Registry
+    BootstrapRuntime --> PersistenceCRUD
     PersistenceCRUD --> ORMModels[app.models]
     PersistenceCRUD --> Database[app.db]
-    Lifecycle --> Infrastructure[模型 Provider 与外部适配器]
+    BootstrapRuntime --> Infrastructure[模型 Provider 与外部适配器]
 ```
 
-`app.lifecycle` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。
+`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。
 
 ## 模块职责
 
 | 位置 | 职责 | 不负责 |
 |---|---|---|
+| `bootstrap/` | 创建 FastAPI 应用；组装模型 Provider、智能体图、Runner、Service、存储和运行资源生命周期 | 承载 HTTP 路由实现、业务用例和 SQL 查询 |
 | `app/router/` | 接收 HTTP 参数、解析身份、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
 | `app/service/` | 编排应用用例；不依赖 FastAPI 请求对象 | 直接执行 SQL |
 | `app/crud/` | 按会话、消息、运行和任务结果执行 SQLAlchemy ORM 查询及持久化 | HTTP 参数解析和智能体图流程 |
@@ -38,6 +40,7 @@ flowchart LR
 | `agents/registry.py` | 按稳定 `agent_id` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
 | `agent/persistence/interfaces.py` | 声明 Runner 所依赖的存储协议；`memory.py` 提供内存测试适配器 | PostgreSQL SQL 和 FastAPI 路由 |
 | `infra/` | 集中管理配置及外部 Provider | 承载 HTTP 路由或业务图流程 |
+| `main.py` | 暴露 Uvicorn 所需的 `app` 实例 | 组装运行依赖 |
 
 ## 依赖与数据边界
 
@@ -49,7 +52,7 @@ flowchart LR
 - 应用启动时由 ORM 元数据创建缺失的应用表；`create_all` 不会修改已有表，结构变更仍须通过 `backend/migrations/` 管理。图片字节由 `infra/aliyun_oss.py` 保存到私有 OSS。
 - `agent/errors.py` 定义运行时业务异常；`app/exceptions/handlers.py` 将其转换为 HTTP 响应。
 - `infra/settings.py` 是配置入口。Provider 和智能体节点通过构造注入使用配置；节点和工具不直接读取环境变量。
-- `app/dependencies/` 保存 HTTP 依赖，例如可信主体解析；`app/lifecycle.py` 负责运行资源的创建与释放。
+- `app/dependencies/` 保存 HTTP 依赖，例如可信主体解析；`bootstrap/` 是应用组合根，负责运行资源的创建与释放。
 
 数据库持久化范围见[数据库结构说明](数据库表结构.md)。
 
@@ -61,11 +64,17 @@ flowchart LR
 
 1. 在 `backend/agents/<business_name>/` 新建业务状态、图、节点、系统提示词和专属工具。
 2. 在 `backend/agents/registry.py` 与 `AgentDefinition` 中登记稳定 `agent_id`、名称、描述和能力。
-3. 在 `app/lifecycle.py` 组装 Provider、图、Runner 和应用 Service；共享数据库、Checkpointer、问题协议和 SSE。
+3. 在 `bootstrap/runtime.py` 组装 Provider、图、Runner 和应用 Service；共享数据库、Checkpointer、问题协议和 SSE。
 4. 将业务结果元数据保存到统一 `task_results` 表；大文件放入对象存储并在 JSON 元数据中保留对象键。
 5. 为新图、追问恢复、Provider 错误、结果持久化和资源授权增加离线测试。
 
-当前淘宝图片智能体位于 `backend/agents/image_generation/`，标识为 `taobao_image`。图片业务实现不放入默认智能体的业务图目录。
+当前图片智能体位于 `backend/agents/image_generation/`，稳定标识为 `image_agent`。图片业务实现不放入通用智能体的业务图目录。
+
+### listing生成智能体
+
+listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result_data`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
+
+完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。识图、信息规划和文案生成共用 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 与 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 继续用于图片智能体的生图能力。
 
 ## 增加普通业务数据
 

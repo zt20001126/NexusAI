@@ -1,0 +1,54 @@
+# 统一智能体标识与展示名称
+
+- 日期：2026-10-15
+- 变更类型：公共接口与数据标识调整
+- 影响范围：后端注册表、会话与任务持久化映射、前端智能体调用、项目文档
+
+## 背景
+
+三个智能体的代码和展示名称未统一：通用智能体使用 `default`，图片智能体使用 `taobao_image`，Listing 智能体使用 `listing_agent`。用户要求统一为 `common_agent`、`image_agent`、`listing_agent`，展示名分别为“通用智能体”“图片智能体”“listing生成智能体”。
+
+## 变更内容
+
+- 在后端共享常量中集中定义三个稳定标识，并更新注册、运行时默认值、图片上传默认参数和数据库标识映射。
+- 更新前端默认智能体及 API 调用标识，并将发现接口的名称契约固定到测试中。
+- 将当前 API 和项目文档中的标识与展示名称统一；更新图片智能体的用户自我介绍。
+- 保留数据库雪花 ID 数值不变，因此不需要修改现有数据或新增数据库迁移。
+- 内部 Checkpoint 线程键沿用已持久化的旧代码片段，确保已有会话状态仍可恢复。
+- 保留旧迁移脚本中的 `default`、`taobao_image`，用于识别并转换尚未升级的 TEXT 标识历史数据。
+
+## 涉及文件
+
+- `backend/agent/`、`backend/agents/`、`backend/app/`：统一后端标识、名称、默认值和注册逻辑。
+- `backend/tests/`、`backend/scripts/verify_postgres_orm.py`：更新调用代码并验证发现名称及数据库 ID 映射。
+- `frontend/src/features/chat/`：统一前端标识常量和默认值。
+- `README.md`、`docs/API接口文档.md`、`docs/数据库表结构.md`、`docs/ARCHITECTURE.md`、`docs/agents/listing/`：同步当前名称与接口示例。
+- `CHANGELOG.md`、`docs/changes/2026-10-15-007-standardize-agent-identifiers.md`：记录本次变更。
+
+## 设计决策
+
+- 当前 API 不再接受旧路由代码 `default` 和 `taobao_image`；使用旧代码的外部调用方需要改用新代码。
+- 数据库使用固定雪花 ID 表示智能体，三个代码仍对应原数值；历史 SQL 迁移继续使用旧文本值作为迁移输入。
+- Checkpoint 线程键是已持久化状态的一部分；只更新 API 标识映射，不改历史键格式。
+
+## 测试与验证
+
+- 命令：`..\.venv\Scripts\python.exe -m pytest -q`（在 `backend/` 执行）
+- 结果：81 passed，1 条 Starlette/AnyIO 弃用警告。
+- 命令：`npm run build`（在 `frontend/` 执行）
+- 结果：TypeScript 检查和 Vite 生产构建通过。
+- 命令：`docker compose --env-file .env -f compose.yaml up -d --build backend`（在 `backend/` 执行）
+- 结果：后端镜像构建成功，容器已重建并启动。
+- 命令：PowerShell 请求 `http://127.0.0.1:8000/api/agents` 并断言代码与展示名列表完全匹配。
+- 结果：接口返回 `common_agent|通用智能体`、`image_agent|图片智能体`、`listing_agent|listing生成智能体`，断言通过。
+- 命令：`git diff --check`
+- 结果：通过；Git 仅提示工作副本中的 LF/CRLF 换行符转换。
+
+## 潜在影响
+
+- 调用 `/api/agents/{agent_id}/...` 或上传接口时，外部客户端必须将 `default`、`taobao_image` 替换为 `common_agent`、`image_agent`。
+- 已存储会话和任务的数值智能体 ID 不变，读取历史记录时将返回新的 API 标识。
+
+## 后续事项
+
+- 无。

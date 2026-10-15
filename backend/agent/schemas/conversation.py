@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from agent.constants import COMMON_AGENT_ID
+
 
 @dataclass(frozen=True)
 class ConversationRecord:
@@ -12,7 +14,7 @@ class ConversationRecord:
     title: str | None
     created_at: datetime
     updated_at: datetime
-    agent_id: str = "default"
+    agent_id: str = COMMON_AGENT_ID
 
 
 @dataclass(frozen=True)

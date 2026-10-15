@@ -1,5 +1,6 @@
 """业务智能体在关系表中的稳定雪花 ID，与 API 路由代码分开维护。"""
 
+from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
 from infra.snowflake import SNOWFLAKE_EPOCH_MILLISECONDS
 
 
@@ -15,8 +16,9 @@ def _static_agent_id(sequence: int) -> int:
 
 
 AGENT_DATABASE_IDS: dict[str, int] = {
-    "default": _static_agent_id(1),
-    "taobao_image": _static_agent_id(2),
+    COMMON_AGENT_ID: _static_agent_id(1),
+    IMAGE_AGENT_ID: _static_agent_id(2),
+    LISTING_AGENT_ID: _static_agent_id(3),
 }
 AGENT_CODES_BY_DATABASE_ID = {value: key for key, value in AGENT_DATABASE_IDS.items()}
 

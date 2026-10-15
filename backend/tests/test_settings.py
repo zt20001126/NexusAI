@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from bootstrap.application import create_app
 from infra.settings import AppSettings
 
 

@@ -5,4 +5,6 @@ from agent.tools.example_tool import summarize_goal
 
 # 新业务只需在这里显式登记工具；这不是智能体注册中心。
 AGENT_TOOLS = [ask_user_question, summarize_goal]
-PAUSE_TOOL_NAMES = frozenset({"ask_user_question", "ask_image_parameters"})
+PAUSE_TOOL_NAMES = frozenset(
+    {"ask_user_question", "ask_image_parameters", "ask_listing_questions"}
+)

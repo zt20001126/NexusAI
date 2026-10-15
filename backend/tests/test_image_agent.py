@@ -1,25 +1,26 @@
-"""淘宝图片智能体参数策略和 TokenHub 边界的离线测试。"""
+"""图片智能体参数策略和 TokenHub 边界的离线测试。"""
 
 import base64
 
 import httpx
 import pytest
 
+from agent.constants import IMAGE_AGENT_ID
 from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
-from agents.image_generation.parameter_policy import (
+from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
     apply_answers,
     extract_documented_options,
 )
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import (
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import (
     TokenHubImageClient,
     TokenHubImageError,
 )
-from agents.image_generation.schemas import ImageGenerationOptions
+from agents.image_agent.schemas import ImageGenerationOptions
 from infra.settings import AppSettings
 
 
@@ -261,7 +262,7 @@ def test_memory_result_and_attachment_stores_enforce_owner_and_single_binding() 
     result_store.save(
         TaskResultRecord(
             task_result_id="123",
-            agent_id="taobao_image",
+            agent_id=IMAGE_AGENT_ID,
             user_id="user-1",
             conversation_id="456",
             run_id="789",

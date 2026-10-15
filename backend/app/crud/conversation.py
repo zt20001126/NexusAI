@@ -5,9 +5,9 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from agent.constants import COMMON_AGENT_ID
 from agent.schemas.conversation import ConversationRecord
 from agents.database_ids import agent_code_from_database_id, agent_database_id
-from agents.registry import DEFAULT_AGENT_ID
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
@@ -25,7 +25,7 @@ class PostgresConversationStore:
     def save(self, conversation_id: str, metadata: dict[str, Any]) -> None:
         """创建会话归属；冲突时不覆盖已有主体或智能体。"""
         owner_id = metadata.get("principal_id")
-        agent_id = metadata.get("agent_id", DEFAULT_AGENT_ID)
+        agent_id = metadata.get("agent_id", COMMON_AGENT_ID)
         if not isinstance(owner_id, str) or not owner_id:
             raise ValueError("会话必须包含有效 owner_id")
         if not isinstance(agent_id, str) or not agent_id:

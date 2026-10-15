@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question } from '../api/agent'
+import { COMMON_AGENT_ID } from '../constants'
 import {
   cancelAgentRun,
   getAgents,
@@ -25,7 +26,7 @@ interface PendingQuestion {
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
 export function useChatSession() {
   const [agents, setAgents] = useState<AgentDefinition[]>([])
-  const [activeAgentId, setActiveAgentId] = useState('default')
+  const [activeAgentId, setActiveAgentId] = useState(COMMON_AGENT_ID)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMessage[]>([])
@@ -42,7 +43,7 @@ export function useChatSession() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const activeConversationRef = useRef<string | null>(null)
   const activeRunRef = useRef<string | null>(null)
-  const activeAgentRef = useRef('default')
+  const activeAgentRef = useRef(COMMON_AGENT_ID)
 
   const selectConversation = useCallback((conversationId: string | null) => {
     activeConversationRef.current = conversationId

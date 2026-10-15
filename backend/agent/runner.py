@@ -10,6 +10,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
+from agent.constants import COMMON_AGENT_ID, CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY
 from agent.errors import (
     ConversationAccessDeniedError,
     InvalidResumeAnswersError,
@@ -90,7 +91,7 @@ class AgentRunner:
         max_tool_calls: int,
         max_output_chars: int,
         run_timeout_seconds: int,
-        agent_id: str = "default",
+        agent_id: str = COMMON_AGENT_ID,
         task_result_store: TaskResultStore | None = None,
         attachment_store: AttachmentStore | None = None,
         title_generator: ConversationTitleGenerator | None = None,
@@ -133,7 +134,7 @@ class AgentRunner:
         conversation = self._conversation_store.get(resolved_id)
         if conversation is not None and (
             conversation.get("principal_id") != principal_id
-            or conversation.get("agent_id", "default") != self._agent_id
+            or conversation.get("agent_id", COMMON_AGENT_ID) != self._agent_id
         ):
             raise ConversationAccessDeniedError()
         self._conversation_store.save(
@@ -602,14 +603,13 @@ class AgentRunner:
                 "data": payload.get("data", {}),
             },
         )
-        if message.name == "generate_image":
-            task_result = payload.get("data", {}).get("task_result")
-            if isinstance(task_result, dict):
-                yield self._event(
-                    record,
-                    AgentEventType.TASK_RESULT_UPDATED,
-                    task_result,
-                )
+        task_result = payload.get("data", {}).get("task_result")
+        if isinstance(task_result, dict):
+            yield self._event(
+                record,
+                AgentEventType.TASK_RESULT_UPDATED,
+                task_result,
+            )
 
     @staticmethod
     def _safe_tool_payload(content: Any) -> dict[str, Any]:
@@ -642,7 +642,11 @@ class AgentRunner:
     @staticmethod
     def _scope_key(record: RunRecord) -> str:
         """用可信主体隔离锁和 Checkpoint 内部键。"""
-        return f"{record.principal_id}:{record.agent_id}:{record.conversation_id}"
+        checkpoint_agent_name = CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY.get(
+            record.agent_id,
+            record.agent_id,
+        )
+        return f"{record.principal_id}:{checkpoint_agent_name}:{record.conversation_id}"
 
 
 def build_memory_runner(
@@ -652,7 +656,7 @@ def build_memory_runner(
     *,
     conversation_store: ConversationStore | None = None,
     message_store: MessageStore | None = None,
-    agent_id: str = "default",
+    agent_id: str = COMMON_AGENT_ID,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,
@@ -688,7 +692,7 @@ def build_agent_runner(
     event_sequence: EventSequence,
     model_provider: ChatModelProvider | None = None,
     graph: Any | None = None,
-    agent_id: str = "default",
+    agent_id: str = COMMON_AGENT_ID,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,

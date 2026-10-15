@@ -7,10 +7,8 @@ from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
 
 
-DEFAULT_AGENT_ID = "default"
-TAOBAO_IMAGE_AGENT_ID = "taobao_image"
-DEFAULT_AGENT_NAME = "通用智能体"
-DEFAULT_AGENT_DESCRIPTION = "处理常见对话、需求梳理和信息问答"
+COMMON_AGENT_NAME = "通用智能体"
+COMMON_AGENT_DESCRIPTION = "处理常见对话、需求梳理和信息问答"
 
 
 class AgentRegistry:

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { DisplayMessage } from '../model/messages'
+import ListingResultCard from './ListingResultCard'
 
 interface MessageListProps {
   messages: DisplayMessage[]
@@ -90,7 +91,9 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
                   : <span className="typing-dots">正在思考…</span>}
               {message.taskResults?.map((result) => (
                 <div className="task-result-card" key={result.task_result_id}>
-                  {result.generation_status === 'succeeded' && result.image_url ? (
+                  {result.result_type === 'listing' ? (
+                    <ListingResultCard result={result} />
+                  ) : result.generation_status === 'succeeded' && result.image_url ? (
                     <a href={result.image_url} target="_blank" rel="noreferrer">
                       <img src={result.image_url} alt="生成的淘宝商品图片" loading="lazy" />
                     </a>

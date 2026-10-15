@@ -36,7 +36,7 @@ class AppSettings(BaseSettings):
     tencent_hunyuan_image_api_version: str = "2022-12-29"
     tencent_hunyuan_image_action: str = "TextToImageLite"
 
-    # TokenHub 配置只影响淘宝图片智能体；未启用该智能体时密钥可以为空。
+    # TokenHub 配置只影响图片智能体；未启用该智能体时密钥可以为空。
     tokenhub_api_key: SecretStr = Field(
         default=SecretStr(""),
         validation_alias=AliasChoices("TENCENT_TOKENHUB_API_KEY", "tokenhub_api_key"),

@@ -8,6 +8,7 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 
+from agent.constants import COMMON_AGENT_ID
 from agent.errors import (
     AttachmentAccessDeniedError,
     BackendNotConfiguredError,
@@ -78,7 +79,7 @@ class MemoryConversationStore:
                 title=value.get("_title"),
                 created_at=value["_created_at"],
                 updated_at=value["_updated_at"],
-                agent_id=value.get("agent_id", "default"),
+                agent_id=value.get("agent_id", COMMON_AGENT_ID),
             )
             for conversation_id, value in self._conversations.items()
             if value.get("principal_id") == principal_id

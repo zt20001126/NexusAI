@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langgraph.checkpoint.memory import MemorySaver
 
+from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
 from agent.persistence.memory import (
     MemoryAttachmentStore,
     MemoryConversationStore,
@@ -20,19 +21,21 @@ from agent.persistence.memory import (
 from agent.runner import build_memory_runner
 from agent.streaming.publisher import EventPublisher
 from app.dependencies.auth import get_principal_id
-from app.main import create_app
+from bootstrap.application import create_app
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
+from app.service.task_result import TaskResultApplicationService
 from agents.definition import AgentDefinition
-from agents.image_generation.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
-from agents.image_generation.graph import build_image_agent_graph
-from agents.image_generation.providers.result_downloader import ImageResultDownloader
-from agents.image_generation.providers.tokenhub_client import TokenHubImageClient
+from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
+from agents.image_agent.graph import build_image_agent_graph
+from agents.image_agent.providers.result_downloader import ImageResultDownloader
+from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
+from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
+from agents.listing_agent.graph import build_listing_agent_graph
+from agents.listing_agent.schemas import ListingImageAnalysis
 from agents.registry import (
-    DEFAULT_AGENT_DESCRIPTION,
-    DEFAULT_AGENT_ID,
-    DEFAULT_AGENT_NAME,
-    TAOBAO_IMAGE_AGENT_ID,
+    COMMON_AGENT_DESCRIPTION,
+    COMMON_AGENT_NAME,
     AgentRegistry,
 )
 from agent.title import ConversationTitleGenerator
@@ -109,26 +112,106 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             graph=image_graph,
             conversation_store=conversation_store,
             message_store=message_store,
-            agent_id=TAOBAO_IMAGE_AGENT_ID,
+            agent_id=IMAGE_AGENT_ID,
+            task_result_store=task_result_store,
+            attachment_store=attachment_store,
+            title_generator=title_generator,
+        )
+        listing_model = FakeListChatModel(
+            responses=[
+                ListingImageAnalysis(
+                    candidate_category="便携水杯",
+                    visible_features=["蓝色杯身", "带杯盖"],
+                    packaging_text=[],
+                    visible_claims=[],
+                    uncertain_observations=[],
+                ).model_dump_json(),
+                json.dumps(
+                    {
+                        "product_facts": {"商品类别": "便携水杯"},
+                        "questions": [
+                            {
+                                "id": "capacity",
+                                "title": "商品容量",
+                                "prompt": "请确认水杯的实际容量。",
+                                "type": "TextQuestion",
+                                "allow_custom_input": True,
+                                "placeholder": "例如 500 毫升",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {"product_facts": {"商品类别": "便携水杯"}, "questions": []},
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "product_facts": {"商品类别": "便携水杯", "容量": "500 毫升"},
+                        "image_analysis": {
+                            "candidate_category": "水杯",
+                            "visible_features": ["蓝色杯身", "带杯盖"],
+                            "packaging_text": [],
+                            "visible_claims": [],
+                            "uncertain_observations": [],
+                        },
+                        "versions": [
+                            {
+                                "version": version,
+                                "title": f"便携水杯 500 毫升 蓝色款 {version}",
+                                "selling_points": ["便携设计", "蓝色外观", "日常使用"],
+                                "description": "蓝色便携水杯，容量为 500 毫升。适合日常使用。",
+                                "keywords": ["便携水杯", "蓝色水杯", "日常水杯"],
+                                "product_attributes": {"容量": "500 毫升", "颜色": "蓝色"},
+                            }
+                            for version in (1, 2, 3)
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+        listing_graph = build_listing_agent_graph(
+            MemorySaver(),
+            listing_model,
+            task_result_store,
+            attachment_store,
+        )
+        listing_runner = build_memory_runner(
+            settings,
+            graph=listing_graph,
+            conversation_store=conversation_store,
+            message_store=message_store,
+            agent_id=LISTING_AGENT_ID,
             task_result_store=task_result_store,
             attachment_store=attachment_store,
             title_generator=title_generator,
         )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
-            DEFAULT_AGENT_ID: AgentApplicationService(runner, publisher),
-            TAOBAO_IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
+            COMMON_AGENT_ID: AgentApplicationService(runner, publisher),
+            IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
+            LISTING_AGENT_ID: AgentApplicationService(listing_runner, publisher),
         }
         app.state.settings = settings
-        app.state.agent_service = services[DEFAULT_AGENT_ID]
+        app.state.agent_service = services[COMMON_AGENT_ID]
         app.state.agent_registry = AgentRegistry(
             [
-                AgentDefinition(DEFAULT_AGENT_ID, DEFAULT_AGENT_NAME, DEFAULT_AGENT_DESCRIPTION, False),
-                AgentDefinition(TAOBAO_IMAGE_AGENT_ID, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
+                AgentDefinition(COMMON_AGENT_ID, COMMON_AGENT_NAME, COMMON_AGENT_DESCRIPTION, False),
+                AgentDefinition(IMAGE_AGENT_ID, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
+                AgentDefinition(
+                    LISTING_AGENT_ID,
+                    LISTING_AGENT_NAME,
+                    LISTING_AGENT_DESCRIPTION,
+                    True,
+                ),
             ],
             services,
         )
         app.state.task_result_store = task_result_store
+        app.state.task_result_service = TaskResultApplicationService(task_result_store)
         app.state.attachment_store = attachment_store
         app.state.conversation_service = ConversationApplicationService(
             conversation_store,
@@ -164,15 +247,19 @@ def test_single_agent_uses_fixed_chat_route() -> None:
     assert response.status_code == 200
 
 
-def test_legacy_multi_agent_discovery_route_is_removed() -> None:
-    """公开注册的通用助手和淘宝图片助手。"""
+def test_multi_agent_discovery_includes_listing_agent() -> None:
+    """公开注册的通用助手、淘宝图片助手和 Listing 智能体。"""
     with _client() as client:
         response = client.get("/api/agents")
 
     assert response.status_code == 200
-    assert [item["agent_id"] for item in response.json()["data"]] == [
-        DEFAULT_AGENT_ID,
-        TAOBAO_IMAGE_AGENT_ID,
+    assert [
+        (item["agent_id"], item["name"])
+        for item in response.json()["data"]
+    ] == [
+        (COMMON_AGENT_ID, "通用智能体"),
+        (IMAGE_AGENT_ID, "图片智能体"),
+        (LISTING_AGENT_ID, "listing生成智能体"),
     ]
 
 
@@ -222,15 +309,15 @@ def test_unknown_agent_is_a_controlled_not_found() -> None:
 
 
 def test_conversation_cannot_be_reused_by_another_agent() -> None:
-    """同一主体也不能把默认智能体的会话切换到图片图继续执行。"""
+    """同一主体也不能把通用智能体的会话切换到图片图继续执行。"""
     with _client() as client:
-        default_response = client.post(
+        common_response = client.post(
             "/api/agent/chat",
-            json={"message": "创建一个默认会话"},
+            json={"message": "创建一个通用智能体会话"},
         )
-        conversation_id = default_response.json()["data"][0]["conversation_id"]
+        conversation_id = common_response.json()["data"][0]["conversation_id"]
         image_response = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/chat",
+            f"/api/agents/{IMAGE_AGENT_ID}/chat",
             json={
                 "message": "帮我生成商品图",
                 "conversation_id": conversation_id,
@@ -247,13 +334,13 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     with _client(settings) as client:
         upload = client.post(
             "/api/uploads/images",
-            params={"agent_id": TAOBAO_IMAGE_AGENT_ID, "file_name": "../product.png"},
+            params={"agent_id": IMAGE_AGENT_ID, "file_name": "../product.png"},
             headers={"Content-Type": "text/plain"},
             content=TEST_PNG,
         )
         attachment_id = upload.json()["data"]["attachment_id"]
         paused_response = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/chat/stream",
+            f"/api/agents/{IMAGE_AGENT_ID}/chat/stream",
             json={
                 "message": "帮我生成一张淘宝商品主图",
                 "attachment_ids": [attachment_id],
@@ -271,7 +358,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         run_id = question_event["run_id"]
 
         resumed = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/runs/{run_id}/resume",
+            f"/api/agents/{IMAGE_AGENT_ID}/runs/{run_id}/resume",
             json={
                 "conversation_id": conversation_id,
                 "answers": {"image_size": "1:1 方图（1024×1024）"},
@@ -309,7 +396,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     assert question_event["data"]["questions"][0]["id"] == "image_size"
     assert resumed.status_code == 200
     assert result_event["data"]["image_url"] == result["image_url"]
-    assert result["agent_id"] == TAOBAO_IMAGE_AGENT_ID
+    assert result["agent_id"] == IMAGE_AGENT_ID
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/png"
     assert image_response.content == TEST_PNG
@@ -326,6 +413,88 @@ def test_image_upload_rejects_unrecognized_file_content() -> None:
         )
 
     assert response.status_code == 415
+
+
+def test_listing_chat_requires_at_least_one_product_image() -> None:
+    """Listing 路由在运行前拒绝缺少商品图片的任务。"""
+    with _client() as client:
+        response = client.post(
+            f"/api/agents/{LISTING_AGENT_ID}/chat",
+            json={"message": "生成商品 Listing"},
+        )
+
+    assert response.status_code == 422
+    assert "至少上传一张商品图片" in response.json()["detail"]
+
+
+def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> None:
+    """Listing 批量追问后生成三版 JSON，并仅允许任务所有者读取。"""
+    with _client() as client:
+        upload_response = client.post(
+            "/api/uploads/images",
+            params={"agent_id": LISTING_AGENT_ID, "file_name": "cup.png"},
+            content=TEST_PNG,
+        )
+        attachment_id = upload_response.json()["data"]["attachment_id"]
+        first_response = client.post(
+            f"/api/agents/{LISTING_AGENT_ID}/chat",
+            json={
+                "message": "这是一款蓝色便携水杯，请帮我写淘宝商品内容。",
+                "attachment_ids": [attachment_id],
+            },
+        )
+        first_events = first_response.json()["data"]
+        question_event = next(
+            event for event in first_events if event["event_type"] == "question.required"
+        )
+        task_result_event = next(
+            event for event in first_events if event["event_type"] == "task_result.updated"
+        )
+        question_id = question_event["data"]["questions"][0]["id"]
+        blank_resume = client.post(
+            f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
+            json={
+                "conversation_id": question_event["conversation_id"],
+                "answers": {question_id: "  "},
+            },
+        )
+        resume_response = client.post(
+            f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
+            json={
+                "conversation_id": question_event["conversation_id"],
+                "answers": {question_id: "500 毫升"},
+            },
+        )
+        resumed_events = [
+            json.loads(line.removeprefix("data: "))
+            for line in resume_response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        result_event = next(
+            event
+            for event in resumed_events
+            if event["event_type"] == "task_result.updated"
+        )
+        task_result_id = result_event["data"]["task_result_id"]
+        result_response = client.get(f"/api/task-results/{task_result_id}")
+        client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
+        unauthorized_response = client.get(f"/api/task-results/{task_result_id}")
+
+    result_data = result_response.json()["data"]["result_data"]
+    assert upload_response.status_code == 200
+    assert first_response.status_code == 200
+    assert question_event["data"]["questions"][0]["id"] == "capacity"
+    assert task_result_event["data"]["result_type"] == "listing"
+    assert task_result_event["data"]["task_result_id"] == task_result_id
+    assert blank_resume.status_code == 422
+    assert resume_response.status_code == 200
+    assert result_response.status_code == 200
+    assert result_data["schema_version"] == "1.0"
+    assert len(result_data["versions"]) == 3
+    assert result_data["versions"][0]["description"] == (
+        "蓝色便携水杯，容量为 500 毫升。适合日常使用。"
+    )
+    assert unauthorized_response.status_code == 404
 
 
 def test_image_upload_enforces_configured_size_limit() -> None:

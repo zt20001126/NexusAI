@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from sse_starlette import EventSourceResponse
 
+from agent.constants import IMAGE_AGENT_ID
 from agent.schemas.task_result import TaskResultStatus
 from infra.object_storage import ObjectStorageError, ObjectStorageNotConfiguredError
 from agent.streaming import encode_sse_events
 from app.dependencies.auth import get_principal_id
 from app.schemas.agent import ChatRequest, ResumeRequest
+from agents.listing_agent.constants import LISTING_AGENT_ID
 
 router = APIRouter(tags=["智能体"])
 
@@ -49,6 +51,7 @@ async def chat(
     registry = request.app.state.agent_registry
     definition = registry.get_definition(agent_id)
     _validate_attachment_support(definition, payload.attachment_ids)
+    _validate_listing_image_input(agent_id, payload.attachment_ids)
     service = registry.get_service(agent_id)
     events = await service.chat(
         message=payload.message,
@@ -70,6 +73,7 @@ async def stream_chat(
     registry = request.app.state.agent_registry
     definition = registry.get_definition(agent_id)
     _validate_attachment_support(definition, payload.attachment_ids)
+    _validate_listing_image_input(agent_id, payload.attachment_ids)
     service = registry.get_service(agent_id)
     events = service.stream_chat(
         message=payload.message,
@@ -117,7 +121,7 @@ def cancel_run(
 @router.post("/api/uploads/images")
 async def upload_reference_image(
     request: Request,
-    agent_id: str = Query(default="taobao_image", min_length=1, max_length=64),
+    agent_id: str = Query(default=IMAGE_AGENT_ID, min_length=1, max_length=64),
     file_name: str = Query(default="reference-image", max_length=255),
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
@@ -215,6 +219,22 @@ def get_task_result_image(
     )
 
 
+@router.get("/api/task-results/{task_result_id}")
+def get_listing_task_result(
+    task_result_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """按可信主体读取完整 Listing JSON；越权和不存在均返回 404。"""
+    result = request.app.state.task_result_service.get_listing_result(
+        task_result_id=task_result_id,
+        principal_id=principal_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Listing 结果不存在")
+    return _success(result.model_dump(mode="json"))
+
+
 def _detect_image_type(image_data: bytes) -> str | None:
     """检查允许的文件签名，避免只凭扩展名或 MIME 信任上传内容。"""
     if image_data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -228,6 +248,12 @@ def _validate_attachment_support(definition: Any, attachment_ids: list[str]) -> 
     """只允许声明支持图片输入的智能体接收图片附件。"""
     if attachment_ids and not definition.supports_image_upload:
         raise HTTPException(status_code=400, detail="该智能体不支持图片上传")
+
+
+def _validate_listing_image_input(agent_id: str, attachment_ids: list[str]) -> None:
+    """Listing 必须从至少一张商品图片开始，避免缺少视觉识别的空任务。"""
+    if agent_id == LISTING_AGENT_ID and not attachment_ids:
+        raise HTTPException(status_code=422, detail="Listing 生成需要至少上传一张商品图片")
 
 
 def _safe_file_name(file_name: str, mime_type: str) -> str:
