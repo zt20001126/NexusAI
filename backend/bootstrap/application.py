@@ -1,4 +1,4 @@
-"""FastAPI 应用入口，负责组装接口与全局异常处理。"""
+"""应用组装入口，负责创建 FastAPI 实例并注册接口与异常处理。"""
 
 from collections.abc import Callable
 from typing import Any
@@ -6,10 +6,10 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.exceptions.handlers import register_exception_handlers
-from app.lifecycle import build_lifespan
 from app.router.agent import router as agent_router
 from app.router.agents import router as agents_router
 from app.router.conversation import router as conversation_router
+from bootstrap.runtime import build_lifespan
 from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
 

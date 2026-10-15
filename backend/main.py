@@ -1,6 +1,6 @@
 """Uvicorn 默认入口：`uvicorn main:app --reload`。"""
 
-from app.main import app
+from bootstrap.application import app
 
 __all__ = ["app"]
 

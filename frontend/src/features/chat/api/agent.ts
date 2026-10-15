@@ -1,6 +1,7 @@
 /** Agent 对话、追问恢复和运行取消 API。 */
 
 import { requestBinary, requestJson, streamEvents } from '../../../shared/api/http'
+import { COMMON_AGENT_ID } from '../constants'
 
 export interface AgentEvent {
   event_id: string
@@ -73,7 +74,7 @@ export type Question = QuestionBase & (
 export async function streamChat(
   payload: ChatRequest,
   onEvent: (event: AgentEvent) => void,
-  agentId = 'default',
+  agentId = COMMON_AGENT_ID,
 ): Promise<void> {
   await streamEvents(`/api/agents/${encodeURIComponent(agentId)}/chat/stream`, payload, onEvent)
 }
@@ -83,7 +84,7 @@ export async function resumeAgentRun(
   conversationId: string,
   answers: Record<string, string>,
   onEvent: (event: AgentEvent) => void,
-  agentId = 'default',
+  agentId = COMMON_AGENT_ID,
 ): Promise<void> {
   await streamEvents(
     `/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/resume`,
@@ -92,7 +93,7 @@ export async function resumeAgentRun(
   )
 }
 
-export function cancelAgentRun(runId: string, agentId = 'default'): Promise<{ run_id: string; cancel_requested: boolean }> {
+export function cancelAgentRun(runId: string, agentId = COMMON_AGENT_ID): Promise<{ run_id: string; cancel_requested: boolean }> {
   return requestJson(`/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST',
   })

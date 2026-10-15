@@ -7,6 +7,7 @@ import psycopg
 from psycopg import sql
 from sqlalchemy.engine import make_url
 
+from agent.constants import COMMON_AGENT_ID
 from agent.errors import RunBusyError
 from agent.schemas.run import RunRecord, RunStatus
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
@@ -62,11 +63,11 @@ def verify_postgres_orm() -> None:
             conversation_id = id_generator.next_id_string()
             conversations.save(
                 conversation_id,
-                {"principal_id": "orm-smoke-user", "agent_id": "default"},
+                {"principal_id": "orm-smoke-user", "agent_id": COMMON_AGENT_ID},
             )
             assert conversations.get(conversation_id) == {
                 "principal_id": "orm-smoke-user",
-                "agent_id": "default",
+                "agent_id": COMMON_AGENT_ID,
             }
             conversations.set_title_if_empty(conversation_id, "ORM smoke test")
 
@@ -84,7 +85,7 @@ def verify_postgres_orm() -> None:
             assert restored_run is not None
             assert restored_run.status is RunStatus.WAITING
             assert restored_run.metadata == {"question": "continue"}
-            assert restored_run.agent_id == "default"
+            assert restored_run.agent_id == COMMON_AGENT_ID
 
             first_message_id = messages.save(
                 conversation_id, run_id, "user", "hello"
@@ -101,7 +102,7 @@ def verify_postgres_orm() -> None:
             results.save(
                 TaskResultRecord(
                     task_result_id=task_result_id,
-                    agent_id="default",
+                    agent_id=COMMON_AGENT_ID,
                     user_id="orm-smoke-user",
                     conversation_id=conversation_id,
                     run_id=run_id,

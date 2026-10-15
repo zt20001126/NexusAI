@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langgraph.checkpoint.memory import MemorySaver
 
+from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
 from agent.persistence.memory import (
     MemoryAttachmentStore,
     MemoryConversationStore,
@@ -20,7 +21,7 @@ from agent.persistence.memory import (
 from agent.runner import build_memory_runner
 from agent.streaming.publisher import EventPublisher
 from app.dependencies.auth import get_principal_id
-from app.main import create_app
+from bootstrap.application import create_app
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.task_result import TaskResultApplicationService
@@ -34,11 +35,8 @@ from agents.listing_agent.graph import build_listing_agent_graph
 from agents.listing_agent.providers.tokenhub_vision import TokenHubVisionClient
 from agents.listing_agent.schemas import ListingImageAnalysis
 from agents.registry import (
-    DEFAULT_AGENT_DESCRIPTION,
-    DEFAULT_AGENT_ID,
-    DEFAULT_AGENT_NAME,
-    LISTING_AGENT_ID,
-    TAOBAO_IMAGE_AGENT_ID,
+    COMMON_AGENT_DESCRIPTION,
+    COMMON_AGENT_NAME,
     AgentRegistry,
 )
 from agent.title import ConversationTitleGenerator
@@ -115,7 +113,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             graph=image_graph,
             conversation_store=conversation_store,
             message_store=message_store,
-            agent_id=TAOBAO_IMAGE_AGENT_ID,
+            agent_id=IMAGE_AGENT_ID,
             task_result_store=task_result_store,
             attachment_store=attachment_store,
             title_generator=title_generator,
@@ -206,16 +204,16 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
-            DEFAULT_AGENT_ID: AgentApplicationService(runner, publisher),
-            TAOBAO_IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
+            COMMON_AGENT_ID: AgentApplicationService(runner, publisher),
+            IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
             LISTING_AGENT_ID: AgentApplicationService(listing_runner, publisher),
         }
         app.state.settings = settings
-        app.state.agent_service = services[DEFAULT_AGENT_ID]
+        app.state.agent_service = services[COMMON_AGENT_ID]
         app.state.agent_registry = AgentRegistry(
             [
-                AgentDefinition(DEFAULT_AGENT_ID, DEFAULT_AGENT_NAME, DEFAULT_AGENT_DESCRIPTION, False),
-                AgentDefinition(TAOBAO_IMAGE_AGENT_ID, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
+                AgentDefinition(COMMON_AGENT_ID, COMMON_AGENT_NAME, COMMON_AGENT_DESCRIPTION, False),
+                AgentDefinition(IMAGE_AGENT_ID, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
                 AgentDefinition(
                     LISTING_AGENT_ID,
                     LISTING_AGENT_NAME,
@@ -268,10 +266,13 @@ def test_multi_agent_discovery_includes_listing_agent() -> None:
         response = client.get("/api/agents")
 
     assert response.status_code == 200
-    assert [item["agent_id"] for item in response.json()["data"]] == [
-        DEFAULT_AGENT_ID,
-        TAOBAO_IMAGE_AGENT_ID,
-        LISTING_AGENT_ID,
+    assert [
+        (item["agent_id"], item["name"])
+        for item in response.json()["data"]
+    ] == [
+        (COMMON_AGENT_ID, "通用智能体"),
+        (IMAGE_AGENT_ID, "图片智能体"),
+        (LISTING_AGENT_ID, "listing生成智能体"),
     ]
 
 
@@ -321,15 +322,15 @@ def test_unknown_agent_is_a_controlled_not_found() -> None:
 
 
 def test_conversation_cannot_be_reused_by_another_agent() -> None:
-    """同一主体也不能把默认智能体的会话切换到图片图继续执行。"""
+    """同一主体也不能把通用智能体的会话切换到图片图继续执行。"""
     with _client() as client:
-        default_response = client.post(
+        common_response = client.post(
             "/api/agent/chat",
-            json={"message": "创建一个默认会话"},
+            json={"message": "创建一个通用智能体会话"},
         )
-        conversation_id = default_response.json()["data"][0]["conversation_id"]
+        conversation_id = common_response.json()["data"][0]["conversation_id"]
         image_response = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/chat",
+            f"/api/agents/{IMAGE_AGENT_ID}/chat",
             json={
                 "message": "帮我生成商品图",
                 "conversation_id": conversation_id,
@@ -346,13 +347,13 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     with _client(settings) as client:
         upload = client.post(
             "/api/uploads/images",
-            params={"agent_id": TAOBAO_IMAGE_AGENT_ID, "file_name": "../product.png"},
+            params={"agent_id": IMAGE_AGENT_ID, "file_name": "../product.png"},
             headers={"Content-Type": "text/plain"},
             content=TEST_PNG,
         )
         attachment_id = upload.json()["data"]["attachment_id"]
         paused_response = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/chat/stream",
+            f"/api/agents/{IMAGE_AGENT_ID}/chat/stream",
             json={
                 "message": "帮我生成一张淘宝商品主图",
                 "attachment_ids": [attachment_id],
@@ -370,7 +371,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         run_id = question_event["run_id"]
 
         resumed = client.post(
-            f"/api/agents/{TAOBAO_IMAGE_AGENT_ID}/runs/{run_id}/resume",
+            f"/api/agents/{IMAGE_AGENT_ID}/runs/{run_id}/resume",
             json={
                 "conversation_id": conversation_id,
                 "answers": {"image_size": "1:1 方图（1024×1024）"},
@@ -408,7 +409,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     assert question_event["data"]["questions"][0]["id"] == "image_size"
     assert resumed.status_code == 200
     assert result_event["data"]["image_url"] == result["image_url"]
-    assert result["agent_id"] == TAOBAO_IMAGE_AGENT_ID
+    assert result["agent_id"] == IMAGE_AGENT_ID
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/png"
     assert image_response.content == TEST_PNG

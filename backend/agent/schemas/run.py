@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from agent.constants import COMMON_AGENT_ID
+
 
 class RunStatus(StrEnum):
     """运行状态；等待回答不是完成态。"""
@@ -24,4 +26,4 @@ class RunRecord:
     principal_id: str
     status: RunStatus
     metadata: dict[str, Any] = field(default_factory=dict)
-    agent_id: str = "default"
+    agent_id: str = COMMON_AGENT_ID

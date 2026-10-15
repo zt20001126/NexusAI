@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.dialects import postgresql
 
+from agent.constants import COMMON_AGENT_ID
 from agent.errors import ConversationAccessDeniedError
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from app.crud.task_result import PostgresTaskResultStore
@@ -48,7 +49,7 @@ def _record() -> TaskResultRecord:
     """返回可用于验证 PostgreSQL 写入构造的任务结果。"""
     return TaskResultRecord(
         task_result_id="101",
-        agent_id="default",
+        agent_id=COMMON_AGENT_ID,
         user_id="user-1",
         conversation_id="202",
         run_id="303",

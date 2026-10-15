@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from sse_starlette import EventSourceResponse
 
+from agent.constants import IMAGE_AGENT_ID
 from agent.schemas.task_result import TaskResultStatus
 from infra.object_storage import ObjectStorageError, ObjectStorageNotConfiguredError
 from agent.streaming import encode_sse_events
@@ -120,7 +121,7 @@ def cancel_run(
 @router.post("/api/uploads/images")
 async def upload_reference_image(
     request: Request,
-    agent_id: str = Query(default="taobao_image", min_length=1, max_length=64),
+    agent_id: str = Query(default=IMAGE_AGENT_ID, min_length=1, max_length=64),
     file_name: str = Query(default="reference-image", max_length=255),
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:

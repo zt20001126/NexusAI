@@ -1,0 +1,39 @@
+# 修复 Listing 智能体未出现在页面选项中
+
+- 日期：2026-10-15
+- 变更类型：缺陷修复
+- 影响范围：本地后端 Docker 容器及聊天页智能体选择器
+
+## 背景
+
+代码已注册 `listing_agent`，前端也从 `/api/agents` 动态加载智能体，但本地后端容器仍基于较早的镜像运行，接口只返回 `default` 和 `taobao_image`，因此页面没有 Listing 选项。
+
+## 变更内容
+
+- 按当前后端源码构建并重建本地后端容器，使运行时加载包含 `listing_agent` 的注册表。
+- 未修改应用源代码；前端继续展示 `/api/agents` 返回的全部智能体。
+
+## 涉及文件
+
+- `CHANGELOG.md`：记录本次修复。
+- `docs/changes/2026-10-15-006-fix-listing-agent-discovery.md`：记录背景、处理方式和验证结果。
+
+## 设计决策
+
+- 运行时注册代码与前端列表加载逻辑均已包含 Listing；问题来自旧容器镜像，因此重建后端容器即可，无需改动应用逻辑。
+
+## 测试与验证
+
+- 命令：`docker compose --env-file .env -f compose.yaml up -d --build backend`（在 `backend/` 执行）
+- 结果：镜像构建成功，Compose 重建并启动后端容器。
+- 命令：PowerShell 通过 `Invoke-RestMethod` 请求 `http://127.0.0.1:8000/api/agents` 并断言恰好存在 `agent_id = listing_agent`。
+- 结果：断言通过；接口返回 `default`、`taobao_image` 和 `listing_agent`。
+- 未运行 pytest：本次处理的是运行中的旧容器镜像，没有修改应用源代码；通过实际接口请求验证了用户可见的智能体发现路径。
+
+## 潜在影响
+
+- 重建后端容器会短暂重启 API 服务；数据库容器和数据卷未重建。
+
+## 后续事项
+
+- 已打开的页面需要刷新一次，以重新请求智能体列表。

@@ -1,7 +1,8 @@
-"""Listing 智能体稳定标识和展示信息。"""
+"""listing生成智能体的稳定标识和展示信息。"""
 
-LISTING_AGENT_ID = "listing_agent"
-LISTING_AGENT_NAME = "Listing生成智能体"
+from agent.constants import LISTING_AGENT_ID
+
+LISTING_AGENT_NAME = "listing生成智能体"
 LISTING_AGENT_DESCRIPTION = (
     "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。"
 )

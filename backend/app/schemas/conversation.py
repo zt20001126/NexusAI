@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent.constants import COMMON_AGENT_ID
+
 
 class ConversationItem(BaseModel):
     """会话列表中的一条会话记录。"""
@@ -17,7 +19,7 @@ class ConversationItem(BaseModel):
     title: str | None = Field(description="会话标题")
     created_at: datetime = Field(description="会话创建时间")
     updated_at: datetime = Field(description="会话最近更新时间")
-    agent_id: str = Field(default="default", description="所属智能体标识")
+    agent_id: str = Field(default=COMMON_AGENT_ID, description="所属智能体标识")
 
 
 class TaskResultSummary(BaseModel):

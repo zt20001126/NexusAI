@@ -10,7 +10,7 @@
 
 - 新增 listing_agent 淘宝 Listing 生成智能体：识别商品图片、批量核实必要信息、生成 3 个文案版本，并将完整 JSON 保存到任务结果表。
 - 新会话首次对话时根据首条用户消息调用模型生成会话标题；模型超时或失败时回退为消息摘要。
-- 增加通用智能体注册与按 `agent_id` 调用的 API，并新增淘宝电商图片智能体，支持参考图上传、TokenHub 生图、参数追问和持久化结果展示。
+- 增加通用智能体注册与按 `agent_id` 调用的 API，并新增图片智能体，支持参考图上传、TokenHub 生图、参数追问和持久化结果展示。
 - 接入阿里云 OSS 私有图片存储；生成图和参考图字节保存在 OSS，业务数据库只保存对象元数据。
 - 将 `task_results` 收敛为跨智能体共享结果表，并使用 `input_data`、`result_data` JSONB 保存任务和 OSS 元数据。
 - 为应用业务表引入雪花 `BIGINT` ID，并增加旧 TEXT ID 与 BYTEA 图片转存迁移工具。
@@ -22,6 +22,8 @@
 
 ### Changed
 
+- 将 FastAPI 应用创建和运行时依赖组装迁移至 `backend/bootstrap/`，入口、测试和架构文档统一使用新的组合根结构。
+- 统一智能体标识为 `common_agent`、`image_agent`、`listing_agent`，展示名统一为“通用智能体”“图片智能体”“listing生成智能体”；数据库雪花 ID 保持不变，历史 Checkpoint 线程键继续兼容。
 - 为应用 PostgreSQL 持久化引入 SQLAlchemy ORM，按数据实体拆分 CRUD、模型与数据库会话管理。
 - 按 `router/service/crud` 重组后端应用目录；将 PostgreSQL 适配器移入 `app/crud`，并通过持久化协议注入智能体运行器。
 - 删除未采用的会话与消息表结构设计提案，文档导航仅保留当前数据库结构说明。
@@ -44,6 +46,7 @@
 
 ### Fixed
 
+- 修复后端仍运行旧 Docker 镜像、导致聊天页智能体列表没有显示 `listing_agent` 的问题。
 - 修复 SQLAlchemy/psycopg 执行任务结果 upsert 时 `rowcount` 返回 `-1`、将成功写入误判为访问拒绝的问题；状态更新改用 `RETURNING` 判断命中记录。
 - 修复图片智能体在同一会话后续轮次沿用旧意图状态，以及未识别“详情图”表达的问题。
 - 修复历史任务结果查询联表时未限定 `user_id` 来源、导致 PostgreSQL 报列名歧义的问题。

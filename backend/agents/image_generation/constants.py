@@ -1,9 +1,8 @@
-"""淘宝图片智能体使用的稳定业务常量。"""
+"""图片智能体使用的稳定业务常量。"""
 
-from agent.constants import MAX_REFERENCE_IMAGE_COUNT
-from agents.registry import TAOBAO_IMAGE_AGENT_ID
+from agent.constants import IMAGE_AGENT_ID, MAX_REFERENCE_IMAGE_COUNT
 
-IMAGE_AGENT_NAME = "淘宝电商图片助手"
+IMAGE_AGENT_NAME = "图片智能体"
 IMAGE_AGENT_DESCRIPTION = "为淘宝商家生成商品主图和详情页图片"
 IMAGE_RESULT_TYPE = "image"
 IMAGE_RESULT_URL_PREFIX = "/api/task-results"
@@ -25,5 +24,3 @@ __all__ = [
     "MAX_REFERENCE_IMAGES",
     "SUPPORTED_PIXEL_LEVELS",
 ]
-
-IMAGE_AGENT_ID = TAOBAO_IMAGE_AGENT_ID

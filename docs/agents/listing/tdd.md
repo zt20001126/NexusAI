@@ -1,4 +1,4 @@
-# 淘宝 Listing 生成智能体技术设计
+# listing生成智能体技术设计
 
 - 文档状态：已实现
 - 版本：1.0
@@ -23,7 +23,7 @@
 ## 2. 目录和依赖边界
 
 - agents/listing_agent/ 保存 Listing 状态、Pydantic Schema、提示词、图节点、TokenHub 视觉客户端及任务结果工具。
-- app.lifecycle 负责构建模型、视觉客户端、图和 Runner，并在 AgentRegistry 注册 listing_agent。
+- `bootstrap.runtime` 负责构建模型、视觉客户端、图和 Runner，并在 AgentRegistry 注册 listing_agent。
 - app.service.task_result 按可信主体读取 Listing 结果；Router 只解析身份和响应 DTO。
 - task_results 的静态 agent ID 映射新增 listing_agent；不新增数据库表或迁移。
 - 前端聊天功能新增 Listing API 类型、结果卡片和选择器内容；图片上传继续使用共享接口。

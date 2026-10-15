@@ -1,4 +1,4 @@
-"""应用运行时组装与资源生命周期管理。"""
+"""应用运行时组装入口，负责装配依赖并管理资源生命周期。"""
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
@@ -18,11 +19,8 @@ from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AG
 from agents.listing_agent.graph import build_listing_agent_graph
 from agents.listing_agent.providers.tokenhub_vision import TokenHubVisionClient
 from agents.registry import (
-    DEFAULT_AGENT_DESCRIPTION,
-    DEFAULT_AGENT_ID,
-    DEFAULT_AGENT_NAME,
-    LISTING_AGENT_ID,
-    TAOBAO_IMAGE_AGENT_ID,
+    COMMON_AGENT_DESCRIPTION,
+    COMMON_AGENT_NAME,
     AgentRegistry,
 )
 from app.crud import (
@@ -93,7 +91,7 @@ def build_lifespan(
                         id_generator=id_generator,
                     )
 
-                runner = create_postgres_runner(DEFAULT_AGENT_ID)
+                runner = create_postgres_runner(COMMON_AGENT_ID)
                 resolved_model_provider = model_provider or OpenAICompatibleProvider(settings)
                 image_model = resolved_model_provider.create_chat_model()
                 image_graph = build_image_agent_graph(
@@ -109,7 +107,7 @@ def build_lifespan(
                     image_storage,
                 )
                 image_runner = create_postgres_runner(
-                    agent_id=TAOBAO_IMAGE_AGENT_ID,
+                    agent_id=IMAGE_AGENT_ID,
                     graph=image_graph,
                     attachment_store=image_storage,
                 )
@@ -129,8 +127,8 @@ def build_lifespan(
                     app_instance,
                     settings,
                     {
-                        DEFAULT_AGENT_ID: runner,
-                        TAOBAO_IMAGE_AGENT_ID: image_runner,
+                        COMMON_AGENT_ID: runner,
+                        IMAGE_AGENT_ID: image_runner,
                         LISTING_AGENT_ID: listing_runner,
                     },
                     MemoryEventSequence(),
@@ -163,13 +161,13 @@ def _install_runtime_state(
     registry = AgentRegistry(
         [
             AgentDefinition(
-                agent_id=DEFAULT_AGENT_ID,
-                name=DEFAULT_AGENT_NAME,
-                description=DEFAULT_AGENT_DESCRIPTION,
+                agent_id=COMMON_AGENT_ID,
+                name=COMMON_AGENT_NAME,
+                description=COMMON_AGENT_DESCRIPTION,
                 supports_image_upload=False,
             ),
             AgentDefinition(
-                agent_id=TAOBAO_IMAGE_AGENT_ID,
+                agent_id=IMAGE_AGENT_ID,
                 name=IMAGE_AGENT_NAME,
                 description=IMAGE_AGENT_DESCRIPTION,
                 supports_image_upload=True,
@@ -185,8 +183,8 @@ def _install_runtime_state(
     )
     app_instance.state.settings = settings
     app_instance.state.agent_registry = registry
-    app_instance.state.agent_runner = runners[DEFAULT_AGENT_ID]
-    app_instance.state.agent_service = services[DEFAULT_AGENT_ID]
+    app_instance.state.agent_runner = runners[COMMON_AGENT_ID]
+    app_instance.state.agent_service = services[COMMON_AGENT_ID]
     app_instance.state.task_result_store = task_result_store
     app_instance.state.task_result_service = TaskResultApplicationService(task_result_store)
     app_instance.state.attachment_store = attachment_store

@@ -1,10 +1,10 @@
 # NexusAI 多智能体基础框架
 
-这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体和面向淘宝商品主图、详情页图片的淘宝图片智能体。
+这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）和 listing生成智能体（`listing_agent`）。
 
 ![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
 
-应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话、消息、运行状态和统一智能体任务结果；淘宝图片智能体通过私有阿里云 OSS 保存生成图片和参考图，数据库只保存雪花 ID 与对象元数据。内存适配器由测试显式注入，不是应用运行配置选项。
+应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话、消息、运行状态和统一智能体任务结果；图片智能体通过私有阿里云 OSS 保存生成图片和参考图，数据库只保存雪花 ID 与对象元数据。内存适配器由测试显式注入，不是应用运行配置选项。
 
 仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目文档集中放在 `docs/`；辅助脚本按需放在 `scripts/`。
 
@@ -57,7 +57,7 @@ scripts/                     项目级辅助脚本（按需添加）
 
 ## 已具备的基础能力
 
-- 淘宝 Listing 生成智能体：识别商品外观与包装文字，核实必要信息后生成 3 个可选版本，并保存完整 JSON 结果
+- listing生成智能体（`listing_agent`）：识别商品外观与包装文字，核实必要信息后生成 3 个可选版本，并保存完整 JSON 结果
 - 多智能体发现与按 `agent_id` 调用：普通响应、SSE 流式响应、恢复和取消
 - LangGraph 显式状态、节点、工具与条件边
 - `question.required` 结构化追问和相同 Checkpoint 恢复
@@ -68,7 +68,7 @@ scripts/                     项目级辅助脚本（按需添加）
 - DeepSeek 对话模型与工具调用；测试通过可替换 Provider 离线运行
 - PostgreSQL Checkpoint、会话元数据、消息和运行状态持久化
 - 使用共享 `task_results` 表保存智能体输出，并按用户授权读取图片结果
-- 淘宝图片智能体支持 PNG/JPEG 参考图、TokenHub 图片生成、参数选项追问和历史结果展示
+- 图片智能体支持 PNG/JPEG 参考图、TokenHub 图片生成、参数选项追问和历史结果展示
 
 ## 快速开始
 
@@ -88,7 +88,7 @@ $env:LANGGRAPH_STRICT_MSGPACK = "true"
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-首次启动前，请在 `backend/.env` 中将 `DEEPSEEK_API_KEY` 的占位值替换为你的 DeepSeek API Key；占位值无法通过启动配置校验。要使用淘宝图片智能体，还需配置 TokenHub API Key 和阿里云 OSS 参数；OSS Bucket 应设为私有。
+首次启动前，请在 `backend/.env` 中将 `DEEPSEEK_API_KEY` 的占位值替换为你的 DeepSeek API Key；占位值无法通过启动配置校验。要使用图片智能体，还需配置 TokenHub API Key 和阿里云 OSS 参数；OSS Bucket 应设为私有。
 
 打开 `http://127.0.0.1:8000/docs` 查看接口。
 
@@ -128,11 +128,11 @@ Compose 配置位于 `backend/compose.yaml`，包含以下服务：
 
 ## API 与 SSE
 
-当前前端支持从智能体选择器切换到淘宝图片智能体。新接口使用 `agent_id` 路径：
+当前前端支持从智能体选择器切换到图片智能体。智能体代码统一为 `common_agent`、`image_agent` 和 `listing_agent`；新接口使用 `agent_id` 路径：
 
 ```powershell
 curl.exe http://127.0.0.1:8000/api/agents
-curl.exe -N -X POST http://127.0.0.1:8000/api/agents/taobao_image/chat/stream `
+curl.exe -N -X POST http://127.0.0.1:8000/api/agents/image_agent/chat/stream `
   -H "Content-Type: application/json" `
   -d '{"message":"帮我生成一张淘宝商品主图"}'
 ```
@@ -140,7 +140,7 @@ curl.exe -N -X POST http://127.0.0.1:8000/api/agents/taobao_image/chat/stream `
 首次请求会产生结构化追问；从 `question.required` 读取 `conversation_id` 和 `run_id`，再使用同一个智能体路由提交答案：
 
 ```powershell
-curl.exe -N -X POST http://127.0.0.1:8000/api/agents/taobao_image/runs/<run_id>/resume `
+curl.exe -N -X POST http://127.0.0.1:8000/api/agents/image_agent/runs/<run_id>/resume `
   -H "Content-Type: application/json" `
   -d '{"conversation_id":"<conversation_id>","answers":{"image_size":"1:1 方图（1024×1024）"}}'
 ```
@@ -175,9 +175,9 @@ SSE 事件通过 `event_id` 标识当前进程内的递增游标。当前 HTTP A
 
 默认图使用 `backend/infra/model_provider.py` 中的 Provider 创建 DeepSeek 模型，并绑定 `backend/agent/tools/registry.py` 登记的工具。图片图通过注入的 TokenHub Provider 调用生图服务。模型配置集中在 `AppSettings`；不要在节点或工具中直接读取环境变量，也不要把数据库连接、密钥或 HTTP 响应对象写入图状态。
 
-### Listing 生成智能体
+### listing生成智能体
 
-在选择 Listing 生成智能体后上传商品图片，并可在消息中附加任意已知商品信息。系统会一次性询问当前必要信息；全部问题回答后生成 3 个版本，详情描述为纯文本。视觉模型通过 TENCENT_TOKENHUB_VISION_MODEL 配置，默认为 hy-vision-2.0-instruct，完整 JSON 可在对话结果卡片中查看和切换版本。
+在选择 listing生成智能体后上传商品图片，并可在消息中附加任意已知商品信息。系统会一次性询问当前必要信息；全部问题回答后生成 3 个版本，详情描述为纯文本。视觉模型通过 TENCENT_TOKENHUB_VISION_MODEL 配置，默认为 hy-vision-2.0-instruct，完整 JSON 可在对话结果卡片中查看和切换版本。
 
 ## 数据库配置
 
@@ -189,7 +189,7 @@ DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5433/nexusai
 
 `DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、消息、运行记录和统一 `task_results`；图片字节存放在阿里云 OSS，运行锁由数据库 advisory lock 协调。业务表使用雪花 `BIGINT` ID，API 以十进制字符串传输。
 
-淘宝图片智能体使用 `TENCENT_TOKENHUB_API_KEY`、`TENCENT_TOKENHUB_BASE_URL`、`TENCENT_HY_IMAGE_MODEL` 和 `TENCENT_HY_IMAGE_ENDPOINT`。图片上传与生成还需要 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置这些凭据不会阻止其他智能体运行；图片上传或保存会返回受控配置错误。Bucket 应为私有，并为每个并发后端进程设置唯一 `SNOWFLAKE_WORKER_ID`。旧数据库升级步骤见[数据库结构说明](docs/数据库表结构.md)。
+图片智能体使用 `TENCENT_TOKENHUB_API_KEY`、`TENCENT_TOKENHUB_BASE_URL`、`TENCENT_HY_IMAGE_MODEL` 和 `TENCENT_HY_IMAGE_ENDPOINT`。图片上传与生成还需要 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置这些凭据不会阻止其他智能体运行；图片上传或保存会返回受控配置错误。Bucket 应为私有，并为每个并发后端进程设置唯一 `SNOWFLAKE_WORKER_ID`。旧数据库升级步骤见[数据库结构说明](docs/数据库表结构.md)。
 
 连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。应用启动必须能通过 `DATABASE_URL` 访问 PostgreSQL；测试可显式注入内存适配器。
 

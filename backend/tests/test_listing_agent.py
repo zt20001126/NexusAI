@@ -1,4 +1,4 @@
-"""淘宝 Listing 生成智能体的模型、Schema 和追问测试。"""
+"""listing生成智能体的模型、Schema 和追问测试。"""
 
 import base64
 import json

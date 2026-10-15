@@ -6,7 +6,7 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果和附件标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码，例如 `taobao_image`。
+会话、运行、消息、任务结果和附件标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`image_agent` 或 `listing_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
@@ -21,20 +21,20 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
   "success": true,
   "data": [
     {
-      "agent_id": "default",
+      "agent_id": "common_agent",
       "name": "通用智能体",
       "description": "处理常见对话、需求梳理和信息问答",
       "supports_image_upload": false
     },
     {
-      "agent_id": "taobao_image",
-      "name": "淘宝电商图片助手",
+      "agent_id": "image_agent",
+      "name": "图片智能体",
       "description": "为淘宝商家生成商品主图和详情页图片",
       "supports_image_upload": true
     },
     {
       "agent_id": "listing_agent",
-      "name": "Listing生成智能体",
+      "name": "listing生成智能体",
       "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
       "supports_image_upload": true
     }
@@ -81,7 +81,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 ## 兼容路由
 
-原有 `/api/agent/chat`、`/api/agent/chat/stream`、`/api/agent/runs/{run_id}/resume` 和 `/api/agent/runs/{run_id}/cancel` 保留，固定路由到 `default` 智能体。新前端和新增业务使用 `/api/agents/{agent_id}/...`。
+原有 `/api/agent/chat`、`/api/agent/chat/stream`、`/api/agent/runs/{run_id}/resume` 和 `/api/agent/runs/{run_id}/cancel` 保留，固定路由到 `common_agent`（通用智能体）。新前端和新增业务使用 `/api/agents/{agent_id}/...`。
 
 ## SSE 事件
 
@@ -125,7 +125,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 ## 上传参考图片
 
-### `POST /api/uploads/images?agent_id=taobao_image&file_name=product.png`
+### `POST /api/uploads/images?agent_id=image_agent&file_name=product.png`
 
 请求体是图片原始字节（不是 multipart 或 JSON）；请求头 `Content-Type` 不作为文件类型依据。服务端按文件签名识别 PNG/JPEG，单张最多 5 MiB。最多可在同一聊天请求中提交 3 个附件 ID。
 
@@ -164,7 +164,7 @@ Content-Type: image/png
 - `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
 - `GET /api/conversations/{conversation_id}/messages?limit=50&before_sequence=...` 返回按时间正序排列的消息。助手消息可含 `task_results` 数组，提供生成状态、稳定图片路径和错误摘要，不含图片二进制内容。
 
-## 淘宝 Listing 生成智能体
+## listing生成智能体
 
 listing_agent 使用 TokenHub 多模态 Chat Completions（默认 hy-vision-2.0-instruct）识别商品外观、可读包装文字和可见特征，并使用现有 DeepSeek ChatModel 判断必要信息及生成文案。视觉模型配置为 TENCENT_TOKENHUB_VISION_MODEL；TokenHub 鉴权和超时使用现有 TENCENT_TOKENHUB_API_KEY、TENCENT_TOKENHUB_BASE_URL 和 TENCENT_TOKENHUB_TIMEOUT_SECONDS。
 
@@ -172,6 +172,6 @@ Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张�
 
 成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
-## 淘宝图片智能体参数
+## 图片智能体参数
 
-`taobao_image` 使用 TokenHub Hy-Image-3.5-preview。每次图片生成请求都会通过常见选项询问尺寸或输出面积档位，用户本轮选择作为最终值；恢复追问时不会重复询问。`seed`、`footnote` 和参考图 `resize_max_pixels` 只有在用户提出相应要求但没有给出值时才追问；其余情况采用请求值或 TokenHub 文档默认值（参考图面积默认 1,048,576）。参考图最多 3 张，每张最多 5 MiB。`session`、`model` 和 `messages` 由服务端组装。API 文档没有定义输出张数或独立清晰度参数，因此接口和问答不引入这两个字段。完整上游字段及限制请见[腾讯混元生图接入文档](https://cloud.tencent.com/document/product/1823/135745)。
+`image_agent` 使用 TokenHub Hy-Image-3.5-preview。每次图片生成请求都会通过常见选项询问尺寸或输出面积档位，用户本轮选择作为最终值；恢复追问时不会重复询问。`seed`、`footnote` 和参考图 `resize_max_pixels` 只有在用户提出相应要求但没有给出值时才追问；其余情况采用请求值或 TokenHub 文档默认值（参考图面积默认 1,048,576）。参考图最多 3 张，每张最多 5 MiB。`session`、`model` 和 `messages` 由服务端组装。API 文档没有定义输出张数或独立清晰度参数，因此接口和问答不引入这两个字段。完整上游字段及限制请见[腾讯混元生图接入文档](https://cloud.tencent.com/document/product/1823/135745)。
