@@ -26,6 +26,8 @@ interface PendingQuestion {
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
 export function useChatSession() {
   const [agents, setAgents] = useState<AgentDefinition[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(true)
+  const [agentsError, setAgentsError] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState(COMMON_AGENT_ID)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -70,6 +72,22 @@ export function useChatSession() {
     setStatus('随时可以开始')
   }, [])
 
+  const loadAgents = useCallback(async (isCurrent: () => boolean = () => true) => {
+    setAgentsLoading(true)
+    setAgentsError(null)
+    try {
+      const loadedAgents = await getAgents()
+      if (isCurrent()) setAgents(loadedAgents)
+    } catch (requestError) {
+      if (isCurrent()) {
+        const message = getErrorMessage(requestError)
+        setAgentsError(message)
+      }
+    } finally {
+      if (isCurrent()) setAgentsLoading(false)
+    }
+  }, [])
+
   const refreshConversations = useCallback(async () => {
     setSidebarError(null)
     try {
@@ -94,15 +112,9 @@ export function useChatSession() {
 
   useEffect(() => {
     let mounted = true
-    void getAgents()
-      .then((items) => {
-        if (mounted) setAgents(items)
-      })
-      .catch((requestError: unknown) => {
-        if (mounted) setSidebarError(getErrorMessage(requestError))
-      })
+    void loadAgents(() => mounted)
     return () => { mounted = false }
-  }, [])
+  }, [loadAgents])
 
   useEffect(() => {
     let mounted = true
@@ -335,22 +347,15 @@ export function useChatSession() {
     }
   }
 
-  function createConversation() {
-    activeConversationRef.current = null
-    setActiveConversationId(null)
-    setPendingQuestion(null)
-    setMessages([])
-    setError(null)
-    setOlderCursor(null)
-    setStatus('随时可以开始')
-  }
-
   const activeConversation = conversations.find(
     (conversation) => conversation.conversation_id === activeConversationId,
   )
 
   return {
     agents,
+    agentsLoading,
+    agentsError,
+    loadAgents,
     activeAgentId,
     conversations,
     activeConversation,
@@ -376,7 +381,6 @@ export function useChatSession() {
     cancelRun,
     loadOlderMessages,
     loadMoreConversations,
-    createConversation,
   }
 }
 
