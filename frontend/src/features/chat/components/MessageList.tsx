@@ -5,6 +5,8 @@ import type { DisplayMessage } from '../model/messages'
 import ListingResultCard from './ListingResultCard'
 import ResearchResultCard from './ResearchResultCard'
 
+const AUTO_SCROLL_THRESHOLD_PX = 120
+
 interface MessageListProps {
   messages: DisplayMessage[]
   loading: boolean
@@ -13,28 +15,43 @@ interface MessageListProps {
 
 /** 展示历史消息、当前流式回复和首次进入页面的引导内容。 */
 function MessageList({ messages, loading, conversationId }: MessageListProps) {
-  const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const previousHeight = useRef(0)
   const previousFirstMessageId = useRef<string | null>(null)
+  const previousLastMessageId = useRef<string | null>(null)
+  const shouldStickToBottom = useRef(true)
 
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return
     const firstMessageId = messages[0]?.id ?? null
+    const lastMessageId = messages[messages.length - 1]?.id ?? null
     const previousIndex = previousFirstMessageId.current
       ? messages.findIndex((message) => message.id === previousFirstMessageId.current)
       : -1
 
     if (previousIndex > 0) {
       list.scrollTop += list.scrollHeight - previousHeight.current
-    } else if (previousIndex === -1 || list.scrollHeight - list.scrollTop - list.clientHeight < 120) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    } else {
+      if (lastMessageId && lastMessageId !== previousLastMessageId.current) {
+        shouldStickToBottom.current = true
+      }
+      if (shouldStickToBottom.current) {
+        list.scrollTop = list.scrollHeight
+      }
     }
 
     previousHeight.current = list.scrollHeight
     previousFirstMessageId.current = firstMessageId
+    previousLastMessageId.current = lastMessageId
   }, [messages])
+
+  function handleScroll() {
+    const list = listRef.current
+    if (!list) return
+    const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+    shouldStickToBottom.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX
+  }
 
   if (loading) {
     return <div className="message-scroll-area"><div className="message-state">正在读取这段对话…</div></div>
@@ -42,7 +59,7 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="message-scroll-area" ref={listRef}>
+      <div className="message-scroll-area" ref={listRef} onScroll={handleScroll}>
       <div className="welcome-panel">
         <div className="welcome-orbit" aria-hidden="true">
           <img src="/brand/nexusai-icon.png" alt="" />
@@ -56,7 +73,7 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
   }
 
   return (
-    <div className="message-scroll-area" ref={listRef}>
+    <div className="message-scroll-area" ref={listRef} onScroll={handleScroll}>
     <div className="message-list" aria-live="polite">
       {messages.map((message) => (
         <article className={`message-row ${message.role}`} key={message.id}>
@@ -120,7 +137,6 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
           )}
         </article>
       ))}
-      <div ref={bottomRef} />
     </div>
     </div>
   )
