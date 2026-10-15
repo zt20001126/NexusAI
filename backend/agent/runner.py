@@ -437,7 +437,7 @@ class AgentRunner:
             finally:
                 try:
                     if lock_acquired:
-                        self._run_lock.release(scope_key)
+                        await self._run_lock.release(scope_key)
                 finally:
                     self._cancel_events.pop(record.run_id, None)
 

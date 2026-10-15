@@ -21,6 +21,7 @@
 
 ### Changed
 
+- 为应用 PostgreSQL 持久化引入 SQLAlchemy ORM，按数据实体拆分 CRUD、模型与数据库会话管理。
 - 按 `router/service/crud` 重组后端应用目录；将 PostgreSQL 适配器移入 `app/crud`，并通过持久化协议注入智能体运行器。
 - 删除未采用的会话与消息表结构设计提案，文档导航仅保留当前数据库结构说明。
 - 图片智能体每次生图前都询问尺寸；参考图限制为最多 3 张、每张不超过 5 MiB。

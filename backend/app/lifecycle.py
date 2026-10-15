@@ -21,14 +21,14 @@ from agents.registry import (
     TAOBAO_IMAGE_AGENT_ID,
     AgentRegistry,
 )
-from app.crud.postgres import (
+from app.crud import (
     PostgresConversationStore,
     PostgresMessageStore,
     PostgresRunLock,
     PostgresRunStore,
-    PostgresRuntimeStore,
     PostgresTaskResultStore,
 )
+from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
 from infra.aliyun_oss import AliyunOSSImageStorage
@@ -61,10 +61,10 @@ def build_lifespan(
                 if settings.aliyun_oss_configured
                 else UnavailableImageObjectStore()
             )
-            with PostgresRuntimeStore(settings.database_url, id_generator) as runtime_store:
-                conversation_store = PostgresConversationStore(runtime_store)
-                message_store = PostgresMessageStore(runtime_store)
-                task_result_store = PostgresTaskResultStore(runtime_store)
+            with PostgresDatabase(settings.database_url, id_generator) as database:
+                conversation_store = PostgresConversationStore(database)
+                message_store = PostgresMessageStore(database)
+                task_result_store = PostgresTaskResultStore(database)
 
                 def create_postgres_runner(
                     agent_id: str,
@@ -75,8 +75,8 @@ def build_lifespan(
                     return build_agent_runner(
                         settings=settings,
                         checkpointer=checkpointer,
-                        run_store=PostgresRunStore(runtime_store),
-                        run_lock=PostgresRunLock(runtime_store),
+                        run_store=PostgresRunStore(database),
+                        run_lock=PostgresRunLock(database),
                         conversation_store=conversation_store,
                         message_store=message_store,
                         event_sequence=MemoryEventSequence(),

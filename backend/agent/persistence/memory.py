@@ -162,7 +162,7 @@ class MemoryRunLock:
             raise RunBusyError()
         await lock.acquire()
 
-    def release(self, conversation_id: str) -> None:
+    async def release(self, conversation_id: str) -> None:
         """释放会话执行权。"""
         lock = self._locks.get(conversation_id)
         if lock is not None and lock.locked():

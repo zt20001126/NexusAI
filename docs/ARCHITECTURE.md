@@ -16,6 +16,8 @@ flowchart LR
     Main[app.main] --> Lifecycle[app.lifecycle]
     Lifecycle --> Registry
     Lifecycle --> PersistenceCRUD
+    PersistenceCRUD --> ORMModels[app.models]
+    PersistenceCRUD --> Database[app.db]
     Lifecycle --> Infrastructure[模型 Provider 与外部适配器]
 ```
 
@@ -27,7 +29,9 @@ flowchart LR
 |---|---|---|
 | `app/router/` | 接收 HTTP 参数、解析身份、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
 | `app/service/` | 编排应用用例；不依赖 FastAPI 请求对象 | 直接执行 SQL |
-| `app/crud/` | 实现 PostgreSQL Store、管理连接池并执行应用表 SQL | HTTP 参数解析和智能体图流程 |
+| `app/crud/` | 按会话、消息、运行和任务结果执行 SQLAlchemy ORM 查询及持久化 | HTTP 参数解析和智能体图流程 |
+| `app/models/` | 定义与 Pydantic DTO 分离的 SQLAlchemy 持久化模型 | HTTP 请求和响应校验 |
+| `app/db/` | 创建 SQLAlchemy 引擎和 Session 工厂，管理数据库资源生命周期 | 业务查询和 HTTP 流程 |
 | `app/schemas/` | 定义 HTTP 请求和响应 DTO | 保存图状态或数据库实体 |
 | `agent/` | 提供共享 Runner、稳定事件、追问协议、持久化协议；保留现有默认智能体图 | 导入 `app`、FastAPI 或 HTTP DTO |
 | `agents/` | 按业务目录保存独立智能体图、状态、节点、提示词、工具和 Provider 适配 | 复制公共 Runner、SSE 或持久化代码 |
@@ -39,9 +43,10 @@ flowchart LR
 
 - Router 调用 Service；Service 按 `agent_id` 查找应用 Service 并调用 Runner。
 - `agent/`、`agents/` 和基础设施模块不导入 FastAPI Router 或 HTTP DTO。
-- `app.crud` 实现 `agent.persistence.interfaces` 中的存储协议；Runner 只依赖协议，不直接依赖 PostgreSQL 实现。
-- `app/schemas/` 保存 HTTP 请求与响应模型；`agent/schemas/` 保存运行记录、图问题、事件和任务结果记录。
-- 当前没有 SQLAlchemy ORM。`app/crud/` 中的 PostgreSQL 适配器管理会话、消息、运行和 `task_results`；图片字节由 `infra/aliyun_oss.py` 保存到私有 OSS。
+- `app.crud` 使用 SQLAlchemy ORM 实现 `agent.persistence.interfaces` 中的存储协议；Runner 只依赖协议，不直接依赖数据库模型或 PostgreSQL 实现。
+- `app/models/` 保存数据库持久化模型；`app/schemas/` 保存 HTTP 请求与响应模型；`agent/schemas/` 保存运行记录、图问题、事件和任务结果领域记录。
+- `app/db/` 创建 SQLAlchemy 引擎和会话工厂；CRUD 操作按调用创建并关闭短生命周期 Session。会话级 advisory lock 使用独立的 psycopg 连接池，使运行期间锁连接与 ORM 查询连接分离。`psycopg` 提供 PostgreSQL 驱动，LangGraph Checkpointer 继续使用其独立适配器。
+- 应用启动时由 ORM 元数据创建缺失的应用表；`create_all` 不会修改已有表，结构变更仍须通过 `backend/migrations/` 管理。图片字节由 `infra/aliyun_oss.py` 保存到私有 OSS。
 - `agent/errors.py` 定义运行时业务异常；`app/exceptions/handlers.py` 将其转换为 HTTP 响应。
 - `infra/settings.py` 是配置入口。Provider 和智能体节点通过构造注入使用配置；节点和工具不直接读取环境变量。
 - `app/dependencies/` 保存 HTTP 依赖，例如可信主体解析；`app/lifecycle.py` 负责运行资源的创建与释放。
