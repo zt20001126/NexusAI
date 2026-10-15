@@ -15,23 +15,15 @@ from agent.constants import (
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
-from agents.definition import AgentDefinition
-from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
 from agents.image_agent.graph import build_image_agent_graph
 from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
-from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
-from agents.research_agent.constants import (
-    RESEARCH_AGENT_DESCRIPTION,
-    RESEARCH_AGENT_NAME,
-)
 from agents.research_agent.graph import build_research_agent_graph
 from agents.research_agent.providers.openalex_client import OpenAlexClient
 from agents.registry import (
-    COMMON_AGENT_DESCRIPTION,
-    COMMON_AGENT_NAME,
     AgentRegistry,
+    PROJECT_AGENT_DEFINITIONS,
 )
 from app.crud import (
     PostgresConversationStore,
@@ -180,35 +172,7 @@ def _install_runtime_state(
         agent_id: AgentApplicationService(runner, publisher)
         for agent_id, runner in runners.items()
     }
-    registry = AgentRegistry(
-        [
-            AgentDefinition(
-                agent_id=COMMON_AGENT_ID,
-                name=COMMON_AGENT_NAME,
-                description=COMMON_AGENT_DESCRIPTION,
-                supports_image_upload=False,
-            ),
-            AgentDefinition(
-                agent_id=IMAGE_AGENT_ID,
-                name=IMAGE_AGENT_NAME,
-                description=IMAGE_AGENT_DESCRIPTION,
-                supports_image_upload=True,
-            ),
-            AgentDefinition(
-                agent_id=LISTING_AGENT_ID,
-                name=LISTING_AGENT_NAME,
-                description=LISTING_AGENT_DESCRIPTION,
-                supports_image_upload=True,
-            ),
-            AgentDefinition(
-                agent_id=RESEARCH_AGENT_ID,
-                name=RESEARCH_AGENT_NAME,
-                description=RESEARCH_AGENT_DESCRIPTION,
-                supports_image_upload=False,
-            ),
-        ],
-        services,
-    )
+    registry = AgentRegistry(PROJECT_AGENT_DEFINITIONS, services)
     app_instance.state.settings = settings
     app_instance.state.agent_registry = registry
     app_instance.state.agent_runner = runners[COMMON_AGENT_ID]

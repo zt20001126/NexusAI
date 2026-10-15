@@ -8,7 +8,7 @@ from agent.schemas.tool_result import ToolResult
 
 @tool("ask_user_question")
 def ask_user_question() -> str:
-    """当缺少明确业务目标时，向用户发起一组结构化问题。"""
+    """仅在用户明确要求结构化收集目标时，向用户发起一组问题；普通闲聊应直接自然回应。"""
     payload = QuestionPayload(
         questions=[
             Question(

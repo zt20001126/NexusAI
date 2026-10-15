@@ -21,9 +21,13 @@ def create_agent_node(chat_model: BaseChatModel) -> Callable[..., Any]:
         state: AgentState,
         config: RunnableConfig | None = None,
     ) -> dict[str, list[BaseMessage]]:
-        messages = list(state.get("messages", []))
-        if not messages or not isinstance(messages[0], SystemMessage):
-            messages.insert(0, SystemMessage(content=SYSTEM_PROMPT))
+        # 持久化会话可能仍包含旧版系统提示；每轮推理都替换为当前提示。
+        messages = [
+            message
+            for message in state.get("messages", [])
+            if not isinstance(message, SystemMessage)
+        ]
+        messages.insert(0, SystemMessage(content=SYSTEM_PROMPT))
         response = await invoke_chat_model_streaming(model_with_tools, messages, config)
         return {"messages": [response]}
 

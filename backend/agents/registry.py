@@ -3,12 +3,52 @@
 from collections.abc import Iterable
 from typing import Any
 
+from agent.constants import (
+    COMMON_AGENT_ID,
+    IMAGE_AGENT_ID,
+    LISTING_AGENT_ID,
+    RESEARCH_AGENT_ID,
+)
 from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
+from agents.image_agent.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
+from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
+from agents.research_agent.constants import (
+    RESEARCH_AGENT_DESCRIPTION,
+    RESEARCH_AGENT_NAME,
+)
 
 
 COMMON_AGENT_NAME = "通用智能体"
-COMMON_AGENT_DESCRIPTION = "处理常见对话、需求梳理和信息问答"
+COMMON_AGENT_DESCRIPTION = "陪用户自然交流、回答常见问题并介绍项目中的智能体"
+
+# 项目实际注册的智能体目录，供 API 和通用智能体共用，避免两处元数据不一致。
+PROJECT_AGENT_DEFINITIONS = (
+    AgentDefinition(
+        agent_id=COMMON_AGENT_ID,
+        name=COMMON_AGENT_NAME,
+        description=COMMON_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+    ),
+    AgentDefinition(
+        agent_id=IMAGE_AGENT_ID,
+        name=IMAGE_AGENT_NAME,
+        description=IMAGE_AGENT_DESCRIPTION,
+        supports_image_upload=True,
+    ),
+    AgentDefinition(
+        agent_id=LISTING_AGENT_ID,
+        name=LISTING_AGENT_NAME,
+        description=LISTING_AGENT_DESCRIPTION,
+        supports_image_upload=True,
+    ),
+    AgentDefinition(
+        agent_id=RESEARCH_AGENT_ID,
+        name=RESEARCH_AGENT_NAME,
+        description=RESEARCH_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+    ),
+)
 
 
 class AgentRegistry:
