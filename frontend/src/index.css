@@ -222,7 +222,7 @@ a { color: inherit; text-decoration: none; }
 .send-button:disabled { color: #9AA7B8; background: #EEF2F6; box-shadow: none; }
 .stop-button { color: #4B5D73; background: #E9EFF6; box-shadow: none; font-size: 12px; }
 .stop-button:hover { color: #34455A; background: #DDE6F0; }
-.composer-caption { padding: 7px 5px 0; color: #8B98AA; font-size: 10px; line-height: 1.4; text-align: left; }
+.composer-caption { padding: 7px 5px 0; color: #8B98AA; font-size: 10px; line-height: 1.4; text-align: center; }
 
 @keyframes blink { to { visibility: hidden; } }
 @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
