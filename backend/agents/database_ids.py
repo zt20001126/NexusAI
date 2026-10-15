@@ -4,6 +4,7 @@ from agent.constants import (
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
+    LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
 )
 from infra.snowflake import SNOWFLAKE_EPOCH_MILLISECONDS
@@ -25,6 +26,7 @@ AGENT_DATABASE_IDS: dict[str, int] = {
     IMAGE_AGENT_ID: _static_agent_id(2),
     LISTING_AGENT_ID: _static_agent_id(3),
     RESEARCH_AGENT_ID: _static_agent_id(4),
+    LABOR_LAW_AGENT_ID: _static_agent_id(5),
 }
 AGENT_CODES_BY_DATABASE_ID = {value: key for key, value in AGENT_DATABASE_IDS.items()}
 

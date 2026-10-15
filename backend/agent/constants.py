@@ -5,6 +5,7 @@ COMMON_AGENT_ID = "common_agent"
 IMAGE_AGENT_ID = "image_agent"
 LISTING_AGENT_ID = "listing_agent"
 RESEARCH_AGENT_ID = "research_agent"
+LABOR_LAW_AGENT_ID = "labor_law_agent"
 
 # Checkpoint 线程 ID 已落库，保留旧代码片段以便继续读取已有会话状态。
 CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY: dict[str, str] = {
@@ -39,6 +40,7 @@ __all__ = [
     "CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY",
     "LISTING_AGENT_ID",
     "RESEARCH_AGENT_ID",
+    "LABOR_LAW_AGENT_ID",
     "MAX_REFERENCE_IMAGE_BYTES",
     "MAX_REFERENCE_IMAGE_COUNT",
     "MAX_REFERENCE_IMAGE_TOTAL_BYTES",

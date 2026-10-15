@@ -7,6 +7,7 @@ from agent.constants import (
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
+    LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
 )
 from agent.errors import UnknownAgentError
@@ -16,6 +17,10 @@ from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AG
 from agents.research_agent.constants import (
     RESEARCH_AGENT_DESCRIPTION,
     RESEARCH_AGENT_NAME,
+)
+from agents.labor_law_agent.constants import (
+    LABOR_LAW_AGENT_DESCRIPTION,
+    LABOR_LAW_AGENT_NAME,
 )
 
 
@@ -46,6 +51,12 @@ PROJECT_AGENT_DEFINITIONS = (
         agent_id=RESEARCH_AGENT_ID,
         name=RESEARCH_AGENT_NAME,
         description=RESEARCH_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+    ),
+    AgentDefinition(
+        agent_id=LABOR_LAW_AGENT_ID,
+        name=LABOR_LAW_AGENT_NAME,
+        description=LABOR_LAW_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
 )

@@ -3,7 +3,7 @@
 from typing import Self
 
 from psycopg_pool import ConnectionPool
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base
@@ -47,6 +47,9 @@ class PostgresDatabase:
     def __enter__(self) -> Self:
         """启动时按 ORM 元数据创建缺失表，不修改已有表结构。"""
         try:
+            # pgvector 必须先注册扩展类型，后续 ORM 才能创建向量列。
+            with self.engine.begin() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             Base.metadata.create_all(self.engine)
             self.run_lock_pool.open(wait=True)
         except Exception:

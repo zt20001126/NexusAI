@@ -33,6 +33,16 @@ class AppSettings(BaseSettings):
     deepseek_model: str = "deepseek-flash"
     deepseek_timeout_seconds: int = Field(default=60, ge=1, le=600)
 
+    # 劳动法律 RAG 使用 TokenHub OpenAI 兼容 Embedding 服务；向量维度须与数据库迁移一致。
+    legal_embedding_base_url: str = "https://tokenhub.tencentmaas.com/v1"
+    legal_embedding_model: str = "kinfra-text-embedding-0.6b"
+    legal_embedding_timeout_seconds: int = Field(default=60, ge=1, le=600)
+    legal_embedding_max_retries: int = Field(default=2, ge=0, le=5)
+    legal_rag_top_k: int = Field(default=8, ge=1, le=30)
+    legal_rag_candidate_count: int = Field(default=30, ge=5, le=100)
+    legal_rag_min_similarity: float = Field(default=0.32, ge=0, le=1)
+    legal_rag_max_context_chars: int = Field(default=24_000, ge=2_000, le=100_000)
+
     tencent_cloud_secret_id: SecretStr = SecretStr("")
     tencent_cloud_secret_key: SecretStr = SecretStr("")
     tencent_hunyuan_image_region: str = "ap-guangzhou"
@@ -40,7 +50,7 @@ class AppSettings(BaseSettings):
     tencent_hunyuan_image_api_version: str = "2022-12-29"
     tencent_hunyuan_image_action: str = "TextToImageLite"
 
-    # TokenHub 配置只影响图片智能体；未启用该智能体时密钥可以为空。
+    # TokenHub API Key 供图片智能体和劳动法律 Embedding 共用；受限 Key 需授权相应模型。
     tokenhub_api_key: SecretStr = Field(
         default=SecretStr(""),
         validation_alias=AliasChoices("TENCENT_TOKENHUB_API_KEY", "tokenhub_api_key"),
