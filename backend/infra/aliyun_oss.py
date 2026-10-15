@@ -224,7 +224,7 @@ class AliyunOSSImageStorage:
         """在不下载字节的情况下检查参考对象存在、归属和大小。"""
         object_key = self._key(prefix, owner_hash, attachment_id)
         try:
-            metadata = self._bucket.get_object_meta(object_key)
+            metadata = self._bucket.head_object(object_key)
             headers = _normalize_headers(metadata.headers)
         except self._oss2.exceptions.OssError as error:
             if getattr(error, "status", None) == 404:

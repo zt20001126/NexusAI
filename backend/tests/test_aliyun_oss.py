@@ -38,7 +38,7 @@ class FakeObjectMetadata:
 
 
 class FakeBucket:
-    """保留 OSS 对象及大小写混合的 HTTP 元数据头。"""
+    """保留 OSS 对象，并模拟 objectMeta 与普通 HEAD 的响应差异。"""
 
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, dict[str, str]]] = {}
@@ -52,6 +52,15 @@ class FakeBucket:
         self.objects[key] = (data, dict(headers or {}))
 
     def get_object_meta(self, key: str) -> FakeObjectMetadata:
+        data, _ = self.objects[key]
+        return FakeObjectMetadata(
+            {
+                "ETag": '"fake-etag"',
+                "Content-Length": str(len(data)),
+            }
+        )
+
+    def head_object(self, key: str) -> FakeObjectMetadata:
         data, headers = self.objects[key]
         return FakeObjectMetadata(
             {
