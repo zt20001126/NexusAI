@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import type { Question } from '../api/agent'
+import { selectCurrentQuestionAnswers } from '../model/currentQuestionAnswers.mjs'
 
 interface AgentInteractionCardProps {
   questions: Question[]
@@ -18,7 +19,9 @@ function AgentInteractionCard({ questions, disabled, onSubmit }: AgentInteractio
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (questions.every((question) => answers[question.id]?.trim())) onSubmit(answers)
+    if (questions.every((question) => answers[question.id]?.trim())) {
+      onSubmit(selectCurrentQuestionAnswers(questions.map((question) => question.id), answers))
+    }
   }
 
   return (

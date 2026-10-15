@@ -23,6 +23,7 @@ class AgentApplicationService:
         conversation_id: str | None,
         principal_id: str,
         attachment_ids: list[str] | None = None,
+        graph_context: dict[str, Any] | None = None,
     ) -> list[AgentEvent]:
         """执行非流式对话并收集完整事件。"""
         events = self._runner.stream_chat(
@@ -30,6 +31,7 @@ class AgentApplicationService:
             conversation_id=conversation_id,
             principal_id=principal_id,
             attachment_ids=attachment_ids,
+            graph_context=graph_context,
         )
         return await self._publisher.publish_all(events)
 

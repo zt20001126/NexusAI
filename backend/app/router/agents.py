@@ -220,18 +220,18 @@ def get_task_result_image(
 
 
 @router.get("/api/task-results/{task_result_id}")
-def get_listing_task_result(
+def get_task_result(
     task_result_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
     request: Request,
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
-    """按可信主体读取完整 Listing JSON；越权和不存在均返回 404。"""
-    result = request.app.state.task_result_service.get_listing_result(
+    """按可信主体读取允许公开的完整 Listing 或 Research 结果。"""
+    result = request.app.state.task_result_service.get_task_result(
         task_result_id=task_result_id,
         principal_id=principal_id,
     )
     if result is None:
-        raise HTTPException(status_code=404, detail="Listing 结果不存在")
+        raise HTTPException(status_code=404, detail="任务结果不存在")
     return _success(result.model_dump(mode="json"))
 
 

@@ -6,7 +6,12 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from agent.constants import COMMON_AGENT_ID, IMAGE_AGENT_ID, LISTING_AGENT_ID
+from agent.constants import (
+    COMMON_AGENT_ID,
+    IMAGE_AGENT_ID,
+    LISTING_AGENT_ID,
+    RESEARCH_AGENT_ID,
+)
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
@@ -17,6 +22,12 @@ from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
 from agents.listing_agent.constants import LISTING_AGENT_DESCRIPTION, LISTING_AGENT_NAME
 from agents.listing_agent.graph import build_listing_agent_graph
+from agents.research_agent.constants import (
+    RESEARCH_AGENT_DESCRIPTION,
+    RESEARCH_AGENT_NAME,
+)
+from agents.research_agent.graph import build_research_agent_graph
+from agents.research_agent.providers.openalex_client import OpenAlexClient
 from agents.registry import (
     COMMON_AGENT_DESCRIPTION,
     COMMON_AGENT_NAME,
@@ -32,6 +43,7 @@ from app.crud import (
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
+from app.service.research import ResearchApplicationService
 from app.service.task_result import TaskResultApplicationService
 from infra.aliyun_oss import AliyunOSSImageStorage
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
@@ -121,6 +133,17 @@ def build_lifespan(
                     graph=listing_graph,
                     attachment_store=image_storage,
                 )
+                research_graph = build_research_agent_graph(
+                    checkpointer,
+                    resolved_model_provider.create_chat_model(),
+                    OpenAlexClient(settings),
+                    task_result_store,
+                    settings.research_max_search_rounds,
+                )
+                research_runner = create_postgres_runner(
+                    agent_id=RESEARCH_AGENT_ID,
+                    graph=research_graph,
+                )
                 _install_runtime_state(
                     app_instance,
                     settings,
@@ -128,6 +151,7 @@ def build_lifespan(
                         COMMON_AGENT_ID: runner,
                         IMAGE_AGENT_ID: image_runner,
                         LISTING_AGENT_ID: listing_runner,
+                        RESEARCH_AGENT_ID: research_runner,
                     },
                     MemoryEventSequence(),
                     conversation_store,
@@ -176,6 +200,12 @@ def _install_runtime_state(
                 description=LISTING_AGENT_DESCRIPTION,
                 supports_image_upload=True,
             ),
+            AgentDefinition(
+                agent_id=RESEARCH_AGENT_ID,
+                name=RESEARCH_AGENT_NAME,
+                description=RESEARCH_AGENT_DESCRIPTION,
+                supports_image_upload=False,
+            ),
         ],
         services,
     )
@@ -184,7 +214,12 @@ def _install_runtime_state(
     app_instance.state.agent_runner = runners[COMMON_AGENT_ID]
     app_instance.state.agent_service = services[COMMON_AGENT_ID]
     app_instance.state.task_result_store = task_result_store
-    app_instance.state.task_result_service = TaskResultApplicationService(task_result_store)
+    task_result_service = TaskResultApplicationService(task_result_store)
+    app_instance.state.task_result_service = task_result_service
+    app_instance.state.research_service = ResearchApplicationService(
+        services[RESEARCH_AGENT_ID],
+        task_result_service,
+    )
     app_instance.state.attachment_store = attachment_store
     app_instance.state.conversation_service = ConversationApplicationService(
         conversation_store,
