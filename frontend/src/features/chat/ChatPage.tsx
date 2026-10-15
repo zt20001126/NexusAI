@@ -35,10 +35,15 @@ function ChatPage() {
       return
     }
     setAttachmentError(null)
-    const sent = await chat.sendMessage(message, pendingImages)
-    if (sent) {
-      setDraft('')
-      setPendingImages([])
+    const submittedDraft = draft
+    const submittedImages = pendingImages
+    setDraft('')
+    setPendingImages([])
+
+    const sent = await chat.sendMessage(message, submittedImages)
+    if (!sent) {
+      setDraft((current) => current || submittedDraft)
+      setPendingImages((current) => current.length > 0 ? current : submittedImages)
     }
   }
 
