@@ -1,4 +1,4 @@
-"""PostgreSQL 持久化适配器，保存会话、消息和 Agent 运行记录。"""
+"""PostgreSQL CRUD 适配器，保存应用会话、消息、运行和任务结果。"""
 
 import asyncio
 from threading import Lock

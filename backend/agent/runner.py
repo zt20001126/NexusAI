@@ -39,14 +39,6 @@ from agent.persistence.memory import (
     MemoryAttachmentStore,
     MemoryTaskResultStore,
 )
-from agent.persistence.postgres import (
-    PostgresConversationStore,
-    PostgresMessageStore,
-    PostgresRunLock,
-    PostgresRunStore,
-    PostgresRuntimeStore,
-    PostgresTaskResultStore,
-)
 from agent.title import (
     ConversationTitleGenerator,
     ModelConversationTitleGenerator,
@@ -667,7 +659,7 @@ def build_memory_runner(
 ) -> AgentRunner:
     """创建供测试显式使用的内存运行器，不参与应用默认启动流程。"""
     checkpointer = MemoryCheckpointProvider().get_checkpointer()
-    return _build_runner(
+    return build_agent_runner(
         settings=settings,
         checkpointer=checkpointer,
         run_store=MemoryRunStore(),
@@ -685,37 +677,7 @@ def build_memory_runner(
     )
 
 
-def build_postgres_runner(
-    settings: AppSettings,
-    *,
-    checkpointer: Any,
-    runtime_store: PostgresRuntimeStore,
-    model_provider: ChatModelProvider | None = None,
-    graph: Any | None = None,
-    agent_id: str = "default",
-    attachment_store: AttachmentStore | None = None,
-    title_generator: ConversationTitleGenerator | None = None,
-) -> AgentRunner:
-    """创建 PostgreSQL 持久化运行器，保留仅用于执行协调的进程内锁。"""
-    return _build_runner(
-        settings=settings,
-        checkpointer=checkpointer,
-        run_store=PostgresRunStore(runtime_store),
-        run_lock=PostgresRunLock(runtime_store),
-        conversation_store=PostgresConversationStore(runtime_store),
-        message_store=PostgresMessageStore(runtime_store),
-        event_sequence=MemoryEventSequence(),
-        model_provider=model_provider,
-        graph=graph,
-        agent_id=agent_id,
-        task_result_store=PostgresTaskResultStore(runtime_store),
-        attachment_store=attachment_store,
-        title_generator=title_generator,
-        id_generator=get_snowflake_generator(settings.snowflake_worker_id),
-    )
-
-
-def _build_runner(
+def build_agent_runner(
     *,
     settings: AppSettings,
     checkpointer: Any,
@@ -732,7 +694,7 @@ def _build_runner(
     title_generator: ConversationTitleGenerator | None = None,
     id_generator: SnowflakeIdGenerator | None = None,
 ) -> AgentRunner:
-    """为一个 agent_id 组装图和可替换运行基础设施。"""
+    """用注入的存储协议为一个 agent_id 组装运行器。"""
     provider = model_provider or OpenAICompatibleProvider(settings)
     if graph is None:
         graph = build_agent_graph(checkpointer, provider.create_chat_model())

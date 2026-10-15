@@ -7,16 +7,8 @@ from typing import Any
 from fastapi import FastAPI
 
 from agent.persistence.memory import MemoryEventSequence
-from agent.persistence.postgres import (
-    PostgresConversationStore,
-    PostgresMessageStore,
-    PostgresRuntimeStore,
-    PostgresTaskResultStore,
-)
-from agent.runner import build_postgres_runner
+from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
-from app.service.agent import AgentApplicationService
-from app.service.conversation import ConversationApplicationService
 from agents.definition import AgentDefinition
 from agents.image_generation.constants import IMAGE_AGENT_DESCRIPTION, IMAGE_AGENT_NAME
 from agents.image_generation.graph import build_image_agent_graph
@@ -29,6 +21,16 @@ from agents.registry import (
     TAOBAO_IMAGE_AGENT_ID,
     AgentRegistry,
 )
+from app.crud.postgres import (
+    PostgresConversationStore,
+    PostgresMessageStore,
+    PostgresRunLock,
+    PostgresRunStore,
+    PostgresRuntimeStore,
+    PostgresTaskResultStore,
+)
+from app.service.agent import AgentApplicationService
+from app.service.conversation import ConversationApplicationService
 from infra.aliyun_oss import AliyunOSSImageStorage
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.object_storage import UnavailableImageObjectStore
@@ -60,16 +62,33 @@ def build_lifespan(
                 else UnavailableImageObjectStore()
             )
             with PostgresRuntimeStore(settings.database_url, id_generator) as runtime_store:
-                runner = build_postgres_runner(
-                    settings,
-                    checkpointer=checkpointer,
-                    runtime_store=runtime_store,
-                    model_provider=model_provider,
-                    agent_id=DEFAULT_AGENT_ID,
-                )
                 conversation_store = PostgresConversationStore(runtime_store)
                 message_store = PostgresMessageStore(runtime_store)
                 task_result_store = PostgresTaskResultStore(runtime_store)
+
+                def create_postgres_runner(
+                    agent_id: str,
+                    graph: Any | None = None,
+                    attachment_store: Any | None = None,
+                ) -> AgentRunner:
+                    """使用当前 PostgreSQL 运行时组装智能体 Runner。"""
+                    return build_agent_runner(
+                        settings=settings,
+                        checkpointer=checkpointer,
+                        run_store=PostgresRunStore(runtime_store),
+                        run_lock=PostgresRunLock(runtime_store),
+                        conversation_store=conversation_store,
+                        message_store=message_store,
+                        event_sequence=MemoryEventSequence(),
+                        model_provider=model_provider,
+                        graph=graph,
+                        agent_id=agent_id,
+                        task_result_store=task_result_store,
+                        attachment_store=attachment_store,
+                        id_generator=id_generator,
+                    )
+
+                runner = create_postgres_runner(DEFAULT_AGENT_ID)
                 resolved_model_provider = model_provider or OpenAICompatibleProvider(settings)
                 image_model = resolved_model_provider.create_chat_model()
                 image_graph = build_image_agent_graph(
@@ -84,13 +103,9 @@ def build_lifespan(
                     task_result_store,
                     image_storage,
                 )
-                image_runner = build_postgres_runner(
-                    settings,
-                    checkpointer=checkpointer,
-                    runtime_store=runtime_store,
-                    model_provider=model_provider,
-                    graph=image_graph,
+                image_runner = create_postgres_runner(
                     agent_id=TAOBAO_IMAGE_AGENT_ID,
+                    graph=image_graph,
                     attachment_store=image_storage,
                 )
                 _install_runtime_state(

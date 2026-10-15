@@ -5,11 +5,11 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.controller.agent import router as agent_router
-from app.controller.agents import router as agents_router
-from app.controller.conversation import router as conversation_router
 from app.exceptions.handlers import register_exception_handlers
 from app.lifecycle import build_lifespan
+from app.router.agent import router as agent_router
+from app.router.agents import router as agents_router
+from app.router.conversation import router as conversation_router
 from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
 

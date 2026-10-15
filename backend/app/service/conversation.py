@@ -35,7 +35,7 @@ class ConversationApplicationService:
         """查询主体会话并判断是否存在下一页。
 
         Step 1: 按主体范围读取一条额外记录，用于判断是否还有下一页。
-        Step 2: 转换为接口 Schema，避免持久化记录直接暴露给 Controller。
+        Step 2: 转换为接口 Schema，避免持久化记录直接暴露给 Router。
         """
         records = self._conversation_store.list_by_owner(
             principal_id,
