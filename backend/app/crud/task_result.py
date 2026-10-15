@@ -87,9 +87,9 @@ class PostgresTaskResultStore:
                     TaskResult.conversation_id == statement.excluded.conversation_id,
                     TaskResult.run_id == statement.excluded.run_id,
                 ),
-            )
+            ).returning(TaskResult.task_result_id)
             result = session.execute(statement)
-            if result.rowcount != 1:
+            if result.scalar_one_or_none() is None:
                 raise ConversationAccessDeniedError()
 
     def set_status(
@@ -115,8 +115,9 @@ class PostgresTaskResultStore:
                     TaskResult.user_id == database_user_id,
                 )
                 .values(generation_status=status.value, updated_at=func.now())
+                .returning(TaskResult.task_result_id)
             )
-            return result.rowcount == 1
+            return result.scalar_one_or_none() is not None
 
     def link_message(self, task_result_id: str, message_id: str, user_id: str) -> None:
         """将任务结果关联到助手消息，不改变其生成状态。"""
