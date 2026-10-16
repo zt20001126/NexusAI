@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { getApiDocsUrl } from '../../shared/api/http'
 import AgentInteractionCard from './components/AgentInteractionCard'
 import AgentSelectionDialog from './components/AgentSelectionDialog'
 import Composer from './components/Composer'
@@ -136,7 +135,6 @@ function ChatPage() {
               <span><i className="status-dot" /> {activeAgentName} · {chat.status}</span>
             </div>
           </div>
-          <a href={getApiDocsUrl()} target="_blank" rel="noreferrer" className="docs-link">API 文档 ↗</a>
           <button className="mobile-new-conversation" type="button" onClick={openAgentSelection} disabled={chat.sending}>＋ 新对话</button>
         </header>
 
