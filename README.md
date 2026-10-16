@@ -1,215 +1,98 @@
-# NexusAI 多智能体基础框架
+# NexusAI
 
-这是一个基于 FastAPI、LangGraph 和 React 的模块化智能体项目。共享运行时提供节点编排、结构化追问、Checkpoint 恢复、取消、统一事件和 SSE；每个业务智能体放在独立目录并通过 `agent_id` 注册。当前包含通用智能体（`common_agent`）、图片智能体（`image_agent`）、listing生成智能体（`listing_agent`）、科研文献检索智能体（`research_agent`）和劳动法律问答（`labor_law_agent`）。
+NexusAI 是一个多智能体对话应用。用户在同一聊天界面中选择不同智能体，处理日常问答、商品图片与 Listing 生成、科研文献检索、劳动法规问答和文献解读。
+
+项目采用 React + TypeScript 前端、FastAPI + LangGraph 后端。智能体共用会话、运行、流式事件和持久化能力，各自维护领域流程。
 
 ![NexusAI 项目标志](frontend/public/brand/nexusai-logo.png)
 
-应用固定使用 PostgreSQL 保存 LangGraph Checkpoint、会话、消息、运行状态和统一智能体任务结果；图片智能体通过私有阿里云 OSS 保存生成图片和参考图，数据库只保存雪花 ID 与对象元数据。内存适配器由测试显式注入，不是应用运行配置选项。
+## 核心能力
 
-仓库采用 Monorepo：Python/FastAPI 后端位于 `backend/`，React + TypeScript + Vite 前端位于 `frontend/`。项目文档集中放在 `docs/`；辅助脚本按需放在 `scripts/`。
+| 智能体 | 能力 |
+|---|---|
+| `common_agent` | 日常交流、常见问题和项目智能体介绍 |
+| `image_agent` | 生成淘宝商品主图和详情页图片 |
+| `listing_agent` | 识别商品信息、补充必要信息并生成 3 版商品 Listing |
+| `research_agent` | 搜索 OpenAlex 学术论文并保存结构化结果 |
+| `labor_law_agent` | 检索中国大陆全国性劳动法规并提供条文依据 |
+| `literature_reader_agent` | 导入 PDF 或公开网页，基于所选文献进行问答、总结和比较 |
 
-## 文档导航
+## 技术栈
 
-从 [`docs/README.md`](docs/README.md) 查看文档目录。首次了解项目，建议先读本文的启动说明，再读[后端架构约定](docs/ARCHITECTURE.md)；接口说明见[API 文档](docs/API接口文档.md)，数据库字段说明见[数据库结构文档](docs/数据库表结构.md)。
+| 层次 | 技术 |
+|---|---|
+| 前端 | React 19、TypeScript 6、Vite 8 |
+| 后端 | Python 3.12.13、FastAPI、Pydantic 2、SQLAlchemy 2 |
+| 智能体编排 | LangGraph 1、共享 AgentRunner、SSE |
+| 数据存储 | PostgreSQL 17、pgvector；SQLAlchemy ORM 与 LangGraph PostgreSQL Checkpointer |
+| 异步任务 | Celery、Redis 7，用于文献导入和解析 |
+| 文件存储 | 阿里云私有 OSS |
+| 外部能力 | DeepSeek 对话模型、Tencent TokenHub 生图与 Embedding、OpenAlex 论文检索 |
 
-## 目录结构
+## 技术架构
 
-```text
-backend/
-  app/                       FastAPI 路由、请求 DTO、Service 与应用生命周期
-  agent/                     共享运行时及现有默认智能体图
-    state.py                 默认智能体图状态
-    graph.py                 默认图构建、节点连接和条件路由
-    runner.py                执行、恢复、取消、超时和事件转换
-    nodes/                   可独立测试的业务节点
-    tools/                   工具实现与唯一工具清单
-    prompts/                 系统提示词和版本
-    schemas/                 问题、工具结果和运行状态模型
-    streaming/               稳定事件、发布和 SSE 编码
-    persistence/             持久化协议及 PostgreSQL、内存适配器
-  agents/                    独立业务智能体与注册中心
-    registry.py              agent_id 到定义和应用服务的显式映射
-    image_generation/        淘宝电商图片图、节点、TokenHub 工具与 Provider
-    listing_agent/           淘宝 Listing 图片识别、必要信息追问和多版本生成
-    research_agent/          OpenAlex 学术论文检索、标准化和结果保存
-    labor_law_agent/         劳动法规解析、按条文入库、混合检索和依据回答
-  infra/                     集中配置与外部服务适配
-  tests/                     节点、运行器、SSE、API 与契约测试
-  main.py                    Uvicorn 入口
-  pyproject.toml             Python 项目与 pytest 配置
-  requirements.txt           Python 依赖
-  .env.example               后端环境变量模板
-frontend/                    React + TypeScript + Vite 前端
-  src/
-    shared/api/              与具体业务无关的 HTTP、SSE 传输能力
-    features/chat/           聊天功能及其页面入口
-      api/                    聊天 API 与后端数据类型
-      components/             聊天功能专属 UI
-      hooks/                  会话状态与交互编排
-      model/                  聊天视图模型与数据转换
-    App.tsx                   前端应用入口
-    main.tsx                  React 挂载与全局样式入口
-docs/                        项目级文档（按需添加）
-scripts/                     项目级辅助脚本（按需添加）
+```mermaid
+flowchart LR
+    User[用户浏览器] --> Web[React 前端]
+    Web <-->|HTTP / SSE| API[FastAPI]
+    API --> App[Router / Service / CRUD]
+    App --> Registry[AgentRegistry]
+    Registry --> Runner[共享 AgentRunner]
+    Runner --> Graphs[LangGraph 智能体图]
+    Graphs --> Models[DeepSeek / TokenHub / OpenAlex]
+    App --> DB[(PostgreSQL + pgvector)]
+    Runner --> DB
+    App --> OSS[(私有阿里云 OSS)]
+    App --> Queue[(Redis)]
+    Queue --> Worker[Celery 文献 Worker]
+    Worker --> DB
+    Worker --> OSS
 ```
 
-前端按功能组织代码。新页面或业务能力优先放入对应的 `features/<feature>/`；只有多个功能共同使用的基础能力才放在 `shared/`。功能内部的 API、UI、状态编排和视图模型分别归入 `api/`、`components/`、`hooks/` 和 `model/`，避免页面直接承载请求与复杂状态逻辑。
+前端通过 HTTP 和 SSE 访问 FastAPI。后端由 Router、Service、CRUD 处理应用请求，注册中心将 `agent_id` 路由到对应智能体；各智能体复用 Runner、Checkpoint、会话和事件协议。文献导入由 Redis 队列交给 Celery Worker，解析后的文本与向量写入 PostgreSQL/pgvector，原始文件保存在 OSS。
 
-`backend/agent/` 承载共享运行时和现有默认智能体的业务图。新增业务智能体应放入 `backend/agents/<business_name>/`，并在 `backend/agents/registry.py` 显式注册；不同图复用 Runner、SSE、追问协议、Checkpointer 和持久化适配器。
+## 本地启动
 
-## 已具备的基础能力
+需要 Python 3.12.13、Node.js/npm 和 Docker。以下命令适用于 PowerShell。
 
-- listing生成智能体（`listing_agent`）：识别商品外观与包装文字，核实必要信息后生成 3 个可选版本，并保存完整 JSON 结果
-- 多智能体发现与按 `agent_id` 调用：普通响应、SSE 流式响应、恢复和取消
-- LangGraph 显式状态、节点、工具与条件边
-- `question.required` 结构化追问和相同 Checkpoint 恢复
-- 会话级互斥锁、可信主体隔离、运行超时和主动取消
-- 最大步骤、工具次数和输出长度保护
-- 稳定事件类型、单调 SSE 游标和协议心跳
-- 安全工具返回与统一业务异常，不向用户暴露原始异常
-- DeepSeek 对话模型与工具调用；测试通过可替换 Provider 离线运行
-- PostgreSQL Checkpoint、会话元数据、消息和运行状态持久化
-- 使用共享 `task_results` 表保存智能体输出，并按用户授权读取图片结果
-- 图片智能体支持 PNG/JPEG 参考图、TokenHub 图片生成、参数选项追问和历史结果展示
+1. 创建配置文件，并填写 `backend/.env` 中的数据库账号和 `DEEPSEEK_API_KEY`：
 
-## 快速开始
+   ```powershell
+   if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
+   ```
 
-### 本机运行后端
+2. 启动 PostgreSQL 和 Redis：
 
-项目运行环境固定为 Python 3.12.13。
+   ```powershell
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres redis
+   ```
 
-```powershell
-conda create --name nexusai python=3.12.13
-conda activate nexusai
-if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
-# 填写模型密钥和 PostgreSQL 配置；本机运行后端时 DATABASE_URL 使用 localhost:5433
-docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres
-cd backend
-python -m pip install -r requirements.txt
-$env:LANGGRAPH_STRICT_MSGPACK = "true"
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-```
+3. 启动后端：
 
-首次启动前，请在 `backend/.env` 中将 `DEEPSEEK_API_KEY` 的占位值替换为你的 DeepSeek API Key；占位值无法通过启动配置校验。要使用图片智能体，还需配置 TokenHub API Key 和阿里云 OSS 参数；OSS Bucket 应设为私有。
+   ```powershell
+   cd backend
+   python -m pip install -r requirements.txt
+   $env:LANGGRAPH_STRICT_MSGPACK = "true"
+   python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+   ```
 
-打开 `http://127.0.0.1:8000/docs` 查看接口。
+4. 在另一个终端启动前端：
 
-### 启动前端
+   ```powershell
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
-另开一个终端启动前端开发服务器：
+前端开发服务器默认通过 `/api` 代理到本地后端。API 交互文档位于 `http://127.0.0.1:8000/docs`。
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
+使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。文献导入需要启动 Compose 中的 `literature-worker` 服务，并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库表结构.md)。
 
-Vite 会将 `/api` 请求代理到 `http://127.0.0.1:8000`。
+## 文档
 
-### 使用 Docker 启动后端
-
-先将 `backend/.env.example` 复制为 `backend/.env`，并填写 DeepSeek API Key 和 PostgreSQL 密码。然后在项目根目录执行：
-
-```powershell
-docker compose --env-file backend/.env -f backend/compose.yaml up --build
-```
-
-停止服务：
-
-```powershell
-docker compose --env-file backend/.env -f backend/compose.yaml down
-```
-
-Compose 配置位于 `backend/compose.yaml`，包含以下服务：
-
-- `backend`：FastAPI 服务，使用 Python 3.12.13，并以非 root 用户运行。
-- `postgres`：PostgreSQL 17；数据保存在 `nexusai_postgres_data` 卷中。Compose 网络内的连接地址为 `postgres:5432`。
-- `redis`：Redis 7，启用 AOF；数据保存在 `nexusai_redis_data` 卷中，宿主机连接地址为 `localhost:6379`。当前应用尚未使用 Redis。
-
-`.env` 仅作为配置来源，不会打包进后端镜像。
-
-## API 与 SSE
-
-当前前端在开始新对话时展示已注册的智能体。点击侧栏“开启新对话”（移动端点击“新对话”），再选择“劳动法律问答”即可进入 RAG 问答；不需要单独的知识库管理页或用户上传入口。智能体代码包括 `common_agent`、`image_agent`、`listing_agent`、`research_agent` 和 `labor_law_agent`；新接口使用 `agent_id` 路径：
-
-```powershell
-curl.exe http://127.0.0.1:8000/api/agents
-curl.exe -N -X POST http://127.0.0.1:8000/api/agents/image_agent/chat/stream `
-  -H "Content-Type: application/json" `
-  -d '{"message":"帮我生成一张淘宝商品主图"}'
-```
-
-首次请求会产生结构化追问；从 `question.required` 读取 `conversation_id` 和 `run_id`，再使用同一个智能体路由提交答案：
-
-```powershell
-curl.exe -N -X POST http://127.0.0.1:8000/api/agents/image_agent/runs/<run_id>/resume `
-  -H "Content-Type: application/json" `
-  -d '{"conversation_id":"<conversation_id>","answers":{"image_size":"1:1 方图（1024×1024）"}}'
-```
-
-基础事件包括：
-
-```text
-heartbeat
-run.started
-message.delta
-message.completed
-tool.started
-tool.completed
-question.required
-task_result.updated
-run.completed
-run.cancelled
-run.failed
-```
-
-SSE 事件通过 `event_id` 标识当前进程内的递增游标。当前 HTTP API 覆盖对话、恢复和取消，不保存事件历史，也不支持断线续传；如后续需要重放，应再按实际持久化和鉴权要求设计事件存储与订阅接口。
-
-完整参数、事件、上传和结果读取说明见[API 接口文档](docs/API接口文档.md)。原有 `/api/agent/*` 默认智能体路由保留兼容。
-
-## 后续业务开发位置
-
-1. 新业务智能体放入 `backend/agents/<business_name>/`，按业务维护状态、节点、提示词、工具和图。
-2. 在 `backend/agents/registry.py` 登记稳定的 `agent_id` 与定义。
-3. 在 `app/lifecycle.py` 组装业务图、Provider、Runner 和应用 Service。
-4. 共享运行时扩展放入 `backend/agent/runner.py`、`streaming/`、`schemas/` 或 `persistence/`，避免在业务智能体之间复制公共代码。
-5. 为节点、工具失败、追问恢复、持久化和授权接口增加离线测试。
-
-默认图使用 `backend/infra/model_provider.py` 中的 Provider 创建 DeepSeek 模型，并绑定 `backend/agent/tools/registry.py` 登记的工具。图片图通过注入的 TokenHub Provider 调用生图服务。模型配置集中在 `AppSettings`；不要在节点或工具中直接读取环境变量，也不要把数据库连接、密钥或 HTTP 响应对象写入图状态。
-
-### listing生成智能体
-
-在选择 listing生成智能体后上传商品图片，并可在消息中附加任意已知商品信息。系统复用已配置的 DeepSeek 模型识别图片并询问当前必要信息；全部问题回答后生成 3 个版本，详情描述为纯文本。默认模型为 `deepseek-flash`，完整 JSON 可在对话结果卡片中查看和切换版本。
-
-## 数据库配置
-
-默认运行配置为：
-
-```text
-DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5433/nexusai
-```
-
-`DATABASE_URL` 是应用唯一的数据库连接配置，不需要额外设置 `CHECKPOINT_BACKEND`。`backend/.env.example` 中的 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 仅用于 Compose 初始化数据库容器。应用启动时会自动创建运行元数据表和 LangGraph Checkpoint 表。宿主机运行后端时数据库地址为 `localhost:5433`；Compose 中后端通过服务名 `postgres:5432` 连接数据库。PostgreSQL 保存会话图状态、消息、运行记录和统一 `task_results`；图片字节存放在阿里云 OSS，运行锁由数据库 advisory lock 协调。业务表使用雪花 `BIGINT` ID，API 以十进制字符串传输。
-
-图片智能体使用 `TENCENT_TOKENHUB_API_KEY`、`TENCENT_TOKENHUB_BASE_URL`、`TENCENT_HY_IMAGE_MODEL` 和 `TENCENT_HY_IMAGE_ENDPOINT`。图片上传与生成还需要 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置这些凭据不会阻止其他智能体运行；图片上传或保存会返回受控配置错误。Bucket 应为私有，并为每个并发后端进程设置唯一 `SNOWFLAKE_WORKER_ID`。旧数据库升级步骤见[数据库结构说明](docs/数据库表结构.md)。
-
-连接池和 Checkpointer 在 FastAPI lifespan 中创建并关闭，不会在模块导入时连接数据库。应用启动必须能通过 `DATABASE_URL` 访问 PostgreSQL；测试可显式注入内存适配器。
-
-## 测试
-
-```powershell
-cd backend
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-测试不访问真实 LLM、数据库或其他第三方服务。
-
-## 科研文献检索智能体
-
-项目现包含科研文献检索智能体 research_agent，可在聊天页智能体选择器中使用，也可调用专用 REST 接口：
-
-~~~powershell
-curl.exe -X POST http://127.0.0.1:8000/api/v1/research/search -H "Content-Type: application/json" -d '{"message":"检索 2020 年以来关于图神经网络的论文","limit":10,"year_from":2020,"language":"en"}'
-~~~
-
-查询结果通过共享 task_results 表保存，不新增数据库表或迁移。OpenAlex API Key 可选；运行时超时、重试次数、退避间隔和最大查询轮数见 backend/.env.example。接口字段和状态详见 docs/API接口文档.md。
+- [文档导航](docs/README.md)：项目设计文档、智能体说明和变更记录。
+- [后端架构](docs/ARCHITECTURE.md)：模块职责、依赖方向和扩展方式。
+- [API 接口](docs/API接口文档.md)：路由、请求响应、SSE 和错误说明。
+- [数据库结构](docs/数据库表结构.md)：表、迁移和持久化说明。
+- [开发约定](AGENTS.md)：代码变更与验证规则。
+- [变更日志](CHANGELOG.md)：面向使用者的项目变化。
