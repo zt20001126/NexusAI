@@ -72,3 +72,30 @@ class UnknownAgentError(AgentError):
 
     def __init__(self) -> None:
         super().__init__("UNKNOWN_AGENT", "请求的智能体不存在")
+
+
+class LiteratureDocumentNotFoundError(AgentError):
+    """文献不存在或不属于当前可信主体。"""
+
+    def __init__(self) -> None:
+        super().__init__("LITERATURE_DOCUMENT_NOT_FOUND", "文献不存在或不可访问")
+
+
+class LiteratureDocumentNotReadyError(AgentError):
+    """所选文献仍在处理或入库失败。"""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "LITERATURE_DOCUMENT_NOT_READY",
+            "所选文献尚未完成处理，请等待入库成功后再提问",
+        )
+
+
+class LiteratureQueueUnavailableError(AgentError):
+    """文献异步处理任务无法发送到 Broker。"""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "LITERATURE_QUEUE_UNAVAILABLE",
+            "文献处理队列暂时不可用，请稍后重试",
+        )

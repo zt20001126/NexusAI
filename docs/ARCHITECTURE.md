@@ -22,7 +22,7 @@ flowchart LR
     BootstrapRuntime --> Infrastructure[模型 Provider 与外部适配器]
 ```
 
-`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。
+`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。文献导入另由 Celery Worker 执行；文献 API 只创建记录并将文献 ID 发送到 Redis Broker，解析和向量化状态以 PostgreSQL 为准。
 
 ## 模块职责
 
@@ -68,6 +68,8 @@ flowchart LR
 4. 将业务结果元数据保存到统一 `task_results` 表；大文件放入对象存储并在 JSON 元数据中保留对象键。
 5. 为新图、追问恢复、Provider 错误、结果持久化和资源授权增加离线测试。
 
+基础对话助手 `basic_conversation_agent` 使用 `agents/base_agent/` 提供的通用图，并由 `bootstrap/runtime.py` 注入模型与共享 PostgreSQL Checkpointer。聊天 Runner 按可信主体、智能体 ID 和会话 ID 设置 `thread_id`，因此每轮只需输入新消息，图会从 Checkpoint 恢复本会话历史；该历史与应用消息表分别用于图状态恢复和聊天记录展示。
+
 当前图片智能体位于 `backend/agents/image_generation/`，稳定标识为 `image_agent`。图片业务实现不放入通用智能体的业务图目录。
 
 ### listing生成智能体
@@ -91,3 +93,9 @@ MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG
 ### 劳动法律问答智能体
 
 劳动法律问答位于 `backend/agents/labor_law_agent/`，稳定标识为 `labor_law_agent`。用户通过聊天页“开启新对话”进入现有智能体选择器；该智能体使用与项目其他智能体相同的聊天 API 和运行时。法律原件放在该目录的 `data/legal_corpus/source/`，由导入命令解析并按法律版本、条文写入 PostgreSQL + pgvector；对话查询组合条号/关键词检索与向量检索，再将检索证据交给模型生成回答。服务端根据已检索法条 ID 输出名称、条号、原文和官方来源，依据不足时返回固定说明。Embedding 使用 TokenHub Kinfra 模型，并复用项目已有 `TENCENT_TOKENHUB_API_KEY`；限定访问范围的 Key 需获准调用该模型。
+
+### 文献解读助手
+
+文献解读助手位于 `backend/agents/literature_reader_agent/`，稳定标识为 `literature_reader_agent`。新文献只支持 PDF 上传。专用 Service 验证可信主体和所选文献后，通过 `graph_context` 将文献 ID 注入四节点图；`retrieve_evidence` 按所有者、ready 状态和选择集合执行关键词与 pgvector 混合检索，生成节点仅接收证据，核验节点检查原文摘录并按数据库位置渲染 PDF 引文。既有网页来源文献保留原有来源标记，但不再提供网页导入。
+
+PDF 原件由 `infra/literature_document_storage.py` 保存到私有 OSS；`literature_documents`、`literature_chunks` 和 `literature_conversation_documents` 保存元数据、原文分块/向量和会话当前选择。HTTP DTO 位于 `app/schemas/literature.py`，图运行时结构位于 Agent schemas。`infra/celery_app.py` 使用 Redis Broker，`app/service/literature_tasks.py` 从 OSS 读取 PDF 并执行解析、切分和 Embedding。数据库升级由 `backend/migrations/005_literature_reader.sql` 管理。

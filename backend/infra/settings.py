@@ -8,6 +8,10 @@ from agents.research_agent.constants import (
     RESEARCH_DEFAULT_MAX_ROUNDS,
     RESEARCH_MAX_SEARCH_ROUNDS,
 )
+from agents.literature_reader_agent.constants import (
+    LITERATURE_DEFAULT_CANDIDATE_COUNT,
+    LITERATURE_DEFAULT_TOP_K,
+)
 
 
 class AppSettings(BaseSettings):
@@ -136,6 +140,73 @@ class AppSettings(BaseSettings):
     aliyun_oss_bucket: str = ""
     aliyun_oss_object_prefix: str = "nexusai"
 
+    # 文献 Worker 使用 Redis Broker；Celery 不使用结果后端，处理状态以 PostgreSQL 为准。
+    celery_broker_url: str = Field(
+        default="redis://127.0.0.1:6379/1",
+        validation_alias=AliasChoices("CELERY_BROKER_URL", "celery_broker_url"),
+    )
+    # Celery Worker 使用独立 Snowflake worker ID；并行 Worker 部署时各进程必须唯一。
+    literature_worker_snowflake_id: int = Field(
+        default=1,
+        ge=0,
+        le=1_021,
+        validation_alias=AliasChoices(
+            "LITERATURE_WORKER_SNOWFLAKE_ID", "literature_worker_snowflake_id"
+        ),
+    )
+    # PDF 文献入库资源上限与检索边界；Compose 使用 CELERY_BROKER_URL 指向 Redis 服务。
+    literature_upload_max_bytes: int = Field(
+        default=31_457_280,
+        ge=1_024,
+        le=104_857_600,
+        validation_alias=AliasChoices(
+            "LITERATURE_UPLOAD_MAX_BYTES", "literature_upload_max_bytes"
+        ),
+    )
+    literature_max_pages: int = Field(
+        default=400,
+        ge=1,
+        le=2_000,
+        validation_alias=AliasChoices("LITERATURE_MAX_PAGES", "literature_max_pages"),
+    )
+    literature_chunk_max_chars: int = Field(
+        default=1_200,
+        ge=200,
+        le=8_000,
+        validation_alias=AliasChoices(
+            "LITERATURE_CHUNK_MAX_CHARS", "literature_chunk_max_chars"
+        ),
+    )
+    literature_context_max_chars: int = Field(
+        default=24_000,
+        ge=2_000,
+        le=100_000,
+        validation_alias=AliasChoices(
+            "LITERATURE_CONTEXT_MAX_CHARS", "literature_context_max_chars"
+        ),
+    )
+    literature_top_k: int = Field(
+        default=LITERATURE_DEFAULT_TOP_K,
+        ge=1,
+        le=30,
+        validation_alias=AliasChoices("LITERATURE_TOP_K", "literature_top_k"),
+    )
+    literature_candidate_count: int = Field(
+        default=LITERATURE_DEFAULT_CANDIDATE_COUNT,
+        ge=5,
+        le=100,
+        validation_alias=AliasChoices(
+            "LITERATURE_CANDIDATE_COUNT", "literature_candidate_count"
+        ),
+    )
+    literature_min_similarity: float = Field(
+        default=0.32,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices(
+            "LITERATURE_MIN_SIMILARITY", "literature_min_similarity"
+        ),
+    )
     @property
     def aliyun_oss_configured(self) -> bool:
         """判断 OSS 所需密钥和 Bucket 是否齐全；未配置时不影响非图片智能体启动。"""

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { DisplayMessage } from '../model/messages'
+import AgentAvatar from './AgentAvatar'
 import ListingResultCard from './ListingResultCard'
 import ResearchResultCard from './ResearchResultCard'
 
@@ -11,10 +12,11 @@ interface MessageListProps {
   messages: DisplayMessage[]
   loading: boolean
   conversationId: string | null
+  agentId: string
 }
 
 /** 展示历史消息、当前流式回复和首次进入页面的引导内容。 */
-function MessageList({ messages, loading, conversationId }: MessageListProps) {
+function MessageList({ messages, loading, conversationId, agentId }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const previousHeight = useRef(0)
   const previousFirstMessageId = useRef<string | null>(null)
@@ -62,7 +64,7 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
       <div className="message-scroll-area" ref={listRef} onScroll={handleScroll}>
       <div className="welcome-panel">
         <div className="welcome-orbit" aria-hidden="true">
-          <img src="/brand/nexusai-icon.png" alt="" />
+          <AgentAvatar agentId={agentId} />
         </div>
         <p className="eyebrow">NEXUSAI ASSISTANT</p>
         <h1>{conversationId ? '继续这段对话' : '你好，今天想一起完成什么？'}</h1>
@@ -79,11 +81,10 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
         <article className={`message-row ${message.role}`} key={message.id}>
           {message.role === 'assistant' && (
             <div className="assistant-avatar" aria-hidden="true">
-              <img src="/brand/nexusai-icon.png" alt="" />
+              <AgentAvatar agentId={agentId} />
             </div>
           )}
           <div className="message-column">
-            <div className="message-author">{message.role === 'user' ? '当前用户' : 'NexusAI'}</div>
             <div className={`message-bubble ${message.role}`}>
               {message.content
                 ? message.role === 'assistant'
@@ -129,10 +130,7 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
           </div>
           {message.role === 'user' && (
             <div className="user-avatar" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <circle cx="12" cy="8" r="3.25" />
-                <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
-              </svg>
+              <img src="/avatars/user.png" alt="" />
             </div>
           )}
         </article>

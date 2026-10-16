@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { AgentDefinition } from '../api/agent'
+import AgentAvatar from './AgentAvatar'
 
 interface AgentSelectionDialogProps {
   open: boolean
@@ -78,7 +79,9 @@ function AgentSelectionDialog({
               key={agent.agent_id}
               onClick={() => onSelect(agent.agent_id)}
             >
-              <span className="agent-selection-option-icon" aria-hidden="true">✦</span>
+              <span className="agent-selection-option-icon" aria-hidden="true">
+                <AgentAvatar agentId={agent.agent_id} />
+              </span>
               <span className="agent-selection-option-copy">
                 <strong>{agent.name}</strong>
                 <small>{agent.description}</small>

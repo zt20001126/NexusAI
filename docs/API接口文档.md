@@ -6,7 +6,7 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果和附件标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`image_agent`、`listing_agent`、`research_agent` 或 `labor_law_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
+会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 或 `literature_reader_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
@@ -24,31 +24,50 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
       "agent_id": "common_agent",
       "name": "通用智能体",
       "description": "处理常见对话、需求梳理和信息问答",
-      "supports_image_upload": false
+      "supports_image_upload": false,
+      "supports_document_upload": false
+    },
+    {
+      "agent_id": "basic_conversation_agent",
+      "name": "基础对话助手",
+      "description": "基于工程化智能体基座进行多轮自然对话",
+      "supports_image_upload": false,
+      "supports_document_upload": false
     },
     {
       "agent_id": "image_agent",
       "name": "图片智能体",
       "description": "为淘宝商家生成商品主图和详情页图片",
-      "supports_image_upload": true
+      "supports_image_upload": true,
+      "supports_document_upload": false
     },
     {
       "agent_id": "listing_agent",
       "name": "listing生成智能体",
       "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
-      "supports_image_upload": true
+      "supports_image_upload": true,
+      "supports_document_upload": false
     },
     {
       "agent_id": "research_agent",
       "name": "科研文献检索智能体",
       "description": "根据研究主题检索 OpenAlex 学术论文，并保存可追溯的结构化结果。",
-      "supports_image_upload": false
+      "supports_image_upload": false,
+      "supports_document_upload": false
     },
     {
       "agent_id": "labor_law_agent",
       "name": "劳动法律问答",
       "description": "检索中国大陆全国性劳动法律法规，回答时展示具体条文和官方来源。",
-      "supports_image_upload": false
+      "supports_image_upload": false,
+      "supports_document_upload": false
+    },
+    {
+      "agent_id": "literature_reader_agent",
+      "name": "文献解读助手",
+      "description": "基于用户选择的中英文文献回答、总结、梳理方法并比较结论。",
+      "supports_image_upload": false,
+      "supports_document_upload": true
     }
   ]
 }
@@ -71,6 +90,8 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 ```
 
 `message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent_id`，不能在其他智能体路由下继续使用。
+
+通过各智能体的 SSE 聊天入口请求时，文本回复均使用 `message.delta` 增量事件和 `message.completed` 完成事件。通用智能体与基础对话助手会转发面向用户模型节点的生成片段；图片、Listing、科研检索、劳动法律和文献解读等工作流会在任务结果或证据校验完成后，分段发送安全的最终文本。结构化追问和任务结果仍分别通过 `question.required`、`task_result.updated` 事件返回。
 
 ### `POST /api/agents/{agent_id}/runs/{run_id}/resume`
 
@@ -189,6 +210,28 @@ Content-Type: image/png
 成功时以 `image/png` 或 `image/jpeg` 返回阿里云 OSS 中的图片字节。只有结果所有者可以读取；不存在、未完成或其他用户的结果均返回 HTTP 404。结果地址是稳定应用路径，TokenHub 临时链接会在服务端立即下载并转存。数据库 `task_results.result_data` 保存对象键、MIME、大小和图像尺寸，不保存图片字节。
 
 使用图片上传或读取接口时，后端必须配置 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置时图片上传返回 HTTP 503；OSS 操作失败返回受控 HTTP 502。Bucket 必须保持私有，前端不直接访问 OSS。
+
+## 文献解读助手
+
+文献助手使用独立 API；通用 `/api/agents/{agent_id}/chat` 路由会拒绝该智能体，确保每次问答都绑定用户选择的文献。文献元数据和处理状态存入 PostgreSQL，PDF 原件放入私有 OSS，正文分块和向量保存在 PostgreSQL + pgvector。PDF 解析、切分和向量化由 Celery Worker 异步执行，Redis 为 Broker。
+
+### `POST /api/v1/literature/documents`
+
+以 `multipart/form-data` 字段 `file` 上传 PDF。单个文件默认上限 30 MiB。成功返回 HTTP 202 和 `{ "document_id": "...", "status": "queued" }`；Worker 处理完成后变为 `ready`，无法解析时为 `failed`。
+
+### `GET /api/v1/literature/documents?limit=20&offset=0`
+
+返回当前主体文献库摘要及 `queued`、`processing`、`ready`、`failed` 状态，支持 1–100 条分页。`GET /api/v1/literature/documents/{document_id}` 可读取单篇状态；`DELETE` 删除文献、分块、会话文献关系和 PDF OSS 原件。
+
+### `GET/PUT /api/v1/literature/conversations/{conversation_id}/documents`
+
+GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON 结构为 `{ "document_ids": ["..."] }`，替换会话关联；允许空数组以清除选择。仅能关联当前主体拥有且状态为 `ready` 的文献。新会话在首次问答时创建此关系。
+
+### `POST /api/v1/literature/chat/stream`
+
+通过 SSE 提问。JSON 请求包含 `message`、可选的 `conversation_id` 和 `document_ids`。新会话首轮必须提供 1–10 个已就绪文献 ID；继续历史会话时可传 ID 更新选择，或省略以沿用已保存选择。模型只接收这些文献的检索证据。回答为中文；每项事实须附模型从原文逐字摘录的片段，服务端确认摘录属于对应证据后生成 PDF 章节、页码和段落标注；章节无法识别时会明确说明。总结和比较任务要求每篇所选文献均检索到足够证据并出现在最终回答中；依据不足或引用校验失败时明确弃答。事实支持关系由模型复核，因此仍需用真实文献语料进行效果验收。
+
+部署需配置 `TENCENT_TOKENHUB_API_KEY`、私有 OSS 参数、Redis 和唯一的 `LITERATURE_WORKER_SNOWFLAKE_ID`；执行 `backend/migrations/005_literature_reader.sql` 后启动 API 与 `literature-worker` 服务。
 
 ## 会话历史
 

@@ -10,3 +10,4 @@ export const MAX_QUESTION_SELECTION_CHARS = 500
 export const COMMON_AGENT_ID = 'common_agent'
 export const IMAGE_AGENT_ID = 'image_agent'
 export const LISTING_AGENT_ID = 'listing_agent'
+export const LITERATURE_READER_AGENT_ID = 'literature_reader_agent'

@@ -42,6 +42,7 @@ class AgentApplicationService:
         conversation_id: str | None,
         principal_id: str,
         attachment_ids: list[str] | None = None,
+        graph_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """执行流式对话，并在图长时间无输出时插入协议级心跳。"""
         events = self._runner.stream_chat(
@@ -49,6 +50,7 @@ class AgentApplicationService:
             conversation_id=conversation_id,
             principal_id=principal_id,
             attachment_ids=attachment_ids,
+            graph_context=graph_context,
         )
         return self._publisher.with_heartbeat(events)
 

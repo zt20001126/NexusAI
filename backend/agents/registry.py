@@ -4,11 +4,13 @@ from collections.abc import Iterable
 from typing import Any
 
 from agent.constants import (
+    BASE_CONVERSATION_AGENT_ID,
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
     LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
+    LITERATURE_READER_AGENT_ID,
 )
 from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
@@ -22,10 +24,16 @@ from agents.labor_law_agent.constants import (
     LABOR_LAW_AGENT_DESCRIPTION,
     LABOR_LAW_AGENT_NAME,
 )
+from agents.literature_reader_agent.constants import (
+    LITERATURE_READER_AGENT_DESCRIPTION,
+    LITERATURE_READER_AGENT_NAME,
+)
 
 
 COMMON_AGENT_NAME = "通用智能体"
 COMMON_AGENT_DESCRIPTION = "陪用户自然交流、回答常见问题并介绍项目中的智能体"
+BASE_CONVERSATION_AGENT_NAME = "基础对话助手"
+BASE_CONVERSATION_AGENT_DESCRIPTION = "基于工程化智能体基座进行多轮自然对话"
 
 # 项目实际注册的智能体目录，供 API 和通用智能体共用，避免两处元数据不一致。
 PROJECT_AGENT_DEFINITIONS = (
@@ -33,6 +41,12 @@ PROJECT_AGENT_DEFINITIONS = (
         agent_id=COMMON_AGENT_ID,
         name=COMMON_AGENT_NAME,
         description=COMMON_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+    ),
+    AgentDefinition(
+        agent_id=BASE_CONVERSATION_AGENT_ID,
+        name=BASE_CONVERSATION_AGENT_NAME,
+        description=BASE_CONVERSATION_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
     AgentDefinition(
@@ -58,6 +72,13 @@ PROJECT_AGENT_DEFINITIONS = (
         name=LABOR_LAW_AGENT_NAME,
         description=LABOR_LAW_AGENT_DESCRIPTION,
         supports_image_upload=False,
+    ),
+    AgentDefinition(
+        agent_id=LITERATURE_READER_AGENT_ID,
+        name=LITERATURE_READER_AGENT_NAME,
+        description=LITERATURE_READER_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+        supports_document_upload=True,
     ),
 )
 

@@ -1,4 +1,5 @@
 import type { Conversation } from '../api/conversations'
+import AgentAvatar from './AgentAvatar'
 
 interface ConversationSidebarProps {
   conversations: Conversation[]
@@ -8,7 +9,9 @@ interface ConversationSidebarProps {
   loadingMore: boolean
   disabled: boolean
   error: string | null
+  agentDirectoryOpen: boolean
   onCreate: () => void
+  onOpenAgentDirectory: () => void
   onSelect: (conversationId: string) => void
   onLoadMore: () => void
   onRetry: () => void
@@ -23,19 +26,28 @@ function ConversationSidebar({
   loadingMore,
   disabled,
   error,
+  agentDirectoryOpen,
   onCreate,
+  onOpenAgentDirectory,
   onSelect,
   onLoadMore,
   onRetry,
 }: ConversationSidebarProps) {
   return (
     <aside className="sidebar">
-      <div className="brand-lockup">
+      <button
+        className="brand-lockup"
+        type="button"
+        onClick={onOpenAgentDirectory}
+        aria-label="浏览所有智能体"
+        aria-current={agentDirectoryOpen ? 'page' : undefined}
+        title="浏览所有智能体"
+      >
         <img className="brand-mark" src="/brand/nexusai-icon.png" alt="" />
         <div>
           <strong>NexusAI</strong>
         </div>
-      </div>
+      </button>
 
       <button className="new-chat-button" type="button" onClick={onCreate} disabled={disabled}>
         <span aria-hidden="true">＋</span> 开启新对话
@@ -62,7 +74,9 @@ function ConversationSidebar({
             onClick={() => onSelect(conversation.conversation_id)}
             title={conversation.title ?? '新会话'}
           >
-            <span className="conversation-icon" aria-hidden="true">◌</span>
+            <span className="conversation-icon" aria-hidden="true">
+              <AgentAvatar agentId={conversation.agent_id} />
+            </span>
             <span className="conversation-title">{conversation.title || '新会话'}</span>
           </button>
         ))}

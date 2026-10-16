@@ -4,7 +4,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from agent.errors import AgentError, UnknownAgentError
+from agent.errors import LiteratureDocumentNotFoundError, LiteratureQueueUnavailableError
 from infra.object_storage import ObjectStorageError, ObjectStorageNotConfiguredError
+from infra.literature_document_storage import (
+    LiteratureStorageError,
+    LiteratureStorageNotConfiguredError,
+)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -25,6 +30,28 @@ def register_exception_handlers(app: FastAPI) -> None:
         del request
         return JSONResponse(
             status_code=404,
+            content={"success": False, "code": error.code, "message": error.message},
+        )
+
+    @app.exception_handler(LiteratureDocumentNotFoundError)
+    async def handle_missing_literature_document(
+        request: Request, error: LiteratureDocumentNotFoundError
+    ) -> JSONResponse:
+        """文献不存在或越权访问统一返回 404，避免泄露文献是否存在。"""
+        del request
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "code": error.code, "message": error.message},
+        )
+
+    @app.exception_handler(LiteratureQueueUnavailableError)
+    async def handle_literature_queue_failure(
+        request: Request, error: LiteratureQueueUnavailableError
+    ) -> JSONResponse:
+        """队列故障返回服务不可用，并隐藏 Broker 连接详情。"""
+        del request
+        return JSONResponse(
+            status_code=503,
             content={"success": False, "code": error.code, "message": error.message},
         )
 
@@ -57,5 +84,31 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "success": False,
                 "code": "OBJECT_STORAGE_FAILED",
                 "message": "图片存储暂时不可用，请稍后重试",
+            },
+        )
+
+    @app.exception_handler(LiteratureStorageNotConfiguredError)
+    async def handle_unconfigured_literature_storage(
+        request: Request, error: LiteratureStorageNotConfiguredError
+    ) -> JSONResponse:
+        """文献 PDF 所需 OSS 未配置时返回服务不可用。"""
+        del request
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "code": "LITERATURE_STORAGE_NOT_CONFIGURED", "message": str(error)},
+        )
+
+    @app.exception_handler(LiteratureStorageError)
+    async def handle_literature_storage_failure(
+        request: Request, error: LiteratureStorageError
+    ) -> JSONResponse:
+        """文献 OSS 读写失败时不暴露上游异常细节。"""
+        del request, error
+        return JSONResponse(
+            status_code=502,
+            content={
+                "success": False,
+                "code": "LITERATURE_STORAGE_FAILED",
+                "message": "文献文件存储暂时不可用，请稍后重试",
             },
         )

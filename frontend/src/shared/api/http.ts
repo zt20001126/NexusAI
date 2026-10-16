@@ -2,12 +2,6 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
-/** 返回后端 FastAPI Swagger UI 地址。 */
-export function getApiDocsUrl(): string {
-  const docsBaseUrl = API_BASE_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
-  return `${docsBaseUrl.replace(/\/+$/, '')}/docs`
-}
-
 interface ApiEnvelope<T> {
   success: boolean
   data?: T
@@ -57,6 +51,20 @@ export async function requestBinary<T>(
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
   if (!response.ok || !envelope?.success || envelope.data === undefined) {
     throw new Error(`${readApiErrorMessage(envelope, response.status)}（${fileName}）`)
+  }
+  return envelope.data
+}
+
+/** 通过 multipart/form-data 上传文件，浏览器自行生成 Content-Type 边界。 */
+export async function requestFormData<T>(path: string, body: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body,
+  })
+  const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
+  if (!response.ok || !envelope?.success || envelope.data === undefined) {
+    throw new Error(readApiErrorMessage(envelope, response.status))
   }
   return envelope.data
 }

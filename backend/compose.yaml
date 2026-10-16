@@ -10,10 +10,38 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       LANGGRAPH_STRICT_MSGPACK: "true"
+      CELERY_BROKER_URL: redis://redis:6379/1
     ports:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  literature-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      LITERATURE_WORKER_SNOWFLAKE_ID: ${LITERATURE_WORKER_SNOWFLAKE_ID:-1}
+      LANGGRAPH_STRICT_MSGPACK: "true"
+    command:
+      - celery
+      - -A
+      - infra.celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --pool=solo
+      - --concurrency=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   postgres:

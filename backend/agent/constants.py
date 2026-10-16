@@ -2,10 +2,12 @@
 
 # 注册表、持久化和前端 API 共用的稳定智能体标识。
 COMMON_AGENT_ID = "common_agent"
+BASE_CONVERSATION_AGENT_ID = "basic_conversation_agent"
 IMAGE_AGENT_ID = "image_agent"
 LISTING_AGENT_ID = "listing_agent"
 RESEARCH_AGENT_ID = "research_agent"
 LABOR_LAW_AGENT_ID = "labor_law_agent"
+LITERATURE_READER_AGENT_ID = "literature_reader_agent"
 
 # Checkpoint 线程 ID 已落库，保留旧代码片段以便继续读取已有会话状态。
 CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY: dict[str, str] = {
@@ -36,11 +38,13 @@ MAX_QUESTION_SELECTION_CHARS = 500
 
 __all__ = [
     "COMMON_AGENT_ID",
+    "BASE_CONVERSATION_AGENT_ID",
     "IMAGE_AGENT_ID",
     "CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY",
     "LISTING_AGENT_ID",
     "RESEARCH_AGENT_ID",
     "LABOR_LAW_AGENT_ID",
+    "LITERATURE_READER_AGENT_ID",
     "MAX_REFERENCE_IMAGE_BYTES",
     "MAX_REFERENCE_IMAGE_COUNT",
     "MAX_REFERENCE_IMAGE_TOTAL_BYTES",

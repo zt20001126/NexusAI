@@ -12,6 +12,7 @@ class AgentDefinition:
     name: str
     description: str
     supports_image_upload: bool
+    supports_document_upload: bool = False
 
 
 GraphFactory = Callable[..., Any]
