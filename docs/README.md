@@ -12,6 +12,7 @@
 | [淘宝 Listing 生成智能体 PRD](agents/listing/prd.md) | Listing 生成范围、输入输出和已确认产品规则 | 使用或扩展 Listing 智能体时 |
 | [淘宝 Listing 生成智能体技术设计](agents/listing/tdd.md) | Listing 图流程、Provider、JSON Schema 和 API | 修改 Listing 后端或前端集成时 |
 | [文献解读助手实现方案](agents/literature-reader/implementation-plan.md) | 需求、RAG 架构、状态机、数据库表、接口和部署说明 | 使用、部署或扩展文献解读助手时 |
+| [《徐坤快跑》产品与技术实现文档](games/xukun-run.md) | 游戏需求、Phaser 架构、操作规则和实现清单（合并文档） | 使用或扩展 NexusAI 小游戏时 |
 | [任务级变更记录约定](changes/README.md) | 记录文件命名、内容模板和记录要求 | 开始重要变更或补充任务记录时 |
 | [项目变更日志](../CHANGELOG.md) | 面向项目使用者的未发布与已发布变化 | 查看项目版本变化时 |
 | [阿里云 OSS 与雪花 ID 测试报告](测试报告/2026-10-14-阿里云OSS与雪花ID.md) | OSS 适配器、业务链路、迁移 SQL 语法和自动化测试结果 | 检查本次存储与数据库改造时 |
