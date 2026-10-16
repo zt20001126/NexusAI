@@ -4,9 +4,11 @@ import AgentInteractionCard from './components/AgentInteractionCard'
 import AgentSelectionDialog from './components/AgentSelectionDialog'
 import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
+import LiteratureLibraryPanel from './components/LiteratureLibraryPanel'
 import MessageList from './components/MessageList'
 import {
   COMMON_AGENT_ID,
+  LITERATURE_READER_AGENT_ID,
   LISTING_AGENT_ID,
   MAX_REFERENCE_IMAGE_BYTES,
   MAX_REFERENCE_IMAGES,
@@ -17,6 +19,7 @@ import { useChatSession } from './hooks/useChatSession'
 function ChatPage() {
   const [draft, setDraft] = useState('')
   const [pendingImages, setPendingImages] = useState<File[]>([])
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [agentSelectionOpen, setAgentSelectionOpen] = useState(false)
   const [newConversationReady, setNewConversationReady] = useState(false)
@@ -34,6 +37,7 @@ function ChatPage() {
   function selectAgent(agentId: string) {
     setDraft('')
     setPendingImages([])
+    setSelectedDocumentIds([])
     setAttachmentError(null)
     chat.selectAgent(agentId)
     setNewConversationReady(true)
@@ -51,6 +55,10 @@ function ChatPage() {
         questions: chat.pendingQuestion.questions.map(({ id, title, prompt }) => [id, title, prompt]),
       })
     : undefined
+  const latestAssistantResponseId = [...chat.messages].reverse().find((message) =>
+    message.role === 'assistant'
+    && (message.content.trim().length > 0 || (message.taskResults?.length ?? 0) > 0),
+  )?.id ?? null
   const activeAgentName = chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.name
     || (chat.agentsLoading ? '智能体加载中' : '智能体不可用')
 
@@ -64,13 +72,17 @@ function ChatPage() {
       setAttachmentError('Listing 生成需要至少上传一张商品图片。')
       return
     }
+    if (chat.activeAgentId === LITERATURE_READER_AGENT_ID && selectedDocumentIds.length === 0) {
+      setAttachmentError('请先选择至少一篇已就绪文献。')
+      return
+    }
     setAttachmentError(null)
     const submittedDraft = draft
     const submittedImages = pendingImages
     setDraft('')
     setPendingImages([])
 
-    const sent = await chat.sendMessage(message, submittedImages)
+    const sent = await chat.sendMessage(message, submittedImages, selectedDocumentIds)
     if (!sent) {
       setDraft((current) => current || submittedDraft)
       setPendingImages((current) => current.length > 0 ? current : submittedImages)
@@ -105,6 +117,7 @@ function ChatPage() {
         onCreate={openAgentSelection}
         onSelect={(conversationId) => {
           setPendingImages([])
+          setSelectedDocumentIds([])
           setAttachmentError(null)
           setNewConversationReady(false)
           setAgentSelectionOpen(false)
@@ -128,6 +141,15 @@ function ChatPage() {
         </header>
 
         <div className="chat-content">
+          {chat.activeAgentId === LITERATURE_READER_AGENT_ID && (
+            <LiteratureLibraryPanel
+              conversationId={chat.activeConversationId}
+              assistantResponseId={latestAssistantResponseId}
+              sending={chat.sending}
+              disabled={chat.sending || Boolean(chat.pendingQuestion)}
+              onSelectedDocumentIdsChange={setSelectedDocumentIds}
+            />
+          )}
           {chat.olderCursor !== null && !chat.historyLoading && (
             <button className="load-older-button" type="button" onClick={() => { void chat.loadOlderMessages() }} disabled={chat.loadingOlder}>
               {chat.loadingOlder ? '正在加载…' : '↑ 查看更早消息'}

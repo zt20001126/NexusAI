@@ -12,6 +12,7 @@ from agent.constants import (
     LISTING_AGENT_ID,
     LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
+    LITERATURE_READER_AGENT_ID,
 )
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
@@ -23,6 +24,9 @@ from agents.listing_agent.graph import build_listing_agent_graph
 from agents.labor_law_agent.embedding import create_legal_embedding_model
 from agents.labor_law_agent.graph import build_labor_law_agent_graph
 from agents.labor_law_agent.retrieval import LegalRetrievalService
+from agents.literature_reader_agent.embedding import create_literature_embedding_model
+from agents.literature_reader_agent.graph import build_literature_reader_agent_graph
+from agents.literature_reader_agent.retrieval import LiteratureRetrievalService
 from agents.research_agent.graph import build_research_agent_graph
 from agents.research_agent.providers.openalex_client import OpenAlexClient
 from agents.registry import (
@@ -33,6 +37,7 @@ from app.crud import (
     PostgresConversationStore,
     PostgresMessageStore,
     PostgresLegalKnowledgeStore,
+    PostgresLiteratureRepository,
     PostgresRunLock,
     PostgresRunStore,
     PostgresTaskResultStore,
@@ -41,10 +46,16 @@ from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.research import ResearchApplicationService
+from app.service.literature import LiteratureApplicationService
 from app.service.task_result import TaskResultApplicationService
 from infra.aliyun_oss import AliyunOSSImageStorage
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.object_storage import UnavailableImageObjectStore
+from infra.literature_document_storage import (
+    AliyunOSSLiteratureStorage,
+    UnavailableLiteratureStorage,
+)
+from infra.literature_task_queue import CeleryLiteratureTaskQueue
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
 
@@ -71,6 +82,11 @@ def build_lifespan(
                 AliyunOSSImageStorage(settings, id_generator)
                 if settings.aliyun_oss_configured
                 else UnavailableImageObjectStore()
+            )
+            literature_storage = (
+                AliyunOSSLiteratureStorage(settings)
+                if settings.aliyun_oss_configured
+                else UnavailableLiteratureStorage()
             )
             with PostgresDatabase(settings.database_url, id_generator) as database:
                 conversation_store = PostgresConversationStore(database)
@@ -159,6 +175,26 @@ def build_lifespan(
                     agent_id=LABOR_LAW_AGENT_ID,
                     graph=labor_law_graph,
                 )
+                literature_repository = PostgresLiteratureRepository(database)
+                literature_retrieval_service = LiteratureRetrievalService(
+                    repository=literature_repository,
+                    embedding_model=create_literature_embedding_model(settings),
+                    top_k=settings.literature_top_k,
+                    candidate_count=settings.literature_candidate_count,
+                    min_similarity=settings.literature_min_similarity,
+                    context_max_chars=settings.literature_context_max_chars,
+                    chunk_max_chars=settings.literature_chunk_max_chars,
+                )
+                literature_graph = build_literature_reader_agent_graph(
+                    checkpointer,
+                    resolved_model_provider.create_chat_model(),
+                    literature_retrieval_service,
+                    literature_repository,
+                )
+                literature_runner = create_postgres_runner(
+                    agent_id=LITERATURE_READER_AGENT_ID,
+                    graph=literature_graph,
+                )
                 _install_runtime_state(
                     app_instance,
                     settings,
@@ -168,12 +204,23 @@ def build_lifespan(
                         LISTING_AGENT_ID: listing_runner,
                         RESEARCH_AGENT_ID: research_runner,
                         LABOR_LAW_AGENT_ID: labor_law_runner,
+                        LITERATURE_READER_AGENT_ID: literature_runner,
                     },
                     MemoryEventSequence(),
                     conversation_store,
                     message_store,
                     task_result_store,
                     image_storage,
+                )
+                app_instance.state.literature_service = LiteratureApplicationService(
+                    repository=literature_repository,
+                    storage=literature_storage,
+                    task_queue=CeleryLiteratureTaskQueue(),
+                    chat_service=app_instance.state.agent_registry.get_service(
+                        LITERATURE_READER_AGENT_ID
+                    ),
+                    settings=settings,
+                    id_generator=id_generator,
                 )
                 yield
 

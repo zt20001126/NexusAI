@@ -9,6 +9,7 @@ from agent.constants import (
     LISTING_AGENT_ID,
     LABOR_LAW_AGENT_ID,
     RESEARCH_AGENT_ID,
+    LITERATURE_READER_AGENT_ID,
 )
 from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
@@ -21,6 +22,10 @@ from agents.research_agent.constants import (
 from agents.labor_law_agent.constants import (
     LABOR_LAW_AGENT_DESCRIPTION,
     LABOR_LAW_AGENT_NAME,
+)
+from agents.literature_reader_agent.constants import (
+    LITERATURE_READER_AGENT_DESCRIPTION,
+    LITERATURE_READER_AGENT_NAME,
 )
 
 
@@ -58,6 +63,13 @@ PROJECT_AGENT_DEFINITIONS = (
         name=LABOR_LAW_AGENT_NAME,
         description=LABOR_LAW_AGENT_DESCRIPTION,
         supports_image_upload=False,
+    ),
+    AgentDefinition(
+        agent_id=LITERATURE_READER_AGENT_ID,
+        name=LITERATURE_READER_AGENT_NAME,
+        description=LITERATURE_READER_AGENT_DESCRIPTION,
+        supports_image_upload=False,
+        supports_document_upload=True,
     ),
 )
 

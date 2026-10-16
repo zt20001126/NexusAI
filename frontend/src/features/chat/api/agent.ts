@@ -24,6 +24,7 @@ export interface AgentDefinition {
   name: string
   description: string
   supports_image_upload: boolean
+  supports_document_upload: boolean
 }
 
 export interface UploadedImage {

@@ -4,6 +4,11 @@ from app.models.base import Base
 from app.models.conversation import Conversation
 from app.models.identity import UserIdentity
 from app.models.legal_knowledge import LegalArticle, LegalDocument, LegalLawVersion
+from app.models.literature import (
+    LiteratureChunk,
+    LiteratureConversationDocument,
+    LiteratureDocument,
+)
 from app.models.message import Message
 from app.models.run import AgentRun
 from app.models.task_result import TaskResult
@@ -16,6 +21,9 @@ __all__ = [
     "LegalArticle",
     "LegalDocument",
     "LegalLawVersion",
+    "LiteratureChunk",
+    "LiteratureConversationDocument",
+    "LiteratureDocument",
     "TaskResult",
     "UserIdentity",
 ]

@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from sse_starlette import EventSourceResponse
 
 from agent.constants import IMAGE_AGENT_ID
+from agent.constants import LITERATURE_READER_AGENT_ID
 from agent.schemas.task_result import TaskResultStatus
 from infra.object_storage import ObjectStorageError, ObjectStorageNotConfiguredError
 from agent.streaming import encode_sse_events
@@ -34,6 +35,7 @@ def list_agents(request: Request) -> dict[str, Any]:
                 "name": item.name,
                 "description": item.description,
                 "supports_image_upload": item.supports_image_upload,
+                "supports_document_upload": item.supports_document_upload,
             }
             for item in definitions
         ]
@@ -50,6 +52,8 @@ async def chat(
     """执行指定智能体的非流式对话。"""
     registry = request.app.state.agent_registry
     definition = registry.get_definition(agent_id)
+    if agent_id == LITERATURE_READER_AGENT_ID:
+        raise HTTPException(status_code=400, detail="文献助手必须通过文献问答接口并选择文献")
     _validate_attachment_support(definition, payload.attachment_ids)
     _validate_listing_image_input(agent_id, payload.attachment_ids)
     service = registry.get_service(agent_id)
@@ -72,6 +76,8 @@ async def stream_chat(
     """通过公共 SSE 编码器流式执行指定智能体。"""
     registry = request.app.state.agent_registry
     definition = registry.get_definition(agent_id)
+    if agent_id == LITERATURE_READER_AGENT_ID:
+        raise HTTPException(status_code=400, detail="文献助手必须通过文献问答接口并选择文献")
     _validate_attachment_support(definition, payload.attachment_ids)
     _validate_listing_image_input(agent_id, payload.attachment_ids)
     service = registry.get_service(agent_id)

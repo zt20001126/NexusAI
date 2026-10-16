@@ -88,6 +88,20 @@ flowchart LR
 
 使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。文献导入需要启动 Compose 中的 `literature-worker` 服务，并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库表结构.md)。
 
+### 使用 Docker 启动后端和 Worker
+
+完成 `backend/.env` 配置后，在仓库根目录运行。首次启动或需要重建所有 Compose 服务时，使用：
+
+```bash
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --build
+```
+
+只需重建并启动后端和文献 Worker 时，使用：
+
+```bash
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --build backend literature-worker
+```
+
 ## 文档
 
 - [文档导航](docs/README.md)：项目设计文档、智能体说明和变更记录。

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question, QuestionAnswer } from '../api/agent'
-import { COMMON_AGENT_ID, MAX_QUESTION_ROUNDS_PER_RUN } from '../constants'
+import {
+  COMMON_AGENT_ID,
+  LITERATURE_READER_AGENT_ID,
+  MAX_QUESTION_ROUNDS_PER_RUN,
+} from '../constants'
 import {
   cancelAgentRun,
   getAgents,
@@ -16,6 +20,7 @@ import {
   type TaskResultSummary,
 } from '../api/conversations'
 import { toDisplayMessage, type DisplayMessage } from '../model/messages'
+import { streamLiteratureChat } from '../api/literature'
 
 interface PendingQuestion {
   conversationId: string
@@ -252,7 +257,11 @@ export function useChatSession() {
     }
   }
 
-  async function sendMessage(message: string, imageFiles: File[] = []) {
+  async function sendMessage(
+    message: string,
+    imageFiles: File[] = [],
+    documentIds: string[] = [],
+  ) {
     const trimmedMessage = message.trim()
     if (!trimmedMessage || sending) return
 
@@ -271,17 +280,28 @@ export function useChatSession() {
         ...current,
         { id: `local-${Date.now()}`, role: 'user', content: trimmedMessage },
       ])
-      await streamChat(
-        {
-          message: trimmedMessage,
-          ...(conversationId ? { conversation_id: conversationId } : {}),
-          ...(uploadedImages.length > 0
-            ? { attachment_ids: uploadedImages.map((item) => item.attachment_id) }
-            : {}),
-        },
-        handleAgentEvent,
-        activeAgentRef.current,
-      )
+      if (activeAgentRef.current === LITERATURE_READER_AGENT_ID) {
+        await streamLiteratureChat(
+          {
+            message: trimmedMessage,
+            ...(conversationId ? { conversation_id: conversationId } : {}),
+            document_ids: documentIds,
+          },
+          handleAgentEvent,
+        )
+      } else {
+        await streamChat(
+          {
+            message: trimmedMessage,
+            ...(conversationId ? { conversation_id: conversationId } : {}),
+            ...(uploadedImages.length > 0
+              ? { attachment_ids: uploadedImages.map((item) => item.attachment_id) }
+              : {}),
+          },
+          handleAgentEvent,
+          activeAgentRef.current,
+        )
+      }
       await finishTurn()
       sent = true
     } catch (requestError) {

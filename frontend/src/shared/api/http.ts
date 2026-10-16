@@ -61,6 +61,20 @@ export async function requestBinary<T>(
   return envelope.data
 }
 
+/** 通过 multipart/form-data 上传文件，浏览器自行生成 Content-Type 边界。 */
+export async function requestFormData<T>(path: string, body: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body,
+  })
+  const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
+  if (!response.ok || !envelope?.success || envelope.data === undefined) {
+    throw new Error(readApiErrorMessage(envelope, response.status))
+  }
+  return envelope.data
+}
+
 function parseEventBlock<T>(block: string): T | null {
   const dataLines = block
     .split(/\r?\n/)
