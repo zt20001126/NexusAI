@@ -1,4 +1,5 @@
 import type { Conversation } from '../api/conversations'
+import AgentAvatar from './AgentAvatar'
 
 interface ConversationSidebarProps {
   conversations: Conversation[]
@@ -62,7 +63,9 @@ function ConversationSidebar({
             onClick={() => onSelect(conversation.conversation_id)}
             title={conversation.title ?? '新会话'}
           >
-            <span className="conversation-icon" aria-hidden="true" />
+            <span className="conversation-icon" aria-hidden="true">
+              <AgentAvatar agentId={conversation.agent_id} />
+            </span>
             <span className="conversation-title">{conversation.title || '新会话'}</span>
           </button>
         ))}
