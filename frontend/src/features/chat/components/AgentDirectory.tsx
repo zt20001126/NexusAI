@@ -8,6 +8,7 @@ interface AgentDirectoryProps {
   canReturnToConversation: boolean
   returnLabel: string
   onSelect: (agentId: string) => void
+  onOpenGame: () => void
   onReturnToConversation: () => void
   onRetry: () => void
 }
@@ -20,6 +21,7 @@ function AgentDirectory({
   canReturnToConversation,
   returnLabel,
   onSelect,
+  onOpenGame,
   onReturnToConversation,
   onRetry,
 }: AgentDirectoryProps) {
@@ -38,49 +40,63 @@ function AgentDirectory({
           )}
         </div>
         <h1 id="agent-directory-title">找到适合你的智能助手</h1>
-        <p>选择一个智能体开始新对话。不同助手针对不同任务提供支持。</p>
+        <p>选择一个智能体开始新对话，或进入小游戏放松一下。</p>
         {!loading && !error && agents.length > 0 && (
           <span className="agent-directory-count">{agents.length} 个智能体</span>
         )}
       </div>
 
-      {loading ? (
-        <p className="agent-directory-state" role="status">正在加载智能体…</p>
-      ) : error ? (
+      <div className="agent-directory-grid">
+        <button
+          className="agent-directory-card agent-directory-game-card"
+          type="button"
+          onClick={onOpenGame}
+          aria-label="打开徐坤快跑小游戏"
+        >
+          <span className="agent-directory-card-top">
+            <span className="agent-directory-avatar agent-directory-game-avatar" aria-hidden="true" />
+            <span className="agent-directory-arrow" aria-hidden="true">↗</span>
+          </span>
+          <strong className="agent-directory-name">徐坤快跑</strong>
+          <span className="agent-directory-description">操控蔡徐坤卡通角色躲避障碍，坚持更久，刷新你的最长记录。</span>
+          <span className="agent-directory-capabilities"><span>小游戏</span></span>
+          <span className="agent-directory-action">开始游戏 <span aria-hidden="true">→</span></span>
+        </button>
+
+        {!loading && !error && agents.map((agent) => (
+          <button
+            className="agent-directory-card"
+            type="button"
+            key={agent.agent_id}
+            onClick={() => onSelect(agent.agent_id)}
+            aria-label={`选择${agent.name}：${agent.description}`}
+          >
+            <span className="agent-directory-card-top">
+              <span className="agent-directory-avatar" aria-hidden="true">
+                <AgentAvatar agentId={agent.agent_id} />
+              </span>
+              <span className="agent-directory-arrow" aria-hidden="true">↗</span>
+            </span>
+            <strong className="agent-directory-name">{agent.name}</strong>
+            <span className="agent-directory-description">{agent.description}</span>
+            <span className="agent-directory-capabilities">
+              {agent.supports_image_upload && <span>支持图片</span>}
+              {agent.supports_document_upload && <span>支持文献</span>}
+              {!agent.supports_image_upload && !agent.supports_document_upload && <span>智能对话</span>}
+            </span>
+            <span className="agent-directory-action">开始对话 <span aria-hidden="true">→</span></span>
+          </button>
+        ))}
+      </div>
+
+      {loading && <p className="agent-directory-state" role="status">正在加载智能体…</p>}
+      {error && (
         <div className="agent-directory-error" role="alert">
           <p>{error}</p>
           <button type="button" onClick={onRetry}>重新加载</button>
         </div>
-      ) : agents.length > 0 ? (
-        <div className="agent-directory-grid">
-          {agents.map((agent) => (
-            <button
-              className="agent-directory-card"
-              type="button"
-              key={agent.agent_id}
-              onClick={() => onSelect(agent.agent_id)}
-              aria-label={`选择${agent.name}：${agent.description}`}
-            >
-              <span className="agent-directory-card-top">
-                <span className="agent-directory-avatar" aria-hidden="true">
-                  <AgentAvatar agentId={agent.agent_id} />
-                </span>
-                <span className="agent-directory-arrow" aria-hidden="true">↗</span>
-              </span>
-              <strong className="agent-directory-name">{agent.name}</strong>
-              <span className="agent-directory-description">{agent.description}</span>
-              <span className="agent-directory-capabilities">
-                {agent.supports_image_upload && <span>支持图片</span>}
-                {agent.supports_document_upload && <span>支持文献</span>}
-                {!agent.supports_image_upload && !agent.supports_document_upload && <span>智能对话</span>}
-              </span>
-              <span className="agent-directory-action">开始对话 <span aria-hidden="true">→</span></span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="agent-directory-state" role="status">当前没有可用的智能体。</p>
       )}
+      {!loading && !error && agents.length === 0 && <p className="agent-directory-state" role="status">当前没有可用的智能体。</p>}
     </section>
   )
 }

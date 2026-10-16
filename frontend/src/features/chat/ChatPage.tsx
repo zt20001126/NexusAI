@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import AgentDirectory from './components/AgentDirectory'
 import AgentInteractionCard from './components/AgentInteractionCard'
 import AgentSelectionDialog from './components/AgentSelectionDialog'
@@ -15,6 +15,10 @@ import {
 } from './constants'
 import { useChatSession } from './hooks/useChatSession'
 
+const DinoRunPage = lazy(() => import('../dino-run/DinoRunPage'))
+
+type MainView = 'directory' | 'game' | 'workspace'
+
 /** 组合聊天页面的导航、消息流、追问卡片和输入框。 */
 function ChatPage() {
   const [draft, setDraft] = useState('')
@@ -22,14 +26,15 @@ function ChatPage() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [agentSelectionOpen, setAgentSelectionOpen] = useState(false)
-  const [agentDirectoryOpen, setAgentDirectoryOpen] = useState(true)
+  const [mainView, setMainView] = useState<MainView>('directory')
+  const agentDirectoryOpen = mainView === 'directory'
   const [newConversationReady, setNewConversationReady] = useState(false)
   const chat = useChatSession()
   useEffect(() => {
-    if (!agentDirectoryOpen && !chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
+    if (mainView === 'workspace' && !chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
       setAgentSelectionOpen(true)
     }
-  }, [agentDirectoryOpen, chat.activeConversationId, chat.sidebarLoading, newConversationReady])
+  }, [mainView, chat.activeConversationId, chat.sidebarLoading, newConversationReady])
 
   function openAgentSelection() {
     setAgentSelectionOpen(true)
@@ -37,7 +42,12 @@ function ChatPage() {
 
   function openAgentDirectory() {
     setAgentSelectionOpen(false)
-    setAgentDirectoryOpen(true)
+    setMainView('directory')
+  }
+
+  function openGame() {
+    setAgentSelectionOpen(false)
+    setMainView('game')
   }
 
   function selectAgent(agentId: string) {
@@ -48,7 +58,7 @@ function ChatPage() {
     chat.selectAgent(agentId)
     setNewConversationReady(true)
     setAgentSelectionOpen(false)
-    setAgentDirectoryOpen(false)
+    setMainView('workspace')
   }
 
   function cancelAgentSelection() {
@@ -130,7 +140,7 @@ function ChatPage() {
           setAttachmentError(null)
           setNewConversationReady(false)
           setAgentSelectionOpen(false)
-          setAgentDirectoryOpen(false)
+          setMainView('workspace')
           chat.selectConversation(conversationId)
         }}
         onLoadMore={() => { void chat.loadMoreConversations() }}
@@ -146,11 +156,17 @@ function ChatPage() {
             canReturnToConversation={Boolean(chat.activeConversationId) || newConversationReady}
             returnLabel={chat.activeConversationId ? '返回当前对话' : '返回新对话'}
             onSelect={selectAgent}
-            onReturnToConversation={() => setAgentDirectoryOpen(false)}
+            onOpenGame={openGame}
+            onReturnToConversation={() => setMainView('workspace')}
             onRetry={() => { void chat.loadAgents() }}
           />
         )}
-        <div className={`chat-workspace ${agentDirectoryOpen ? 'is-hidden' : ''}`} aria-hidden={agentDirectoryOpen}>
+        {mainView === 'game' && (
+          <Suspense fallback={<p className="dino-run-loading" role="status">正在加载《徐坤快跑》…</p>}>
+            <DinoRunPage onReturnToMarket={openAgentDirectory} />
+          </Suspense>
+        )}
+        <div className={`chat-workspace ${mainView !== 'workspace' ? 'is-hidden' : ''}`} aria-hidden={mainView !== 'workspace'}>
           <header className="chat-topbar">
             <div className="topbar-title">
               <button
