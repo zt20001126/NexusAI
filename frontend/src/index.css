@@ -50,8 +50,6 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 a { color: inherit; text-decoration: none; }
 
-.agent-directory-game-avatar { background-image: url('/games/xukun-runner.png'); background-repeat: no-repeat; background-position: 0 center; background-size: 400% auto; }
-
 .dino-run-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; padding: clamp(20px, 4vw, 48px); overflow-x: hidden; overflow-y: auto; background: radial-gradient(ellipse at 50% 0%, #F0F6FF 0, transparent 54%), var(--surface-app); }
 .dino-run-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; width: min(1120px, 100%); margin: 0 auto 22px; }
 .dino-run-eyebrow { margin: 0 0 8px; color: var(--brand-blue); font-size: 9px; font-weight: 700; letter-spacing: 1.5px; }
@@ -156,6 +154,7 @@ a { color: inherit; text-decoration: none; }
 .agent-directory-card:focus-visible { outline: 3px solid rgb(22 119 255 / 22%); outline-offset: 3px; }
 .agent-directory-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .agent-directory-avatar { display: grid; place-items: center; width: 50px; height: 50px; overflow: hidden; border: 1px solid #E2E9F2; border-radius: 15px; background: linear-gradient(145deg, #F5F9FF, #EAF4FF); }
+.agent-directory-avatar.agent-directory-game-avatar { background-color: #F5F9FF; background-image: url('/games/xukun-runner.png'); background-repeat: no-repeat; background-position: 8% top; background-size: 600% auto; }
 .agent-directory-avatar img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .agent-directory-arrow { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: #8293A8; background: #F3F6FA; font-size: 14px; transition: color .15s ease, background-color .15s ease, transform .15s ease; }
 .agent-directory-card:hover .agent-directory-arrow { transform: translate(1px, -1px); color: var(--brand-blue); background: var(--surface-info); }

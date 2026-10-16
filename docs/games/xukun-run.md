@@ -27,7 +27,7 @@
 
 ### 功能拆解
 
-- 市场入口：作为独立游戏卡片展示，不登记为后端智能体；智能体列表加载失败时游戏入口仍可用。
+- 市场入口：作为独立游戏卡片展示，头像从蔡徐坤角色精灵图裁出头肩像；不登记为后端智能体，智能体列表加载失败时游戏入口仍可用。
 - 游戏状态：准备、进行、暂停、结束；结束后可重新开始。
 - 操作：空格/上方向键跳跃，下方向键下蹲；P / Esc 暂停或继续，即使焦点在游戏按钮上也有效。
 - 障碍：地面仙人掌和飞行障碍；奔跑速度随坚持时间逐渐增加。
@@ -48,6 +48,7 @@
 
 - `frontend/src/features/chat/ChatPage.tsx`：管理目录、游戏、对话三个主视图；游戏打开时保留侧边栏和已挂载的聊天工作区。
 - `frontend/src/features/chat/components/AgentDirectory.tsx`：提供独立的小游戏入口；该卡片不参与智能体 API 注册和对话选择。
+- `frontend/src/index.css`：从跑步精灵图放大裁出卡片头像，沿用智能体头像的圆角容器样式。
 - `frontend/src/features/dino-run/DinoRunPage.tsx`：游戏页面、状态覆盖层、按钮、计时展示和浏览器标签切换时的自动暂停。
 - `frontend/src/features/dino-run/components/PhaserRunner.tsx`：创建 Phaser 实例、转发状态与控制命令，并在离开页面时销毁实例。
 - `frontend/src/features/dino-run/scenes/RunnerScene.ts`：游戏场景、键盘输入、角色跳跃/下蹲、障碍生成、加速与 Arcade Physics 碰撞。
