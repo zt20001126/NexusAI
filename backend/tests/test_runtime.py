@@ -1,21 +1,26 @@
 """通用运行时的对话、追问恢复和事件协议测试。"""
 
 import asyncio
+from collections.abc import Iterator
 from typing import Annotated, TypedDict
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
+from agent.constants import BASE_CONVERSATION_AGENT_ID
 from agent.errors import InvalidResumeAnswersError
 from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.title import ConversationTitleGenerator
+from agents.base_agent import create_basic_conversation_agent
 from infra.settings import AppSettings
 from tests.fake_models import ScriptedToolCallingProvider
 
@@ -106,6 +111,67 @@ async def test_resume_executes_tool_and_completes_once() -> None:
         if event.event_type == AgentEventType.MESSAGE_COMPLETED
     )
     assert "订单查询智能体" in final_message.data["content"]
+
+
+async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
+    """基础对话助手实时转发模型片段，并在完成事件中保留完整文本。"""
+    assistant = create_basic_conversation_agent(
+        agent_id=BASE_CONVERSATION_AGENT_ID,
+        chat_model=_StreamingReplyModel(),
+        checkpointer=MemorySaver(),
+    )
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=assistant.compiled_graph,
+        agent_id=BASE_CONVERSATION_AGENT_ID,
+        title_generator=_UnavailableTitleGenerator(),
+    )
+
+    events = await _collect_events(runtime.stream_chat(message="请回答"))
+
+    deltas = [
+        event.data["content"]
+        for event in events
+        if event.event_type == AgentEventType.MESSAGE_DELTA
+    ]
+    completed = next(
+        event
+        for event in events
+        if event.event_type == AgentEventType.MESSAGE_COMPLETED
+    )
+    assert deltas == ["你好", "，世界"]
+    assert "".join(deltas) == completed.data["content"] == "你好，世界"
+    first_delta_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.event_type == AgentEventType.MESSAGE_DELTA
+    )
+    assert first_delta_index < events.index(completed)
+
+
+async def test_completed_messages_are_sent_as_multiple_deltas() -> None:
+    """没有模型 token 流的任务型智能体也会分段发送已完成的安全文本。"""
+    reply = "已完成安全结果。" * 8
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=_long_reply_graph_factory(MemorySaver(), reply),
+        title_generator=_UnavailableTitleGenerator(),
+    )
+
+    events = await _collect_events(runtime.stream_chat(message="开始任务"))
+
+    deltas = [
+        event.data["content"]
+        for event in events
+        if event.event_type == AgentEventType.MESSAGE_DELTA
+    ]
+    completed = next(
+        event
+        for event in events
+        if event.event_type == AgentEventType.MESSAGE_COMPLETED
+    )
+    assert len(deltas) > 1
+    assert "".join(deltas) == completed.data["content"] == reply
 
 
 class _SlowState(TypedDict):
@@ -272,6 +338,57 @@ def _reply_graph_factory(checkpointer: object) -> object:
     graph.add_node("reply", _reply_node)
     graph.add_edge(START, "reply")
     return graph.compile(checkpointer=checkpointer)
+
+
+def _long_reply_node(
+    state: _SlowState,
+    *,
+    reply: str,
+) -> dict[str, list[AIMessage]]:
+    """构造任务完成后返回固定安全文本的测试节点。"""
+    del state
+    return {"messages": [AIMessage(content=reply)]}
+
+
+def _long_reply_graph_factory(checkpointer: object, reply: str) -> object:
+    """创建用于验证最终文本分段发送的图。"""
+    graph = StateGraph(_SlowState)
+    graph.add_node("reply", lambda state: _long_reply_node(state, reply=reply))
+    graph.add_edge(START, "reply")
+    return graph.compile(checkpointer=checkpointer)
+
+
+class _StreamingReplyModel(BaseChatModel):
+    """模拟支持 astream 的对话模型，避免流式运行时测试访问网络。"""
+
+    @property
+    def _llm_type(self) -> str:
+        return "streaming-test"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: object = None,
+        **kwargs: object,
+    ) -> ChatResult:
+        """提供与流式输出一致的完整回答，满足聊天模型同步接口。"""
+        del messages, stop, run_manager, kwargs
+        return ChatResult(
+            generations=[ChatGeneration(message=AIMessage(content="你好，世界"))]
+        )
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: object = None,
+        **kwargs: object,
+    ) -> Iterator[ChatGenerationChunk]:
+        """分两段产生面向用户的回答文本。"""
+        del messages, stop, run_manager, kwargs
+        yield ChatGenerationChunk(message=AIMessageChunk(content="你好"))
+        yield ChatGenerationChunk(message=AIMessageChunk(content="，世界"))
 
 
 async def test_title_is_generated_only_for_first_message_of_new_conversation() -> None:

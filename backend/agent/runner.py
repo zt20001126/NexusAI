@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import suppress
 from typing import Any
 
@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 from langgraph.errors import GraphRecursionError
 
 from agent.constants import (
+    BASE_CONVERSATION_AGENT_ID,
     CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
     COMMON_AGENT_ID,
     MAX_QUESTION_ROUNDS_PER_RUN,
@@ -60,7 +61,13 @@ from infra.settings import AppSettings
 from infra.snowflake import SnowflakeIdGenerator, get_snowflake_generator
 
 logger = logging.getLogger(__name__)
-STREAMING_RESPONSE_NODES = frozenset({"agent", "result"})
+# 非流式节点完成后使用有界片段发送最终答复，避免单个 SSE 事件过大。
+MESSAGE_DELTA_CHUNK_SIZE = 24
+# 仅列出安全的面向用户模型节点；任务型智能体在结果安全后分段呈现用户文本。
+STREAMING_RESPONSE_NODES_BY_AGENT = {
+    COMMON_AGENT_ID: frozenset({"agent", "result"}),
+    BASE_CONVERSATION_AGENT_ID: frozenset({"chat_node"}),
+}
 
 
 def _message_text(content: Any) -> str:
@@ -76,6 +83,12 @@ def _message_text(content: Any) -> str:
         elif isinstance(item, dict) and isinstance(item.get("text"), str):
             text_parts.append(item["text"])
     return "".join(text_parts)
+
+
+def _text_chunks(content: str) -> Iterator[str]:
+    """将完成后的安全文本拆成有界片段，供 SSE 客户端逐段呈现。"""
+    for index in range(0, len(content), MESSAGE_DELTA_CHUNK_SIZE):
+        yield content[index : index + MESSAGE_DELTA_CHUNK_SIZE]
 
 
 class AgentRunner:
@@ -104,6 +117,11 @@ class AgentRunner:
         """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
         self._agent_id = agent_id
+        # 仅允许已确认面向用户的模型节点实时转发 token，避免暴露业务计划和结构化草稿。
+        self._streaming_response_nodes = STREAMING_RESPONSE_NODES_BY_AGENT.get(
+            agent_id,
+            frozenset(),
+        )
         self._run_store = run_store
         self._run_lock = run_lock
         self._conversation_store = conversation_store
@@ -305,7 +323,7 @@ class AgentRunner:
                         content = _message_text(message.content) if isinstance(
                             message, (AIMessage, AIMessageChunk)
                         ) else ""
-                        if node_name in STREAMING_RESPONSE_NODES and content:
+                        if node_name in self._streaming_response_nodes and content:
                             output_char_count += len(content)
                             if output_char_count > self._max_output_chars:
                                 record.status = RunStatus.FAILED
@@ -349,11 +367,13 @@ class AgentRunner:
                                                 {"code": "AGENT_OUTPUT_LIMIT", "message": "智能体输出超过允许长度"},
                                             )
                                             return
-                                        yield self._event(
-                                            record,
-                                            AgentEventType.MESSAGE_DELTA,
-                                            {"content": missing_content},
-                                        )
+                                        # 特殊智能体的回复可能要等任务或证据校验完成；仅拆分最终安全文本。
+                                        for text_chunk in _text_chunks(missing_content):
+                                            yield self._event(
+                                                record,
+                                                AgentEventType.MESSAGE_DELTA,
+                                                {"content": text_chunk},
+                                            )
                                 if event.event_type == AgentEventType.TOOL_STARTED:
                                     tool_call_count += 1
                                     if tool_call_count > self._max_tool_calls:

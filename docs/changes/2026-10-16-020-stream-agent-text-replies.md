@@ -1,0 +1,52 @@
+# 智能体文本回复分段流式输出
+
+- 日期：2026-10-16
+- 变更类型：架构
+- 影响范围：所有已注册智能体的 SSE 文本回复；通用和基础对话助手的模型 token 转发
+
+## 背景
+
+项目已为智能体提供 SSE 聊天接口，但共享运行器只将通用图的 `agent` 和 `result` 节点识别为实时文本节点。其他图的文本回复通常在节点完成后作为单个 `message.delta` 事件发送。
+
+## 变更内容
+
+- 按智能体配置允许实时转发模型片段的节点，避免将业务计划和结构化草稿作为用户回复发送。
+- 基础对话助手改为通过共享流式模型适配器调用模型，并将 `chat_node` 的模型片段转发到现有 SSE 协议。
+- 对其他节点产出的安全完成文本按有界片段发送，复用前端已有的 `message.delta` 处理逻辑。
+- 增加运行时测试，覆盖基础对话模型片段转发和已完成文本分段。
+
+## 涉及文件
+
+- `backend/agent/runner.py`：添加逐智能体流式节点策略，并将最终安全文本拆分为 SSE 增量事件。
+- `backend/agents/base_agent/nodes/chat_node.py`：通过共享流式模型适配器调用模型。
+- `backend/tests/test_runtime.py`：验证模型片段和安全完成文本的流式事件。
+- `docs/API接口文档.md`：说明不同类别智能体的增量文本与结构化事件行为。
+- `CHANGELOG.md`：记录未发布变化。
+
+## 设计决策
+
+- 法律和文献回答在结构、引用或证据核验完成前不向用户发送模型草稿；校验后输出的最终安全文本通过多个增量事件呈现。
+- 图片、Listing 和科研检索的结构化结果仍通过现有任务结果事件交付，不拆分未完成的结果对象。
+- SSE 路由和前端 `message.delta` 消费逻辑已存在，本次无需改动。
+
+## 测试与验证
+
+- 命令：`backend/.venv/Scripts/python.exe -m pytest tests/test_runtime.py -q`
+- 结果：12 passed。
+- 命令：`backend/.venv/Scripts/python.exe -m pytest -q`
+- 结果：108 passed，4 failed，分别为 `test_image_agent_upload_ask_resume_persist_and_authorize_result`、`test_listing_questions_are_required_and_result_json_is_owner_scoped`、`test_ask_listing_questions_persists_json_compatible_image_analysis` 和 `test_plan_merges_answer_and_does_not_repeat_its_question_id`。失败位于图片/Listing 追问 API 和 Listing Schema 路径；本次未修改相关节点或 Schema。
+- 命令：`npm test`
+- 结果：4 passed。
+- 命令：`npm run build`
+- 结果：构建成功；Vite 提示一个产物 chunk 超过 500 kB。
+- 命令：`git diff --check`
+- 结果：通过。
+
+## 潜在影响
+
+- 不支持 `astream` 的模型仍会由共享适配器回退到完整调用；该回复会在完成后分段交付，无法获得模型 token 级实时性。
+- 图片和任务结果卡片仍在完整结果可用后更新，不支持逐像素或逐字段预览。
+
+## 后续事项
+
+- 暂无。

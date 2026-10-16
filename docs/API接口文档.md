@@ -91,6 +91,8 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 `message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent_id`，不能在其他智能体路由下继续使用。
 
+通过各智能体的 SSE 聊天入口请求时，文本回复均使用 `message.delta` 增量事件和 `message.completed` 完成事件。通用智能体与基础对话助手会转发面向用户模型节点的生成片段；图片、Listing、科研检索、劳动法律和文献解读等工作流会在任务结果或证据校验完成后，分段发送安全的最终文本。结构化追问和任务结果仍分别通过 `question.required`、`task_result.updated` 事件返回。
+
 ### `POST /api/agents/{agent_id}/runs/{run_id}/resume`
 
 使用追问事件返回的会话和运行标识恢复原运行。

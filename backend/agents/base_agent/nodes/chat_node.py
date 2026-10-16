@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
+from agent.streaming.model import invoke_chat_model_streaming
 from agents.base_agent.config import BaseAgentConfig
 from agents.base_agent.errors import BaseAgentExecutionError
 from agents.base_agent.state import BaseAgentState
@@ -44,7 +45,12 @@ def create_chat_node(
         prompt = [SystemMessage(content=config.system_prompt), *conversation]
 
         try:
-            response = await model.ainvoke(prompt, config=runnable_config)
+            # 经共享流式模型适配器调用，RunnableConfig 会让 LangGraph 收到模型增量片段。
+            response = await invoke_chat_model_streaming(
+                model,
+                prompt,
+                runnable_config,
+            )
         except Exception as error:
             logger.warning(
                 "智能体模型调用失败 agent_id=%s error_type=%s",
