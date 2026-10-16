@@ -85,6 +85,7 @@ export default class RunnerScene extends Phaser.Scene {
     this.add.ellipse(176, 112, 116, 26, 0xffffff, 0.74)
     this.add.ellipse(210, 112, 75, 34, 0xffffff, 0.74)
     this.add.ellipse(682, 168, 92, 22, 0xffffff, 0.58)
+    this.createSewerTunnel()
 
     const groundTexture = this.make.graphics({ x: 0, y: 0 })
     groundTexture.fillStyle(0xd7e5f5, 1)
@@ -102,6 +103,33 @@ export default class RunnerScene extends Phaser.Scene {
       this.groundMarks.push(
         this.add.rectangle(40 + index * 128, GROUND_Y + 17, 34, 3, 0xadc2dc, 0.86),
       )
+    }
+  }
+
+  private createSewerTunnel() {
+    const tunnel = this.add.graphics()
+    tunnel.fillStyle(0xcbd9e8, 1)
+    tunnel.fillRect(0, GROUND_Y + 24, GAME_WIDTH, GAME_HEIGHT - (GROUND_Y + 24))
+
+    tunnel.fillStyle(0x91a8bf, 1)
+    tunnel.fillRoundedRect(14, GROUND_Y + 10, GAME_WIDTH - 28, 112, 42)
+    tunnel.fillStyle(0x34495f, 1)
+    tunnel.fillRoundedRect(25, GROUND_Y + 22, GAME_WIDTH - 50, 90, 34)
+
+    tunnel.fillStyle(0x6e8398, 0.86)
+    for (let x = 150; x < GAME_WIDTH - 50; x += 180) {
+      tunnel.fillRoundedRect(x, GROUND_Y + 36, 8, 58, 4)
+      tunnel.fillStyle(0xc3d2df, 0.9)
+      tunnel.fillCircle(x + 4, GROUND_Y + 42, 2)
+      tunnel.fillStyle(0x6e8398, 0.86)
+    }
+
+    tunnel.fillStyle(0x25647c, 1)
+    tunnel.fillRoundedRect(25, GROUND_Y + 70, GAME_WIDTH - 50, 50, 18)
+    tunnel.fillStyle(0x8be1ed, 0.72)
+    for (let x = 56; x < GAME_WIDTH - 68; x += 176) {
+      tunnel.fillRoundedRect(x, GROUND_Y + 73, 42, 2, 1)
+      tunnel.fillRoundedRect(x + 62, GROUND_Y + 80, 20, 2, 1)
     }
   }
 

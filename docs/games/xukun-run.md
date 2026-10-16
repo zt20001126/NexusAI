@@ -31,6 +31,7 @@
 - 游戏状态：准备、进行、暂停、结束；结束后可重新开始。
 - 操作：空格/上方向键跳跃，下方向键下蹲；P / Esc 暂停或继续，即使焦点在游戏按钮上也有效。
 - 障碍：地面仙人掌和飞行障碍；奔跑速度随坚持时间逐渐增加。
+- 场景：跑道下方显示带金属接缝和水面的排水管道横截面。
 - 计时：显示本局坚持时间与个人最长记录；暂停期间不累计时间。
 - 视觉：沿用 NexusAI 蓝白界面风格；蔡徐坤卡通角色使用黑色标志性发型、蓝白 9 号篮球服和红白球鞋的本地四帧跑步素材，下蹲时角色也会压低姿势。
 
@@ -51,7 +52,7 @@
 - `frontend/src/index.css`：从跑步精灵图放大裁出卡片头像，沿用智能体头像的圆角容器样式。
 - `frontend/src/features/dino-run/DinoRunPage.tsx`：游戏页面、状态覆盖层、按钮、计时展示和浏览器标签切换时的自动暂停。
 - `frontend/src/features/dino-run/components/PhaserRunner.tsx`：创建 Phaser 实例、转发状态与控制命令，并在离开页面时销毁实例。
-- `frontend/src/features/dino-run/scenes/RunnerScene.ts`：游戏场景、键盘输入、角色跳跃/下蹲、障碍生成、加速与 Arcade Physics 碰撞。
+- `frontend/src/features/dino-run/scenes/RunnerScene.ts`：游戏场景与下水管道绘制、键盘输入、角色跳跃/下蹲、障碍生成、加速与 Arcade Physics 碰撞。
 - `frontend/src/features/dino-run/model/record.mjs`：读取、格式化和更新浏览器内最长时间。
 - `frontend/src/features/dino-run/model/gameConfig.ts`：集中定义 Phaser 逻辑画布尺寸。
 - `frontend/public/games/xukun-runner.png`：四帧蔡徐坤卡通跑步图。
