@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import AgentDirectory from './components/AgentDirectory'
 import AgentInteractionCard from './components/AgentInteractionCard'
 import AgentSelectionDialog from './components/AgentSelectionDialog'
 import Composer from './components/Composer'
@@ -21,16 +22,22 @@ function ChatPage() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [agentSelectionOpen, setAgentSelectionOpen] = useState(false)
+  const [agentDirectoryOpen, setAgentDirectoryOpen] = useState(true)
   const [newConversationReady, setNewConversationReady] = useState(false)
   const chat = useChatSession()
   useEffect(() => {
-    if (!chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
+    if (!agentDirectoryOpen && !chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
       setAgentSelectionOpen(true)
     }
-  }, [chat.activeConversationId, chat.sidebarLoading, newConversationReady])
+  }, [agentDirectoryOpen, chat.activeConversationId, chat.sidebarLoading, newConversationReady])
 
   function openAgentSelection() {
     setAgentSelectionOpen(true)
+  }
+
+  function openAgentDirectory() {
+    setAgentSelectionOpen(false)
+    setAgentDirectoryOpen(true)
   }
 
   function selectAgent(agentId: string) {
@@ -41,6 +48,7 @@ function ChatPage() {
     chat.selectAgent(agentId)
     setNewConversationReady(true)
     setAgentSelectionOpen(false)
+    setAgentDirectoryOpen(false)
   }
 
   function cancelAgentSelection() {
@@ -113,13 +121,16 @@ function ChatPage() {
         loadingMore={chat.loadingMoreConversations}
         disabled={chat.sending}
         error={chat.sidebarError}
+        agentDirectoryOpen={agentDirectoryOpen}
         onCreate={openAgentSelection}
+        onOpenAgentDirectory={openAgentDirectory}
         onSelect={(conversationId) => {
           setPendingImages([])
           setSelectedDocumentIds([])
           setAttachmentError(null)
           setNewConversationReady(false)
           setAgentSelectionOpen(false)
+          setAgentDirectoryOpen(false)
           chat.selectConversation(conversationId)
         }}
         onLoadMore={() => { void chat.loadMoreConversations() }}
@@ -127,69 +138,91 @@ function ChatPage() {
       />
 
       <section className="chat-main">
-        <header className="chat-topbar">
-          <div className="topbar-title">
-            <img className="mobile-brand-mark" src="/brand/nexusai-icon.png" alt="" />
-            <div>
-              <strong>{chat.activeConversation?.title || (chat.activeConversationId ? '会话' : '新对话')}</strong>
-              <span><i className="status-dot" /> {activeAgentName} · {chat.status}</span>
-            </div>
-          </div>
-          <button className="mobile-new-conversation" type="button" onClick={openAgentSelection} disabled={chat.sending}>＋ 新对话</button>
-        </header>
-
-        <div className="chat-content">
-          {chat.activeAgentId === LITERATURE_READER_AGENT_ID && (
-            <LiteratureLibraryPanel
-              conversationId={chat.activeConversationId}
-              assistantResponseId={latestAssistantResponseId}
-              sending={chat.sending}
-              disabled={chat.sending || Boolean(chat.pendingQuestion)}
-              onSelectedDocumentIdsChange={setSelectedDocumentIds}
-            />
-          )}
-          {chat.olderCursor !== null && !chat.historyLoading && (
-            <button className="load-older-button" type="button" onClick={() => { void chat.loadOlderMessages() }} disabled={chat.loadingOlder}>
-              {chat.loadingOlder ? '正在加载…' : '↑ 查看更早消息'}
-            </button>
-          )}
-          <MessageList
-            messages={chat.messages}
-            loading={chat.historyLoading}
-            conversationId={chat.activeConversationId}
-            agentId={chat.activeAgentId || COMMON_AGENT_ID}
+        {agentDirectoryOpen && (
+          <AgentDirectory
+            agents={chat.agents}
+            loading={chat.agentsLoading}
+            error={chat.agentsError}
+            canReturnToConversation={Boolean(chat.activeConversationId) || newConversationReady}
+            returnLabel={chat.activeConversationId ? '返回当前对话' : '返回新对话'}
+            onSelect={selectAgent}
+            onReturnToConversation={() => setAgentDirectoryOpen(false)}
+            onRetry={() => { void chat.loadAgents() }}
           />
-          {chat.pendingQuestion && chat.pendingQuestion.questions.length > 0 && (
-            <AgentInteractionCard
-              key={pendingQuestionKey}
-              questions={chat.pendingQuestion.questions}
-              questionRound={chat.pendingQuestion.questionRound}
-              maxQuestionRounds={chat.pendingQuestion.maxQuestionRounds}
-              disabled={chat.sending}
-              onSubmit={(answers) => { void chat.resumeRun(answers) }}
-            />
-          )}
-          {(chat.error || attachmentError) && (
-            <div className="error-banner" role="alert">{attachmentError || chat.error}</div>
-          )}
-        </div>
+        )}
+        <div className={`chat-workspace ${agentDirectoryOpen ? 'is-hidden' : ''}`} aria-hidden={agentDirectoryOpen}>
+          <header className="chat-topbar">
+            <div className="topbar-title">
+              <button
+                className="mobile-brand-button"
+                type="button"
+                onClick={openAgentDirectory}
+                aria-label="浏览所有智能体"
+                title="浏览所有智能体"
+              >
+                <img className="mobile-brand-mark" src="/brand/nexusai-icon.png" alt="" />
+              </button>
+              <div>
+                <strong>{chat.activeConversation?.title || (chat.activeConversationId ? '会话' : '新对话')}</strong>
+                <span><i className="status-dot" /> {activeAgentName} · {chat.status}</span>
+              </div>
+            </div>
+            <button className="mobile-new-conversation" type="button" onClick={openAgentSelection} disabled={chat.sending}>＋ 新对话</button>
+          </header>
 
-        <Composer
-          value={draft}
-          disabled={chat.sending || Boolean(chat.pendingQuestion) || agentSelectionOpen || (!chat.activeConversationId && !newConversationReady)}
-          onChange={setDraft}
-          onSend={() => { void handleSend() }}
-          onCancel={() => { void chat.cancelRun() }}
-          canCancel={chat.canCancel}
-          supportsImageUpload={chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.supports_image_upload ?? false}
-          attachments={pendingImages}
-          onAddAttachments={addAttachments}
-          onRemoveAttachment={(index) => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-        />
+          <div className="chat-content">
+            {chat.activeAgentId === LITERATURE_READER_AGENT_ID && (
+              <LiteratureLibraryPanel
+                conversationId={chat.activeConversationId}
+                assistantResponseId={latestAssistantResponseId}
+                sending={chat.sending}
+                disabled={chat.sending || Boolean(chat.pendingQuestion)}
+                onSelectedDocumentIdsChange={setSelectedDocumentIds}
+              />
+            )}
+            {chat.olderCursor !== null && !chat.historyLoading && (
+              <button className="load-older-button" type="button" onClick={() => { void chat.loadOlderMessages() }} disabled={chat.loadingOlder}>
+                {chat.loadingOlder ? '正在加载…' : '↑ 查看更早消息'}
+              </button>
+            )}
+            <MessageList
+              messages={chat.messages}
+              loading={chat.historyLoading}
+              conversationId={chat.activeConversationId}
+              agentId={chat.activeAgentId || COMMON_AGENT_ID}
+            />
+            {chat.pendingQuestion && chat.pendingQuestion.questions.length > 0 && (
+              <AgentInteractionCard
+                key={pendingQuestionKey}
+                questions={chat.pendingQuestion.questions}
+                questionRound={chat.pendingQuestion.questionRound}
+                maxQuestionRounds={chat.pendingQuestion.maxQuestionRounds}
+                disabled={chat.sending}
+                onSubmit={(answers) => { void chat.resumeRun(answers) }}
+              />
+            )}
+            {(chat.error || attachmentError) && (
+              <div className="error-banner" role="alert">{attachmentError || chat.error}</div>
+            )}
+          </div>
+
+          <Composer
+            value={draft}
+            disabled={chat.sending || Boolean(chat.pendingQuestion) || agentSelectionOpen || (!chat.activeConversationId && !newConversationReady)}
+            onChange={setDraft}
+            onSend={() => { void handleSend() }}
+            onCancel={() => { void chat.cancelRun() }}
+            canCancel={chat.canCancel}
+            supportsImageUpload={chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.supports_image_upload ?? false}
+            attachments={pendingImages}
+            onAddAttachments={addAttachments}
+            onRemoveAttachment={(index) => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+          />
+        </div>
       </section>
       <AgentSelectionDialog
         open={agentSelectionOpen}
-        canCancel={Boolean(chat.activeConversationId) || newConversationReady}
+        canCancel={Boolean(chat.activeConversationId) || newConversationReady || agentDirectoryOpen}
         agents={chat.agents}
         agentsLoading={chat.agentsLoading}
         agentsError={chat.agentsError}
