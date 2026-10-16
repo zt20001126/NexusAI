@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { DisplayMessage } from '../model/messages'
+import AgentAvatar from './AgentAvatar'
 import ListingResultCard from './ListingResultCard'
 import ResearchResultCard from './ResearchResultCard'
 
@@ -11,10 +12,11 @@ interface MessageListProps {
   messages: DisplayMessage[]
   loading: boolean
   conversationId: string | null
+  agentId: string
 }
 
 /** 展示历史消息、当前流式回复和首次进入页面的引导内容。 */
-function MessageList({ messages, loading, conversationId }: MessageListProps) {
+function MessageList({ messages, loading, conversationId, agentId }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const previousHeight = useRef(0)
   const previousFirstMessageId = useRef<string | null>(null)
@@ -79,7 +81,7 @@ function MessageList({ messages, loading, conversationId }: MessageListProps) {
         <article className={`message-row ${message.role}`} key={message.id}>
           {message.role === 'assistant' && (
             <div className="assistant-avatar" aria-hidden="true">
-              <img src="/avatars/agent.png" alt="" />
+              <AgentAvatar agentId={agentId} />
             </div>
           )}
           <div className="message-column">

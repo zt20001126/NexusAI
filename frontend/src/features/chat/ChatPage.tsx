@@ -6,6 +6,7 @@ import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
 import MessageList from './components/MessageList'
 import {
+  COMMON_AGENT_ID,
   LISTING_AGENT_ID,
   MAX_REFERENCE_IMAGE_BYTES,
   MAX_REFERENCE_IMAGES,
@@ -136,6 +137,7 @@ function ChatPage() {
             messages={chat.messages}
             loading={chat.historyLoading}
             conversationId={chat.activeConversationId}
+            agentId={chat.activeAgentId || COMMON_AGENT_ID}
           />
           {chat.pendingQuestion && chat.pendingQuestion.questions.length > 0 && (
             <AgentInteractionCard
