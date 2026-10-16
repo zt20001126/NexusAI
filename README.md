@@ -84,7 +84,7 @@ flowchart LR
    npm run dev
    ```
 
-前端开发服务器默认通过 `/api` 代理到本地后端。API 交互文档位于 `http://127.0.0.1:8000/docs`。
+前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
 使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。文献导入需要启动 Compose 中的 `literature-worker` 服务，并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库表结构.md)。
 

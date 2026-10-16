@@ -85,7 +85,6 @@ function MessageList({ messages, loading, conversationId, agentId }: MessageList
             </div>
           )}
           <div className="message-column">
-            <div className="message-author">{message.role === 'user' ? '我' : 'NexusAI'}</div>
             <div className={`message-bubble ${message.role}`}>
               {message.content
                 ? message.role === 'assistant'
