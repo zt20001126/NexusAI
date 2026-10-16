@@ -1,6 +1,7 @@
 """业务智能体在关系表中的稳定雪花 ID，与 API 路由代码分开维护。"""
 
 from agent.constants import (
+    BASE_CONVERSATION_AGENT_ID,
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
@@ -29,6 +30,7 @@ AGENT_DATABASE_IDS: dict[str, int] = {
     RESEARCH_AGENT_ID: _static_agent_id(4),
     LABOR_LAW_AGENT_ID: _static_agent_id(5),
     LITERATURE_READER_AGENT_ID: _static_agent_id(6),
+    BASE_CONVERSATION_AGENT_ID: _static_agent_id(7),
 }
 AGENT_CODES_BY_DATABASE_ID = {value: key for key, value in AGENT_DATABASE_IDS.items()}
 

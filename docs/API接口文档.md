@@ -6,7 +6,7 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 或 `literature_reader_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
+会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 或 `literature_reader_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
@@ -24,6 +24,13 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
       "agent_id": "common_agent",
       "name": "通用智能体",
       "description": "处理常见对话、需求梳理和信息问答",
+      "supports_image_upload": false,
+      "supports_document_upload": false
+    },
+    {
+      "agent_id": "basic_conversation_agent",
+      "name": "基础对话助手",
+      "description": "基于工程化智能体基座进行多轮自然对话",
       "supports_image_upload": false,
       "supports_document_upload": false
     },

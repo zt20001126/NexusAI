@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from agent.constants import (
+    BASE_CONVERSATION_AGENT_ID,
     COMMON_AGENT_ID,
     IMAGE_AGENT_ID,
     LISTING_AGENT_ID,
@@ -17,6 +18,7 @@ from agent.constants import (
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
+from agents.base_agent import create_basic_conversation_agent
 from agents.image_agent.graph import build_image_agent_graph
 from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
@@ -117,6 +119,15 @@ def build_lifespan(
 
                 runner = create_postgres_runner(COMMON_AGENT_ID)
                 resolved_model_provider = model_provider or OpenAICompatibleProvider(settings)
+                basic_conversation_agent = create_basic_conversation_agent(
+                    agent_id=BASE_CONVERSATION_AGENT_ID,
+                    chat_model=resolved_model_provider.create_chat_model(),
+                    checkpointer=checkpointer,
+                )
+                basic_conversation_runner = create_postgres_runner(
+                    agent_id=BASE_CONVERSATION_AGENT_ID,
+                    graph=basic_conversation_agent.compiled_graph,
+                )
                 image_model = resolved_model_provider.create_chat_model()
                 image_graph = build_image_agent_graph(
                     checkpointer,
@@ -200,6 +211,7 @@ def build_lifespan(
                     settings,
                     {
                         COMMON_AGENT_ID: runner,
+                        BASE_CONVERSATION_AGENT_ID: basic_conversation_runner,
                         IMAGE_AGENT_ID: image_runner,
                         LISTING_AGENT_ID: listing_runner,
                         RESEARCH_AGENT_ID: research_runner,

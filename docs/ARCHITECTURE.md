@@ -68,6 +68,8 @@ flowchart LR
 4. 将业务结果元数据保存到统一 `task_results` 表；大文件放入对象存储并在 JSON 元数据中保留对象键。
 5. 为新图、追问恢复、Provider 错误、结果持久化和资源授权增加离线测试。
 
+基础对话助手 `basic_conversation_agent` 使用 `agents/base_agent/` 提供的通用图，并由 `bootstrap/runtime.py` 注入模型与共享 PostgreSQL Checkpointer。聊天 Runner 按可信主体、智能体 ID 和会话 ID 设置 `thread_id`，因此每轮只需输入新消息，图会从 Checkpoint 恢复本会话历史；该历史与应用消息表分别用于图状态恢复和聊天记录展示。
+
 当前图片智能体位于 `backend/agents/image_generation/`，稳定标识为 `image_agent`。图片业务实现不放入通用智能体的业务图目录。
 
 ### listing生成智能体

@@ -26,13 +26,19 @@ START → validation_node → chat_node
 基座也提供一个不带工具的基础对话助手工厂。它使用 `prompts/default_chat.py` 中的默认提示词，模型仍由应用通过 Provider 创建并注入：
 
 ```python
+from langgraph.checkpoint.memory import MemorySaver
 from agents.base_agent import create_basic_conversation_agent
 
-assistant = create_basic_conversation_agent(chat_model=chat_model)
-response = await assistant.ainvoke("你好，请介绍一下你自己。")
+assistant = create_basic_conversation_agent(
+    agent_id="basic_conversation_agent",
+    chat_model=chat_model,
+    checkpointer=MemorySaver(),
+)
+runnable_config = {"configurable": {"thread_id": "user-id:basic_conversation_agent:conversation-id"}}
+response = await assistant.ainvoke("你好，请介绍一下你自己。", runnable_config=runnable_config)
 ```
 
-不传 Checkpointer 时，每次调用只处理本轮输入。需要多轮上下文时，注入 Checkpointer，并在连续调用中复用同一个 `configurable.thread_id`。此工厂可在 Python 中直接调用；要让它出现在项目聊天界面，还需要由应用组合层注册并接入运行器。
+基础对话助手工厂要求注入 Checkpointer，并在同一会话的连续调用中复用同一个 `configurable.thread_id`。`MemorySaver` 适用于本地示例和短期进程内运行，进程重启后会丢失上下文；应用运行时使用 PostgreSQL Checkpointer，按用户、智能体和会话隔离并持久化历史。此工厂可在 Python 中直接调用；接入项目聊天界面时，由应用组合层注册并交给现有 Runner。
 
 ```python
 agent = BaseAgent(
@@ -44,7 +50,8 @@ agent = BaseAgent(
     tools=tools,            # 没有工具时省略
     checkpointer=checkpointer,
 )
-response = await agent.ainvoke("用户消息")
+runnable_config = {"configurable": {"thread_id": "user-id:example_agent:conversation-id"}}
+response = await agent.ainvoke("用户消息", runnable_config=runnable_config)
 ```
 
 返回值是 `AgentResponse`，只包含稳定的 `agent_id` 和 `answer`，不会把工具调用、Checkpoint 状态或内部异常暴露给业务调用方。外层平台若需要直接接入 LangGraph，可使用 `compiled_graph`。
