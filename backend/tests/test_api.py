@@ -105,7 +105,17 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         image_transport = httpx.MockTransport(image_response)
         image_graph = build_image_agent_graph(
             MemorySaver(),
-            FakeListChatModel(responses=["淘宝商品棚拍主图，柔和自然光，纯净背景。"]),
+            FakeListChatModel(
+                responses=[
+                    json.dumps(
+                        {
+                            "intent": "generate_image",
+                            "image_prompt": "淘宝商品详情页，突出商品外观、使用场景和材质细节。",
+                        },
+                        ensure_ascii=False,
+                    )
+                ]
+            ),
             settings,
             TokenHubImageClient(settings, transport=image_transport),
             ImageResultDownloader(
@@ -487,7 +497,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         paused_response = client.post(
             f"/api/agents/{IMAGE_AGENT_ID}/chat/stream",
             json={
-                "message": "帮我生成一张淘宝商品主图",
+                "message": "生成一个淘宝详情页。",
                 "attachment_ids": [attachment_id],
             },
         )

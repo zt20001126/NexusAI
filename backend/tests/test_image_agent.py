@@ -1,14 +1,17 @@
 """图片智能体参数策略和 TokenHub 边界的离线测试。"""
 
 import base64
+import json
 
 import httpx
 import pytest
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from agent.constants import IMAGE_AGENT_ID
 from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
+from agents.image_agent.nodes.chat_node import create_chat_node
 from agents.image_agent.nodes.validation_node import validation_node
 from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
@@ -25,18 +28,73 @@ from agents.image_agent.schemas import ImageGenerationOptions
 from infra.settings import AppSettings
 
 
+@pytest.mark.parametrize(
+    ("user_message", "model_intent", "expected"),
+    [
+        (
+            "我想把刚才上传的商品做成适合手机浏览的长版介绍页。",
+            "generate_image",
+            True,
+        ),
+        ("图片智能体可以生成淘宝详情页吗？", "other", False),
+    ],
+)
 @pytest.mark.asyncio
-async def test_validation_recognizes_taobao_detail_page_request_with_reference_image() -> None:
-    """截图中的淘宝详情页请求应进入生图流程，并保留已上传参考图。"""
-    result = await validation_node(
+async def test_chat_node_uses_model_semantic_intent(
+    user_message: str,
+    model_intent: str,
+    expected: bool,
+) -> None:
+    """语义分类应区分隐含生图请求和能力咨询，而不是按关键词决定。"""
+    model = FakeListChatModel(
+        responses=[
+            json.dumps(
+                {
+                    "intent": model_intent,
+                    "image_prompt": "手机端竖版商品介绍页，保留参考商品外观。"
+                    if expected
+                    else "",
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    chat_node = create_chat_node(model)
+
+    result = await chat_node(
         {
-            "original_request": "生成一个淘宝详情页。",
+            "original_request": user_message,
             "attachment_ids": ["reference-image-1"],
             "run_id": "run-1",
         }
     )
 
-    assert result["is_image_generation"] is True
+    assert result["is_image_generation"] is expected
+    assert result["intent_validated"] is True
+    if expected:
+        assert result["image_prompt"] == "手机端竖版商品介绍页，保留参考商品外观。"
+
+
+@pytest.mark.asyncio
+async def test_validation_node_clears_previous_intent_for_new_run() -> None:
+    """新运行清除上一轮的判断，由聊天模型重新识别本轮语义。"""
+    result = await validation_node(
+        {
+            "original_request": "  这个商品适合什么详情页风格？  ",
+            "run_id": "run-2",
+            "intent_validated": True,
+            "validated_run_id": "run-1",
+            "is_image_generation": True,
+            "image_prompt": "旧提示词",
+            "generation_options": {"size": "1024x1024"},
+        }
+    )
+
+    assert result["original_request"] == "这个商品适合什么详情页风格？"
+    assert result["intent_validated"] is False
+    assert result["is_image_generation"] is False
+    assert result["image_prompt"] == ""
+    assert result["generation_options"] == {}
 
 
 @pytest.mark.parametrize(
