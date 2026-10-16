@@ -62,7 +62,7 @@ function ConversationSidebar({
             onClick={() => onSelect(conversation.conversation_id)}
             title={conversation.title ?? '新会话'}
           >
-            <span className="conversation-icon" aria-hidden="true">◌</span>
+            <span className="conversation-icon" aria-hidden="true" />
             <span className="conversation-title">{conversation.title || '新会话'}</span>
           </button>
         ))}
