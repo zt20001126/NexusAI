@@ -8,6 +8,8 @@ from agents.base_agent.errors import (
     BaseAgentExecutionError,
     BaseAgentInputError,
 )
+from agents.base_agent.factory import create_basic_conversation_agent
+from agents.base_agent.prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from agents.base_agent.schemas import AgentRequest, AgentResponse
 from agents.base_agent.tools.registry import ToolRegistry
 
@@ -20,5 +22,7 @@ __all__ = [
     "BaseAgentError",
     "BaseAgentExecutionError",
     "BaseAgentInputError",
+    "DEFAULT_CHAT_SYSTEM_PROMPT",
     "ToolRegistry",
+    "create_basic_conversation_agent",
 ]

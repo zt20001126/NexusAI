@@ -23,6 +23,17 @@ START → validation_node → chat_node
 
 组合方创建模型、业务工具和可选 Checkpointer 后传入 `BaseAgent`。基座在初始化时检查工具名称、描述和参数 schema，并只构建一次已编译图。请求配置通过 `RunnableConfig` 传入；启用 Checkpointer 时必须提供 `configurable.thread_id`。
 
+基座也提供一个不带工具的基础对话助手工厂。它使用 `prompts/default_chat.py` 中的默认提示词，模型仍由应用通过 Provider 创建并注入：
+
+```python
+from agents.base_agent import create_basic_conversation_agent
+
+assistant = create_basic_conversation_agent(chat_model=chat_model)
+response = await assistant.ainvoke("你好，请介绍一下你自己。")
+```
+
+不传 Checkpointer 时，每次调用只处理本轮输入。需要多轮上下文时，注入 Checkpointer，并在连续调用中复用同一个 `configurable.thread_id`。此工厂可在 Python 中直接调用；要让它出现在项目聊天界面，还需要由应用组合层注册并接入运行器。
+
 ```python
 agent = BaseAgent(
     config=BaseAgentConfig(
@@ -54,6 +65,7 @@ async def lookup_item(item_id: str) -> str:
 ## 扩展原则
 
 - 业务节点、提示词、工具和领域类型放在具体智能体目录，不写入本基座。
+- 基础对话提示词位于 `prompts/`；业务智能体应使用自己的提示词，避免修改基座默认行为。
 - 模型、工具、Checkpointer 由组合根创建并注入；节点只消费依赖。
 - 图状态只保存可序列化业务数据，不保存连接、客户端或密钥。
 - 新增智能体可直接调用基座；接入产品 API 时再由应用组合层注册，不要求重构已有智能体。
