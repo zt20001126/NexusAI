@@ -2,7 +2,7 @@
 
 from agents.image_agent.state import ImageAgentState
 
-IMAGE_TERMS = ("图片", "主图", "商品图", "展示图", "详情页图", "详情图", "生图")
+IMAGE_TERMS = ("图片", "主图", "商品图", "展示图", "详情页图", "详情页", "详情图", "生图")
 GENERATION_TERMS = ("生成", "制作", "设计", "画", "做", "需要", "帮我")
 
 

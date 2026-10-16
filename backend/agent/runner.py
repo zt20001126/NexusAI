@@ -585,7 +585,10 @@ class AgentRunner:
                 )
                 return
             try:
-                questions = QuestionPayload.model_validate(payload.get("data", {}))
+                tool_data = payload.get("data", {})
+                questions = QuestionPayload.model_validate(
+                    {"questions": tool_data.get("questions")}
+                )
             except ValueError:
                 yield self._event(
                     record,

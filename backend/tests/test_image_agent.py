@@ -9,6 +9,7 @@ from agent.constants import IMAGE_AGENT_ID
 from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
+from agents.image_agent.nodes.validation_node import validation_node
 from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
@@ -22,6 +23,20 @@ from agents.image_agent.providers.tokenhub_client import (
 )
 from agents.image_agent.schemas import ImageGenerationOptions
 from infra.settings import AppSettings
+
+
+@pytest.mark.asyncio
+async def test_validation_recognizes_taobao_detail_page_request_with_reference_image() -> None:
+    """截图中的淘宝详情页请求应进入生图流程，并保留已上传参考图。"""
+    result = await validation_node(
+        {
+            "original_request": "生成一个淘宝详情页。",
+            "attachment_ids": ["reference-image-1"],
+            "run_id": "run-1",
+        }
+    )
+
+    assert result["is_image_generation"] is True
 
 
 @pytest.mark.parametrize(
