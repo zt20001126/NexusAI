@@ -66,11 +66,18 @@ interface QuestionBase {
 /** 追问答案保持文本或多选值数组，避免使用换行分隔的隐式格式。 */
 export type QuestionAnswer = string | string[]
 
+export interface QuestionOption {
+  label: string
+  description: string
+}
+
+export type QuestionOptionValue = string | QuestionOption
+
 /** 交互卡片支持的题型；缺少 type 时兼容现有文本题载荷。 */
 export type Question = QuestionBase & (
   | { type?: 'TextQuestion'; placeholder?: string }
-  | { type: 'SingleChoice'; options: string[] }
-  | { type: 'MultiChoice'; options: string[] }
+  | { type: 'SingleChoice'; options: QuestionOptionValue[] }
+  | { type: 'MultiChoice'; options: QuestionOptionValue[] }
   | { type: 'Confirmation' }
 )
 

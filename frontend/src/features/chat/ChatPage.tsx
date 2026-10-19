@@ -69,7 +69,7 @@ function ChatPage() {
     ? JSON.stringify({
         runId: chat.pendingQuestion.runId,
         questionRound: chat.pendingQuestion.questionRound,
-        questions: chat.pendingQuestion.questions.map(({ id, title, prompt }) => [id, title, prompt]),
+        questions: chat.pendingQuestion.questions,
       })
     : undefined
   const latestAssistantResponseId = [...chat.messages].reverse().find((message) =>

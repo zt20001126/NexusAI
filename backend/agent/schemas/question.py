@@ -8,9 +8,44 @@ from agent.constants import (
     MAX_QUESTION_ANSWER_CHARS,
     MAX_QUESTION_OPTIONS,
     MAX_QUESTION_OPTION_CHARS,
+    MAX_QUESTION_OPTION_DESCRIPTION_CHARS,
     MAX_QUESTION_SELECTION_CHARS,
     MAX_QUESTIONS_PER_BATCH,
     MAX_QUESTION_SELECTION_COUNT,
+)
+
+
+class QuestionOption(BaseModel):
+    """带标签和说明的结构化选项。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(
+        min_length=1,
+        max_length=MAX_QUESTION_OPTION_CHARS,
+        description="用户可提交的选项值",
+    )
+    description: str = Field(
+        min_length=1,
+        max_length=MAX_QUESTION_OPTION_DESCRIPTION_CHARS,
+        description="用于解释选项含义的简短说明",
+    )
+
+    @field_validator("label", "description")
+    @classmethod
+    def normalize_option_text(cls, value: str) -> str:
+        """去除选项文本两端空白，拒绝空值和多行内容。"""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("选项标签和说明不能为空")
+        if "\n" in normalized or "\r" in normalized:
+            raise ValueError("选项标签和说明必须是单行纯文本")
+        return normalized
+
+
+QuestionOptionValue = (
+    Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_OPTION_CHARS)]
+    | QuestionOption
 )
 
 
@@ -40,12 +75,10 @@ class Question(BaseModel):
         default="TextQuestion",
         description="前端支持的结构化问题类型",
     )
-    options: list[
-        Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_OPTION_CHARS)]
-    ] = Field(
+    options: list[QuestionOptionValue] = Field(
         default_factory=list,
         max_length=MAX_QUESTION_OPTIONS,
-        description="单选题或多选题的可选项",
+        description="单选题或多选题的可选项；可使用字符串或带说明的选项对象",
     )
     placeholder: str | None = Field(default=None, max_length=200, description="文本输入提示")
 
@@ -64,14 +97,26 @@ class Question(BaseModel):
 
     @field_validator("options")
     @classmethod
-    def normalize_options(cls, options: list[str]) -> list[str]:
-        """统一选项空白并拒绝空项和重复项。"""
-        normalized = [option.strip() for option in options]
-        if any(not option for option in normalized):
-            raise ValueError("问题选项不能为空")
-        if any("\n" in option or "\r" in option for option in normalized):
-            raise ValueError("每个问题选项必须使用单行纯文本")
-        if len({option.casefold() for option in normalized}) != len(normalized):
+    def normalize_options(
+        cls,
+        options: list[str | QuestionOption],
+    ) -> list[str | QuestionOption]:
+        """统一选项空白并按标签拒绝空项、多行和重复项。"""
+        normalized: list[str | QuestionOption] = []
+        labels: list[str] = []
+        for option in options:
+            if isinstance(option, str):
+                value = option.strip()
+                if not value:
+                    raise ValueError("问题选项不能为空")
+                if "\n" in value or "\r" in value:
+                    raise ValueError("每个问题选项必须使用单行纯文本")
+                normalized.append(value)
+                labels.append(value)
+            else:
+                normalized.append(option)
+                labels.append(option.label)
+        if len({label.casefold() for label in labels}) != len(labels):
             raise ValueError("问题选项不能重复")
         return normalized
 
@@ -116,6 +161,10 @@ class QuestionPayload(BaseModel):
 
         for question in self.questions:
             answer = answers[question.id]
+            option_labels = {
+                option if isinstance(option, str) else option.label
+                for option in question.options
+            }
             if question.type == "TextQuestion":
                 if (
                     not isinstance(answer, str)
@@ -132,7 +181,7 @@ class QuestionPayload(BaseModel):
                     or len(answer) > MAX_QUESTION_ANSWER_CHARS
                 ):
                     raise ValueError("单选题必须选择一个选项")
-                if answer not in question.options and not question.allow_custom_input:
+                if answer not in option_labels and not question.allow_custom_input:
                     raise ValueError("单选题答案不在可选项中")
                 continue
 
@@ -151,7 +200,7 @@ class QuestionPayload(BaseModel):
                 ):
                     raise ValueError("多选题必须提交有效且不重复的选项")
                 if not question.allow_custom_input and any(
-                    item not in question.options for item in answer
+                    item not in option_labels for item in answer
                 ):
                     raise ValueError("多选题答案包含不在可选项中的内容")
                 continue

@@ -5,7 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agent.constants import MAX_QUESTION_OPTION_CHARS, MAX_REFERENCE_IMAGE_COUNT
+from agent.constants import MAX_REFERENCE_IMAGE_COUNT
+from agent.schemas.question import QuestionOption
 from agents.listing_agent.constants import (
     LISTING_SCHEMA_VERSION,
     LISTING_VERSION_COUNT,
@@ -67,15 +68,13 @@ class ListingQuestion(BaseModel):
         default="SingleChoice",
         description="只允许单选题或多选题",
     )
-    options: list[
-        Annotated[
-            str,
-            Field(min_length=1, max_length=MAX_QUESTION_OPTION_CHARS),
-        ]
-    ] = Field(
+    options: list[QuestionOption] = Field(
         min_length=LISTING_QUESTION_OPTION_COUNT,
         max_length=LISTING_QUESTION_OPTION_COUNT,
-        description=f"必须提供 {LISTING_QUESTION_OPTION_COUNT} 个互不重复的选项",
+        description=(
+            f"必须提供 {LISTING_QUESTION_OPTION_COUNT} 个互不重复的选项对象，"
+            "每项包含 label 和 description"
+        ),
     )
     allow_custom_input: Literal[False] = Field(
         default=False,
@@ -91,18 +90,13 @@ class ListingQuestion(BaseModel):
             raise ValueError("问题标题必须是非空单行文本")
         return normalized
 
-    @field_validator("options")
-    @classmethod
-    def normalize_options(cls, options: list[str]) -> list[str]:
-        """选项去除两端空白并拒绝空项、多行和重复项。"""
-        normalized = [option.strip() for option in options]
-        if any(not option for option in normalized):
-            raise ValueError("问题选项不能为空")
-        if any("\n" in option or "\r" in option for option in normalized):
-            raise ValueError("每个问题选项必须使用单行纯文本")
-        if len({option.casefold() for option in normalized}) != len(normalized):
-            raise ValueError("问题选项不能重复")
-        return normalized
+    @model_validator(mode="after")
+    def validate_option_labels(self) -> "ListingQuestion":
+        """Listing 的选项标签必须互不重复。"""
+        labels = [option.label for option in self.options]
+        if len({label.casefold() for label in labels}) != len(labels):
+            raise ValueError("问题选项标签不能重复")
+        return self
 
 
 class ListingPlan(BaseModel):

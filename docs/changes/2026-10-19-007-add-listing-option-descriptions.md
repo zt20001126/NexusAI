@@ -1,0 +1,49 @@
+# 为 Listing 选项增加说明
+
+- 日期：2026-10-19
+- 变更类型：接口
+- 影响范围：共享追问选项 Schema、Listing 追问事件、答案校验和聊天交互卡片
+
+## 背景
+
+Listing 选择题此前只发送字符串选项，商家无法从选项本身看到补充解释。现为每项增加说明，同时维持答案提交值稳定。
+
+## 变更内容
+
+- Listing 选项改为 `{label, description}` 对象，每题仍恰好 4 项；标签最多 100 字符，说明最多 300 字符。
+- 后端按 `label` 去重并校验答案；恢复请求仍提交一个标签字符串或多个标签字符串数组。
+- 前端在选项标签下显示说明，选中和提交时仅使用 `label`；追问卡片键包含完整题目数据，选项变化时重置表单状态。
+- 共享追问协议同时兼容原有字符串选项和新的结构化选项对象。
+- 更新 Listing 提示词、产品/技术/API 文档及 `[Unreleased]` 摘要。
+
+## 涉及文件
+
+- `backend/agent/constants.py`、`backend/agent/schemas/question.py`：定义说明长度上限和通用结构化选项模型；共享答案校验按选项标签匹配。
+- `backend/agents/listing_agent/schemas.py`、`backend/agents/listing_agent/prompts.py`：要求 Listing 选项对象包含标签和说明，并拒绝重复标签。
+- `frontend/src/features/chat/api/agent.ts`、`frontend/src/features/chat/components/AgentInteractionCard.tsx`、`frontend/src/features/chat/ChatPage.tsx`、`frontend/src/index.css`：更新类型、展示说明、按标签提交及题目状态键。
+- `backend/tests/test_listing_agent.py`、`backend/tests/test_question_limits.py`、`backend/tests/test_api.py`：覆盖结构化选项校验、标签答案校验和 SSE 事件格式。
+- `docs/API接口文档.md`、`docs/agents/listing/prd.md`、`docs/agents/listing/tdd.md`、`CHANGELOG.md`：同步接口规则。
+
+## 设计决策
+
+- `label` 是稳定答案值；`description` 仅用于解释选项，不进入恢复答案。
+- 仅 Listing 强制使用结构化选项对象；其他智能体仍可使用原字符串选项。
+
+## 测试与验证
+
+- 命令：`.venv/Scripts/python.exe -m pytest -q`（工作目录：`backend/`）
+- 结果：127 项通过；有 1 条 Starlette `BlockingPortal` 弃用警告。
+- 命令：`npm test`（工作目录：`frontend/`）
+- 结果：8 项通过。
+- 命令：`npm run build`（工作目录：`frontend/`）
+- 结果：构建通过；Vite 报告大 chunk 提示。
+- 命令：`git diff --check`
+- 结果：通过。
+
+## 潜在影响
+
+- Listing `question.required` 事件中 `options` 从字符串数组变为对象数组；客户端需读取 `label` 和 `description`，恢复答案仍提交 `label`。
+
+## 后续事项
+
+- 无。

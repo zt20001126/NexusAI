@@ -190,9 +190,9 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。SSE 事件不持久化，当前不支持断线重放。
 
-追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的单行选项；文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题和选项会去除两端空白并拒绝空值或多行内容；通用题目的 `prompt` 为可选补充内容。
+追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的选项；选项可以是字符串，也可以是包含 `label` 和 `description` 的对象，答案始终提交选项的 `label`。文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题、题干、标签和说明会去除两端空白并拒绝空值或多行内容；通用题目的 `prompt` 为可选补充内容。
 
-Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`。Listing 事件数据示例：
+Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`；每个选项都包含不超过 100 字符的 `label` 和不超过 300 字符的 `description`。Listing 事件数据示例：
 
 ```json
 {
@@ -201,7 +201,12 @@ Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`。Listin
       "id": "material",
       "title": "请确认商品的主要材质。",
       "type": "SingleChoice",
-      "options": ["棉", "涤纶", "混纺", "不确定/暂不提供"],
+      "options": [
+        {"label": "棉", "description": "商品主体由棉制成"},
+        {"label": "涤纶", "description": "商品主体由涤纶制成"},
+        {"label": "混纺", "description": "商品主体由多种纤维混合制成"},
+        {"label": "不确定/暂不提供", "description": "暂时无法确认材质"}
+      ],
       "allow_custom_input": false
     }
   ],
@@ -284,7 +289,7 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 
 listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通过多模态 Chat Completions 识别商品外观、可读包装文字和可见特征，并使用同一模型判断必要信息及生成文案。图片以 Base64 `image_url` 内容块传入，模型名称、鉴权、地址和超时均使用现有 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 仍用于 `image_agent` 的生图能力。
 
-Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件最多返回 3 道题；题目按重要性排序，回答后只追问仍缺少的信息。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项，且不允许自定义输入；完整题目内容放在 `title`，不返回 `prompt`。一次运行最多追问 3 轮；达到上限后提示商家在聊天框补充其余信息，不会猜测缺失事实或生成结果。
+Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件最多返回 3 道题；题目按重要性排序，回答后只追问仍缺少的信息。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项对象，每项包含 `label` 和 `description`，答案以 `label` 提交；不允许自定义输入。完整题目内容放在 `title`，不返回 `prompt`。一次运行最多追问 3 轮；达到上限后提示商家在聊天框补充其余信息，不会猜测缺失事实或生成结果。
 
 成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 

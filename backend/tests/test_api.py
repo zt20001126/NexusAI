@@ -154,10 +154,10 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                                 "title": "请选择水杯标注的容量。",
                                 "type": "SingleChoice",
                                 "options": [
-                                    "350 毫升",
-                                    "500 毫升",
-                                    "750 毫升",
-                                    "不确定/暂不提供",
+                                    {"label": "350 毫升", "description": "水杯标注容量为 350 毫升"},
+                                    {"label": "500 毫升", "description": "水杯标注容量为 500 毫升"},
+                                    {"label": "750 毫升", "description": "水杯标注容量为 750 毫升"},
+                                    {"label": "不确定/暂不提供", "description": "暂时无法确认容量"},
                                 ],
                                 "allow_custom_input": False,
                             }
@@ -647,6 +647,11 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
         )
         question_id = question_event["data"]["questions"][0]["id"]
         assert "prompt" not in question_event["data"]["questions"][0]
+        assert "placeholder" not in question_event["data"]["questions"][0]
+        assert question_event["data"]["questions"][0]["options"][0] == {
+            "label": "350 毫升",
+            "description": "水杯标注容量为 350 毫升",
+        }
         blank_resume = client.post(
             f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
             json={

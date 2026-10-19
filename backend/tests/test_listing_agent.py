@@ -45,6 +45,14 @@ def _listing_result(description: str = "适合日常使用的便携水杯。") -
     }
 
 
+def _listing_options(*labels: str) -> list[dict[str, str]]:
+    """为追问题目构造带说明的四选项数据。"""
+    return [
+        {"label": label, "description": f"选项含义：{label}"}
+        for label in labels
+    ]
+
+
 def test_listing_result_requires_three_versions_and_plain_text_description() -> None:
     """输出校验固定三版，并拒绝富文本详情描述。"""
     parsed = ListingResult.model_validate(_listing_result())
@@ -94,7 +102,7 @@ def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
         "id": "material",
         "title": "请确认商品材质。",
         "type": "SingleChoice",
-        "options": ["不锈钢", "玻璃", "塑料", "不确定/暂不提供"],
+        "options": _listing_options("不锈钢", "玻璃", "塑料", "不确定/暂不提供"),
         "allow_custom_input": False,
     }
     single_choice = ListingQuestion.model_validate(base_question)
@@ -103,6 +111,8 @@ def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
     )
     assert len(single_choice.options) == 4
     assert multiple_choice.type == "MultiChoice"
+    assert single_choice.options[0].label == "不锈钢"
+    assert single_choice.options[0].description
     assert "prompt" not in single_choice.model_dump(mode="json")
     assert "prompt" not in ListingQuestion.model_json_schema()["properties"]
 
@@ -111,7 +121,9 @@ def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
         {**base_question, "type": "TextQuestion", "options": []},
         {**base_question, "type": "Confirmation", "options": []},
         {**base_question, "options": base_question["options"][:3]},
-        {**base_question, "options": [*base_question["options"], "陶瓷"]},
+        {**base_question, "options": [*base_question["options"], _listing_options("陶瓷")[0]]},
+        {**base_question, "options": _listing_options("不锈钢", "不锈钢", "塑料", "未知")},
+        {**base_question, "options": ["不锈钢", "玻璃", "塑料", "未知"]},
         {**base_question, "allow_custom_input": True},
     ]
     for question in invalid_questions:
@@ -160,7 +172,12 @@ def test_ask_listing_questions_persists_json_compatible_image_analysis() -> None
                     "id": "brand",
                     "title": "请确认商品品牌。",
                     "type": "SingleChoice",
-                    "options": ["自有品牌", "无品牌", "品牌信息待确认", "暂不提供"],
+                    "options": _listing_options(
+                        "自有品牌",
+                        "无品牌",
+                        "品牌信息待确认",
+                        "暂不提供",
+                    ),
                     "allow_custom_input": False,
                 }
             ],
@@ -238,19 +255,24 @@ async def test_plan_merges_answer_and_does_not_repeat_its_question_id() -> None:
                             "id": "capacity",
                             "title": "请选择商品标注的容量。",
                             "type": "SingleChoice",
-                            "options": [
+                            "options": _listing_options(
                                 "350 毫升",
                                 "500 毫升",
                                 "750 毫升",
                                 "不确定/暂不提供",
-                            ],
+                            ),
                             "allow_custom_input": False,
                         },
                         {
                             "id": "material",
                             "title": "请选择商品主要材质。",
                             "type": "SingleChoice",
-                            "options": ["不锈钢", "玻璃", "塑料", "不确定/暂不提供"],
+                            "options": _listing_options(
+                                "不锈钢",
+                                "玻璃",
+                                "塑料",
+                                "不确定/暂不提供",
+                            ),
                             "allow_custom_input": False,
                         },
                     ],
