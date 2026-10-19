@@ -235,9 +235,15 @@ class AgentRunner:
         if not pending_question_ids or set(answers) != pending_question_ids:
             raise InvalidResumeAnswersError()
         pending_questions_data = record.metadata.get("pending_questions")
+        question_titles: dict[str, str] = {}
         if isinstance(pending_questions_data, list):
             try:
-                QuestionPayload(questions=pending_questions_data).validate_answers(answers)
+                pending_questions = QuestionPayload(questions=pending_questions_data)
+                pending_questions.validate_answers(answers)
+                question_titles = {
+                    question.id: question.title
+                    for question in pending_questions.questions
+                }
             except ValueError as error:
                 raise InvalidResumeAnswersError() from error
         if "question_round_count" not in record.metadata:
@@ -255,7 +261,11 @@ class AgentRunner:
             {
                 "blocks": [
                     {"type": "text", "text": answer_text},
-                    {"type": "question_answers", "answers": answers},
+                    {
+                        "type": "question_answers",
+                        "answers": answers,
+                        **({"question_titles": question_titles} if question_titles else {}),
+                    },
                 ]
             },
         )

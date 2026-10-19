@@ -781,8 +781,11 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
 
     assert latest_page_response.status_code == 200
     assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
-    assert latest_page["items"][0]["content"]["blocks"][1] == {
-        "type": "question_answers", "answers": {"goal": "构建售后工单智能体"}
+    answer_block = latest_page["items"][0]["content"]["blocks"][1]
+    assert answer_block == {
+        "type": "question_answers",
+        "answers": {"goal": "构建售后工单智能体"},
+        "question_titles": {"goal": question["data"]["questions"][0]["title"]},
     }
     assert latest_page["next_before_message_id"] == latest_page["items"][0]["message_id"]
 

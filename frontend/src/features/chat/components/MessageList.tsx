@@ -85,9 +85,9 @@ function MessageList({ messages, loading, conversationId, agentId }: MessageList
             </div>
           )}
           <div className="message-column">
-            <div className={`message-bubble ${message.role}`}>
-              {message.content
-                ? message.role === 'assistant'
+            <div className={`message-bubble ${message.role}${message.questionAnswers?.length ? ' question-answer-bubble' : ''}`}>
+              {message.content && !message.questionAnswers?.length && (
+                message.role === 'assistant'
                   ? (
                     <div className="message-markdown">
                       <ReactMarkdown
@@ -105,9 +105,36 @@ function MessageList({ messages, loading, conversationId, agentId }: MessageList
                     </div>
                   )
                   : <span>{message.content}</span>
-                : message.taskResults?.length || message.attachments?.length
-                  ? null
-                  : <span className="typing-dots">正在思考…</span>}
+              )}
+              {!message.content
+                && !message.questionAnswers?.length
+                && !message.taskResults?.length
+                && !message.attachments?.length
+                && <span className="typing-dots">正在思考…</span>}
+              {message.questionAnswers && message.questionAnswers.length > 0 && (
+                <section className="message-question-answers" aria-label="已提交的补充回答">
+                  <header className="message-question-answers-heading">
+                    <span>已补充信息</span>
+                    <span className="message-question-answers-count">
+                      {message.questionAnswers.length} 项
+                    </span>
+                  </header>
+                  <dl className="message-question-answer-list">
+                    {message.questionAnswers.map((answer) => (
+                      <div className="message-question-answer" key={answer.questionId}>
+                        <dt>{answer.title}</dt>
+                        <dd>
+                          {answer.values.map((value, index) => (
+                            <span className="message-question-answer-value" key={`${value}-${index}`}>
+                              {value}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              )}
               {message.role === 'user' && (message.attachments?.length ?? 0) > 0 && (
                 <div className="message-attachments" aria-label="已发送图片">
                   {message.attachments?.map((attachment) => (

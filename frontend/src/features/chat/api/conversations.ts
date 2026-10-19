@@ -39,7 +39,11 @@ export interface ConversationMessage {
     blocks: Array<
       | { type: 'text'; text: string }
       | { type: 'image'; attachment_id: string; image_url: string }
-      | { type: 'question_answers'; answers: Record<string, unknown> }
+      | {
+          type: 'question_answers'
+          answers: Record<string, unknown>
+          question_titles?: Record<string, string>
+        }
     >
   }
   created_at: string
