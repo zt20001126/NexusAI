@@ -1,14 +1,19 @@
 """图片智能体参数策略和 TokenHub 边界的离线测试。"""
 
 import base64
+import json
 
 import httpx
 import pytest
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from agent.constants import IMAGE_AGENT_ID
+from agent.constants import IMAGE_AGENT
 from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
+from agents.image_agent.nodes.ask_node import ask_node
+from agents.image_agent.nodes.chat_node import create_chat_node
+from agents.image_agent.nodes.validation_node import validation_node
 from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
@@ -22,6 +27,75 @@ from agents.image_agent.providers.tokenhub_client import (
 )
 from agents.image_agent.schemas import ImageGenerationOptions
 from infra.settings import AppSettings
+
+
+@pytest.mark.parametrize(
+    ("user_message", "model_intent", "expected"),
+    [
+        (
+            "我想把刚才上传的商品做成适合手机浏览的长版介绍页。",
+            "generate_image",
+            True,
+        ),
+        ("图片智能体可以生成淘宝详情页吗？", "other", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_chat_node_uses_model_semantic_intent(
+    user_message: str,
+    model_intent: str,
+    expected: bool,
+) -> None:
+    """语义分类应区分隐含生图请求和能力咨询，而不是按关键词决定。"""
+    model = FakeListChatModel(
+        responses=[
+            json.dumps(
+                {
+                    "intent": model_intent,
+                    "image_prompt": "手机端竖版商品介绍页，保留参考商品外观。"
+                    if expected
+                    else "",
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    chat_node = create_chat_node(model)
+
+    result = await chat_node(
+        {
+            "original_request": user_message,
+            "attachment_ids": ["reference-image-1"],
+            "run_id": "run-1",
+        }
+    )
+
+    assert result["is_image_generation"] is expected
+    assert result["intent_validated"] is True
+    if expected:
+        assert result["image_prompt"] == "手机端竖版商品介绍页，保留参考商品外观。"
+
+
+@pytest.mark.asyncio
+async def test_validation_node_clears_previous_intent_for_new_run() -> None:
+    """新运行清除上一轮的判断，由聊天模型重新识别本轮语义。"""
+    result = await validation_node(
+        {
+            "original_request": "  这个商品适合什么详情页风格？  ",
+            "run_id": "run-2",
+            "intent_validated": True,
+            "validated_run_id": "run-1",
+            "is_image_generation": True,
+            "image_prompt": "旧提示词",
+            "generation_options": {"size": "1024x1024"},
+        }
+    )
+
+    assert result["original_request"] == "这个商品适合什么详情页风格？"
+    assert result["intent_validated"] is False
+    assert result["is_image_generation"] is False
+    assert result["image_prompt"] == ""
+    assert result["generation_options"] == {}
 
 
 @pytest.mark.parametrize(
@@ -256,13 +330,88 @@ def test_ask_answers_only_map_to_documented_options() -> None:
     assert resized["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[resize_answer]["resize_max_pixels"]
 
 
+@pytest.mark.asyncio
+async def test_ask_node_splits_four_questions_and_preserves_prior_answers() -> None:
+    """图片参数超过每轮上限时分批询问，并在恢复后保留已确认值。"""
+    state = {
+        "original_request": "生成商品图，加水印，并提供 seed 以便复现和参考图缩放像素。",
+        "attachment_ids": ["attachment-1"],
+    }
+
+    first_turn = await ask_node(state)
+    first_call = first_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert [question["id"] for question in first_call["args"]["questions"]] == [
+        "image_size",
+        "footnote",
+        "seed",
+    ]
+    assert first_turn["image_size_confirmed"] is False
+
+    size_answer = next(iter(SIZE_CHOICES))
+    first_answers = {
+        "image_size": size_answer,
+        "footnote": "Nexus",
+        "seed": "42",
+    }
+    second_turn = await ask_node(
+        {
+            **state,
+            "generation_options": first_turn["generation_options"],
+            "image_size_confirmed": first_turn["image_size_confirmed"],
+            "resume_answers": first_answers,
+        }
+    )
+    second_call = second_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert [question["id"] for question in second_call["args"]["questions"]] == [
+        "resize_max_pixels",
+    ]
+    assert second_turn["image_size_confirmed"] is True
+    assert second_turn["generation_options"]["footnote"] == "Nexus"  # type: ignore[index]
+    assert second_turn["generation_options"]["seed"] == 42  # type: ignore[index]
+
+    resize_answer = next(iter(RESIZE_PIXEL_CHOICES))
+    third_turn = await ask_node(
+        {
+            **state,
+            "generation_options": second_turn["generation_options"],
+            "image_size_confirmed": second_turn["image_size_confirmed"],
+            "resume_answers": {"resize_max_pixels": resize_answer},
+        }
+    )
+    generated_call = third_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert generated_call["name"] == "generate_image"
+    assert generated_call["args"]["seed"] == 42
+    assert generated_call["args"]["footnote"] == "Nexus"
+    assert generated_call["args"]["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[
+        resize_answer
+    ]["resize_max_pixels"]
+
+
+@pytest.mark.asyncio
+async def test_validation_resets_size_confirmation_for_a_new_run() -> None:
+    """新生图运行不能继承同会话上一轮的尺寸确认状态。"""
+    result = await validation_node(
+        {
+            "run_id": "run-2",
+            "validated_run_id": "run-1",
+            "intent_validated": True,
+            "image_size_confirmed": True,
+            "generation_options": {"seed": 42},
+            "original_request": "生成另一张商品图",
+        }
+    )
+
+    assert result["image_size_confirmed"] is False
+    assert result["generation_options"] == {}
+
+
 def test_memory_result_and_attachment_stores_enforce_owner_and_single_binding() -> None:
     """内存适配器遵守与 PostgreSQL 相同的结果读取和附件绑定归属规则。"""
     result_store = MemoryTaskResultStore()
     result_store.save(
         TaskResultRecord(
             task_result_id="123",
-            agent_id=IMAGE_AGENT_ID,
+            agent=IMAGE_AGENT,
             user_id="user-1",
             conversation_id="456",
             run_id="789",

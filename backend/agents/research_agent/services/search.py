@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from agent.persistence.interfaces import TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agents.research_agent.constants import (
-    RESEARCH_AGENT_ID,
+    RESEARCH_AGENT,
     RESEARCH_OPENALEX_SOURCE,
     RESEARCH_RESULT_TYPE,
     RESEARCH_SCHEMA_VERSION,
@@ -158,7 +158,7 @@ class ResearchSearchService:
         self._task_result_store.save(
             TaskResultRecord(
                 task_result_id=payload.task_result_id,
-                agent_id=RESEARCH_AGENT_ID,
+                agent=RESEARCH_AGENT,
                 user_id=payload.principal_id,
                 conversation_id=payload.conversation_id,
                 run_id=payload.run_id,

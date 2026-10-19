@@ -1,10 +1,12 @@
 """会话列表与消息历史接口的响应 Schema。"""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
+from agent.enums import AgentType
 
 
 class ConversationItem(BaseModel):
@@ -19,14 +21,14 @@ class ConversationItem(BaseModel):
     title: str | None = Field(description="会话标题")
     created_at: datetime = Field(description="会话创建时间")
     updated_at: datetime = Field(description="会话最近更新时间")
-    agent_id: str = Field(default=COMMON_AGENT_ID, description="所属智能体标识")
+    agent: AgentType = Field(default=COMMON_AGENT, description="所属智能体类型")
 
 
 class TaskResultSummary(BaseModel):
     """附加到消息历史的任务结果元数据，不包含二进制图片内容。"""
 
     task_result_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="任务结果雪花 ID")
-    agent_id: str
+    agent: AgentType = Field(description="生成结果所属智能体类型")
     result_type: str
     generation_status: str
     image_url: str | None = None
@@ -54,13 +56,8 @@ class ConversationMessageItem(BaseModel):
 
     message_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="消息雪花 ID")
     conversation_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="所属会话雪花 ID")
-    run_id: str | None = Field(
-        pattern=r"^[1-9][0-9]{0,18}$",
-        description="产生消息的 Agent 运行雪花 ID",
-    )
-    sequence: int = Field(description="会话内消息顺序")
     role: str = Field(description="消息角色：user 或 assistant")
-    content: str = Field(description="消息正文")
+    content: dict[str, Any] = Field(description="文字、图片和问题回答的 JSON 内容块")
     created_at: datetime = Field(description="消息创建时间")
     task_results: list[TaskResultSummary] = Field(default_factory=list)
 
@@ -70,7 +67,7 @@ class ConversationMessageListData(BaseModel):
 
     items: list[ConversationMessageItem] = Field(description="当前页消息")
     limit: int = Field(description="每页数量")
-    before_sequence: int | None = Field(description="本页查询游标")
-    next_before_sequence: int | None = Field(
-        description="向更早消息翻页使用的游标；无更多消息时为空"
+    before_message_id: str | None = Field(description="本页查询游标")
+    next_before_message_id: str | None = Field(
+        description="向更早消息翻页使用的消息 ID；无更多消息时为空"
     )

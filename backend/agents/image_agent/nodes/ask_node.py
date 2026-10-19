@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
+from agent.constants import MAX_QUESTIONS_PER_BATCH
 from agents.image_agent.parameter_policy import (
     RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
@@ -29,7 +30,10 @@ async def ask_node(state: ImageAgentState) -> dict[str, object]:
     original_request = state.get("original_request", "")
 
     resume_answers = state.get("resume_answers", {})
-    if resume_answers.get("image_size") not in SIZE_CHOICES:
+    image_size_confirmed = state.get("image_size_confirmed", False)
+    if resume_answers.get("image_size") in SIZE_CHOICES:
+        image_size_confirmed = True
+    if not image_size_confirmed:
         questions.append(
             {
                 "id": "image_size",
@@ -109,9 +113,10 @@ async def ask_node(state: ImageAgentState) -> dict[str, object]:
         "options": options,
     }
     if questions:
+        question_batch = questions[:MAX_QUESTIONS_PER_BATCH]
         call = {
             "name": "ask_image_parameters",
-            "args": {"questions": questions, **context},
+            "args": {"questions": question_batch, **context},
             "id": uuid.uuid4().hex,
             "type": "tool_call",
         }
@@ -131,4 +136,8 @@ async def ask_node(state: ImageAgentState) -> dict[str, object]:
             "id": uuid.uuid4().hex,
             "type": "tool_call",
         }
-    return {"messages": [AIMessage(content="", tool_calls=[call])]}
+    return {
+        "messages": [AIMessage(content="", tool_calls=[call])],
+        "generation_options": options,
+        "image_size_confirmed": image_size_confirmed,
+    }

@@ -1,6 +1,6 @@
 """集中维护劳动法律智能体、语料和检索边界配置。"""
 
-from agent.constants import LABOR_LAW_AGENT_ID
+from agent.constants import LABOR_LAW_AGENT
 
 LABOR_LAW_AGENT_NAME = "劳动法律问答"
 LABOR_LAW_AGENT_DESCRIPTION = "检索中国大陆全国性劳动法律法规，回答时展示具体条文和官方来源。"
@@ -26,7 +26,7 @@ LEGAL_EMBEDDING_BATCH_SIZE = 128
 LEGAL_STATUS_EFFECTIVE = "effective"
 
 __all__ = [
-    "LABOR_LAW_AGENT_ID",
+    "LABOR_LAW_AGENT",
     "LABOR_LAW_AGENT_NAME",
     "LABOR_LAW_AGENT_DESCRIPTION",
     "LEGAL_CORPUS_DIR",

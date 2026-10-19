@@ -53,8 +53,8 @@ def create_chat_node(
             )
         except Exception as error:
             logger.warning(
-                "智能体模型调用失败 agent_id=%s error_type=%s",
-                config.agent_id,
+                "智能体模型调用失败 agent=%s error_type=%s",
+                config.agent,
                 type(error).__name__,
             )
             raise BaseAgentExecutionError(

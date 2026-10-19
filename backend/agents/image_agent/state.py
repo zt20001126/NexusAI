@@ -5,6 +5,7 @@ from typing import Annotated, Any, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+from agent.enums import AgentType
 
 class ImageAgentState(TypedDict, total=False):
     """分隔用户输入、可信运行上下文和图片业务中间结果。"""
@@ -12,7 +13,7 @@ class ImageAgentState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
     original_request: str
     resume_answers: dict[str, Any]
-    agent_id: str
+    agent: AgentType
     principal_id: str
     conversation_id: str
     run_id: str
@@ -23,4 +24,5 @@ class ImageAgentState(TypedDict, total=False):
     is_image_generation: bool
     image_prompt: str
     generation_options: dict[str, Any]
+    image_size_confirmed: bool
     user_visible_response: str

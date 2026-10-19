@@ -20,9 +20,19 @@ flowchart LR
     PersistenceCRUD --> ORMModels[app.models]
     PersistenceCRUD --> Database[app.db]
     BootstrapRuntime --> Infrastructure[模型 Provider 与外部适配器]
+    BootstrapRuntime --> HealthMonitor[HealthMonitor]
+    HealthMonitor --> HealthProbes[PostgreSQL/Redis 探针]
+    HealthRouter[健康检查 Router] --> HealthMonitor
+    Service --> AgentQueue[Celery Agent 队列]
+    AgentQueue --> AgentWorker[Agent Worker]
+    AgentWorker --> Runner
+    AgentWorker --> EventStream[Redis Streams]
+    EventStream --> Router
 ```
 
-`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。文献导入另由 Celery Worker 执行；文献 API 只创建记录并将文献 ID 发送到 Redis Broker，解析和向量化状态以 PostgreSQL 为准。
+`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。聊天 SSE 提交先保存 queued 运行和用户消息，再派发到独立 Celery Agent Worker；Worker 执行 Runner 并把业务事件写入 Redis Streams，HTTP SSE 连接只读取事件流。连接断开不影响 Worker；显式停止通过 Redis 共享取消标志到达执行进程。Router 按 `AgentType` 字符串枚举从显式注册表取得对应应用 Service。文献导入仍由单独的 Celery Worker 执行，解析和向量化状态以 PostgreSQL 为准。
+
+后端健康巡检器在 `bootstrap.runtime` lifespan 中创建、启动和停止，定时并发探测 PostgreSQL 与 Redis Broker。`app.router.health` 只读取最近一次状态快照；具体连接和探测由 `infra.health_probes` 提供，避免将轮询和外部客户端放进 HTTP 路由。
 
 ## 模块职责
 
@@ -30,21 +40,23 @@ flowchart LR
 |---|---|---|
 | `bootstrap/` | 创建 FastAPI 应用；组装模型 Provider、智能体图、Runner、Service、存储和运行资源生命周期 | 承载 HTTP 路由实现、业务用例和 SQL 查询 |
 | `app/router/` | 接收 HTTP 参数、解析身份、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
-| `app/service/` | 编排应用用例；不依赖 FastAPI 请求对象 | 直接执行 SQL |
+| `app/service/` | 编排应用用例和健康巡检状态；不依赖 FastAPI 请求对象 | 直接执行 SQL |
 | `app/crud/` | 按会话、消息、运行和任务结果执行 SQLAlchemy ORM 查询及持久化 | HTTP 参数解析和智能体图流程 |
 | `app/models/` | 定义与 Pydantic DTO 分离的 SQLAlchemy 持久化模型 | HTTP 请求和响应校验 |
 | `app/db/` | 创建 SQLAlchemy 引擎和 Session 工厂，管理数据库资源生命周期 | 业务查询和 HTTP 流程 |
 | `app/schemas/` | 定义 HTTP 请求和响应 DTO | 保存图状态或数据库实体 |
 | `agent/` | 提供共享 Runner、稳定事件、追问协议、持久化协议；保留现有默认智能体图 | 导入 `app`、FastAPI 或 HTTP DTO |
 | `agents/` | 按业务目录保存独立智能体图、状态、节点、提示词、工具和 Provider 适配 | 复制公共 Runner、SSE 或持久化代码 |
-| `agents/registry.py` | 按稳定 `agent_id` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
+| `agents/registry.py` | 按 `AgentType` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
 | `agent/persistence/interfaces.py` | 声明 Runner 所依赖的存储协议；`memory.py` 提供内存测试适配器 | PostgreSQL SQL 和 FastAPI 路由 |
-| `infra/` | 集中管理配置及外部 Provider | 承载 HTTP 路由或业务图流程 |
+| `infra/` | 集中管理配置、外部 Provider 和 PostgreSQL/Redis 健康探针 | 承载 HTTP 路由或业务图流程 |
+| `infra/agent_event_store.py` | 使用 Redis Streams 分配 run 游标、保存/回放事件及共享取消标志 | 取代进程内 SSE 缓冲，不承担消息历史 |
+| `infra/agent_task_queue.py`、`app/service/agent_tasks.py` | 将稳定运行 ID 派发到专属 Celery 队列，并在 Worker 中重建 Runtime | HTTP/SSE 连接生命周期 |
 | `main.py` | 暴露 Uvicorn 所需的 `app` 实例 | 组装运行依赖 |
 
 ## 依赖与数据边界
 
-- Router 调用 Service；Service 按 `agent_id` 查找应用 Service 并调用 Runner。
+- Router 调用 Service；Service 按 `AgentType` 查找应用 Service 并调用 Runner。
 - `agent/`、`agents/` 和基础设施模块不导入 FastAPI Router 或 HTTP DTO。
 - `app.crud` 使用 SQLAlchemy ORM 实现 `agent.persistence.interfaces` 中的存储协议；Runner 只依赖协议，不直接依赖数据库模型或 PostgreSQL 实现。
 - `app/models/` 保存数据库持久化模型；`app/schemas/` 保存 HTTP 请求与响应模型；`agent/schemas/` 保存运行记录、图问题、事件和任务结果领域记录。
@@ -63,18 +75,18 @@ flowchart LR
 ## 新增独立智能体
 
 1. 在 `backend/agents/<business_name>/` 新建业务状态、图、节点、系统提示词和专属工具。
-2. 在 `backend/agents/registry.py` 与 `AgentDefinition` 中登记稳定 `agent_id`、名称、描述和能力。
+2. 在 `backend/agent/enums.py` 增加 `AgentType` 枚举值，并在 `backend/agents/registry.py` 与 `AgentDefinition` 中登记名称、描述和能力。
 3. 在 `bootstrap/runtime.py` 组装 Provider、图、Runner 和应用 Service；共享数据库、Checkpointer、问题协议和 SSE。
 4. 将业务结果元数据保存到统一 `task_results` 表；大文件放入对象存储并在 JSON 元数据中保留对象键。
 5. 为新图、追问恢复、Provider 错误、结果持久化和资源授权增加离线测试。
 
-基础对话助手 `basic_conversation_agent` 使用 `agents/base_agent/` 提供的通用图，并由 `bootstrap/runtime.py` 注入模型与共享 PostgreSQL Checkpointer。聊天 Runner 按可信主体、智能体 ID 和会话 ID 设置 `thread_id`，因此每轮只需输入新消息，图会从 Checkpoint 恢复本会话历史；该历史与应用消息表分别用于图状态恢复和聊天记录展示。
+基础对话助手 `basic_conversation_agent` 使用 `agents/base_agent/` 提供的通用图，并由 `bootstrap/runtime.py` 注入模型与共享 PostgreSQL Checkpointer。聊天 Runner 按可信主体、智能体枚举值和会话 ID 设置 `thread_id`，因此每轮只需输入新消息，图会从 Checkpoint 恢复本会话历史；该历史与应用消息表分别用于图状态恢复和聊天记录展示。
 
 当前图片智能体位于 `backend/agents/image_generation/`，稳定标识为 `image_agent`。图片业务实现不放入通用智能体的业务图目录。
 
 ### listing生成智能体
 
-listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result_data`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
+listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
 
 完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。识图、信息规划和文案生成共用 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 与 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 继续用于图片智能体的生图能力。
 
@@ -88,7 +100,7 @@ MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG
 
 科研文献检索位于 backend/agents/research_agent/，稳定标识为 research_agent。图节点调用现有 ChatModel 解析检索词和约束，再由异步 HTTPX OpenAlex Client 查询 Works API。论文字段只从 OpenAlex 响应映射，摘要由其倒排索引重建；作者、DOI、年份、语言和引用量均由标准化器校验、过滤和去重。
 
-单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 task_results.result_data；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用任务所有者校验，前端按 research_search 展示论文卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。
+单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 `task_results.result`；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用会话所有者校验，前端按会话智能体标识展示科研结果卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。
 
 ### 劳动法律问答智能体
 

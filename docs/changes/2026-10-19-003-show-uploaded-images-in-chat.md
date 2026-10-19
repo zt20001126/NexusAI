@@ -1,0 +1,62 @@
+# 在聊天消息中显示上传图片
+
+- 日期：2026-10-19
+- 变更类型：缺陷修复
+- 影响范围：图片智能体和 Listing 智能体的用户消息、聊天历史及私有图片读取
+
+## 背景
+
+用户上传图片后，发送前输入框能预览，但发送后的聊天消息只保存和展示文字；刷新历史后也无法查看原上传图。原因是附件 ID 未与用户消息持久关联，历史接口没有返回图片展示信息。
+
+## 变更内容
+
+- 消息表使用 `content JSONB` 统一保存文字、图片引用和结构化追问答案，移除旧 `run_id`、`sequence` 及独立的 `attachment_ids` 字段；旧文本 `content` 已转换为 JSON 内容块。
+- 历史接口返回消息内图片块的授权地址，按创建时间和消息 ID 稳定分页；前端在发送后和历史消息中显示图片缩略图。
+- 新增按会话、消息及附件关联授权的图片读取接口；图片仍保存在私有 OSS。
+- 增加消息结构迁移，将旧正文转换为文字块，并将旧运行元数据中的附件 ID 回填至该运行首条用户消息。
+
+## 涉及文件
+
+- `backend/migrations/006_message_context.sql`、`backend/migrations/007_rename_message_context_to_content.sql`、`backend/app/models/message.py`、`backend/app/crud/message.py`：JSON 内容字段、创建时间分页、历史回填和字段更名。
+- `backend/agent/runner.py`、`backend/agent/schemas/conversation.py`、`backend/agent/persistence/interfaces.py`、`backend/agent/persistence/memory.py`：运行时关联和持久化协议。
+- `backend/infra/aliyun_oss.py`、`backend/app/service/conversation.py`、`backend/app/router/conversation.py`、`backend/app/schemas/conversation.py`、`backend/bootstrap/runtime.py`：私有参考图读取、所有权校验和历史 DTO。
+- `frontend/src/features/chat/`、`frontend/src/index.css`：前端契约、发送预览与消息气泡展示。
+- `backend/tests/test_api.py`：正常读取、错误消息、未关联附件和越权读取的接口验证。
+- `docs/implementation-plans/2026-10-19-聊天消息显示上传图片.md`、`docs/API接口文档.md`、`docs/数据库表结构.md`、`CHANGELOG.md`：计划、接口、数据结构和变更说明。
+
+## 设计决策
+
+- 将图片引用作为消息 `content` 中的内容块，避免依赖任务结果是否创建；后端在读取图片时校验可信主体的会话归属及精确的消息图片引用。
+- 时间相同的消息由 `message_id` 打破排序并列；旧追问答案无法从文本可靠还原结构，迁移保留原文，新答案保存结构化内容块。
+- 不在数据库保存图片字节，浏览器也不接触 OSS 对象键。
+
+## 测试与验证
+
+- 在 `backend/` 执行 `.venv/Scripts/python.exe -m pytest -q tests/test_api.py -k 'image_agent_upload_ask_resume_persist_and_authorize_result or conversation_and_message_history_endpoints_support_paging'`：2 通过，覆盖图片归属、结构化答案和消息 ID 分页。
+- 在 `backend/` 执行 `.venv/Scripts/python.exe -m pytest -q`：118 通过、3 失败；失败仍位于 Listing 追问 Schema 用例。
+- 在 `frontend/` 执行 `npm test`：8 通过。
+- 在 `frontend/` 执行 `npm run build`：通过；Vite 报告大 chunk 提示。
+- `pglast.parse_sql` 解析 `006_message_context.sql`：通过。
+- 在当前 PostgreSQL 的事务内创建临时表并执行 `006_message_context.sql` 的迁移语句，验证迁移后仅有 `message_id`、`conversation_id`、`role`、`context`、`created_at`，旧文字和图片引用均保留；测试事务已回滚，`public.messages` 未改动。
+- 在当前 PostgreSQL 的事务中对 `public.messages` 执行 `006_message_context.sql`：提交成功；字段为 `message_id`、`conversation_id`、`role`、`created_at`、`context`，行数 155 → 155。迁移后 `context.blocks` 格式异常记录为 0，包含图片引用的消息为 13 条；新版 `PostgresMessageStore` 可读取历史页。
+- `docker compose --env-file backend/.env -f backend/compose.yaml up -d --build backend`：新版后端容器启动且健康；`GET /api/conversations/{conversation_id}/messages?limit=3` 返回 3 条消息，字段含 `context`。
+- 在当前 PostgreSQL 执行 `007_rename_message_context_to_content.sql`：最终字段为 `message_id`、`conversation_id`、`role`、`created_at`、`content`，其中 `content` 为 JSONB，行数保持 155。
+- 再次重建并启动后端：`GET /health/ready` 返回 200；`GET /api/conversations/{conversation_id}/messages?limit=3` 返回 200，消息字段包含 `content`，内容采用 `blocks` 结构。
+- 数据库复核：`public.messages` 的 5 个字段为 `message_id`、`conversation_id`、`role`、`created_at`、`content JSONB`；共 155 条消息，其中 13 条含图片块。
+- 字段更名后在 `backend/` 执行 `.venv/Scripts/python.exe -m pytest -q`：118 通过、3 失败，失败均为既有 Listing 追问 Schema 用例；在 `frontend/` 执行 `npm test`：8 通过。
+- 真实 OSS 图片读取抽查：首次遇到 TLS `SSLEOFError` 并返回 502；随后重试成功，接口返回 HTTP 200、`image/png` 和 1,804,741 字节。
+- 字段更名后的图片接口再次抽查遇到两次客户端读取超时（8 秒、15 秒）；当前不能据此确认真实 OSS 图片读取稳定，需排查当前网络或 OSS 响应。
+- `git diff --check`：通过。
+
+接口测试使用内存附件存储；真实 OSS 曾在当前环境读取成功，但字段更名后的再次抽查超时。
+
+## 潜在影响
+
+- 当前配置的数据库已依次执行 `006_message_context.sql` 和 `007_rename_message_context_to_content.sql`；其他环境若仍使用旧表结构，必须依次迁移再启动新版后端。
+- OSS 连接曾出现一次 TLS 握手异常，重试后成功；若网络不稳定，图片读取接口会返回受控 502。
+- 字段更名后的实测图片请求在客户端超时；图片展示仍取决于 OSS 连通性。
+- 后端全量测试的 3 项 Listing 追问 Schema 失败仍需单独处理；本次变更没有修改 Listing Schema 或节点。
+
+## 后续事项
+
+- 其他部署环境按需执行迁移；若 OSS TLS 异常重复出现，再专项排查网络连接。

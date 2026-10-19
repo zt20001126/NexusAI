@@ -19,15 +19,15 @@ test('conversation welcome and sidebar use their current agent avatar', async (c
     server.ssrLoadModule('/src/features/chat/components/MessageList.tsx'),
     server.ssrLoadModule('/src/features/chat/components/ConversationSidebar.tsx'),
   ])
-  const agentId = 'image_agent'
-  const expectedAvatar = renderToStaticMarkup(createElement(AgentAvatar, { agentId }))
-  const secondAgentId = 'research_agent'
-  const expectedSecondAvatar = renderToStaticMarkup(createElement(AgentAvatar, { agentId: secondAgentId }))
+  const agent = 'image_agent'
+  const expectedAvatar = renderToStaticMarkup(createElement(AgentAvatar, { agent }))
+  const secondAgent = 'research_agent'
+  const expectedSecondAvatar = renderToStaticMarkup(createElement(AgentAvatar, { agent: secondAgent }))
   const welcomeMarkup = renderToStaticMarkup(createElement(MessageList, {
     messages: [],
     loading: false,
     conversationId: null,
-    agentId,
+    agent,
   }))
   const sidebarMarkup = renderToStaticMarkup(createElement(ConversationSidebar, {
     conversations: [
@@ -36,14 +36,14 @@ test('conversation welcome and sidebar use their current agent avatar', async (c
         title: '图片对话',
         created_at: '2026-10-16T00:00:00Z',
         updated_at: '2026-10-16T00:00:00Z',
-        agent_id: agentId,
+        agent: agent,
       },
       {
         conversation_id: 'conversation-2',
         title: '文献检索',
         created_at: '2026-10-16T00:00:00Z',
         updated_at: '2026-10-16T00:00:00Z',
-        agent_id: secondAgentId,
+        agent: secondAgent,
       },
     ],
     activeConversationId: 'conversation-1',

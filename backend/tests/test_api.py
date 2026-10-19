@@ -11,10 +11,10 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent.constants import (
-    COMMON_AGENT_ID,
-    IMAGE_AGENT_ID,
-    LISTING_AGENT_ID,
-    RESEARCH_AGENT_ID,
+    COMMON_AGENT,
+    IMAGE_AGENT,
+    LISTING_AGENT,
+    RESEARCH_AGENT,
 )
 from agent.persistence.memory import (
     MemoryAttachmentStore,
@@ -105,7 +105,17 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         image_transport = httpx.MockTransport(image_response)
         image_graph = build_image_agent_graph(
             MemorySaver(),
-            FakeListChatModel(responses=["淘宝商品棚拍主图，柔和自然光，纯净背景。"]),
+            FakeListChatModel(
+                responses=[
+                    json.dumps(
+                        {
+                            "intent": "generate_image",
+                            "image_prompt": "淘宝商品详情页，突出商品外观、使用场景和材质细节。",
+                        },
+                        ensure_ascii=False,
+                    )
+                ]
+            ),
             settings,
             TokenHubImageClient(settings, transport=image_transport),
             ImageResultDownloader(
@@ -121,7 +131,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             graph=image_graph,
             conversation_store=conversation_store,
             message_store=message_store,
-            agent_id=IMAGE_AGENT_ID,
+            agent=IMAGE_AGENT,
             task_result_store=task_result_store,
             attachment_store=attachment_store,
             title_generator=title_generator,
@@ -141,11 +151,15 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                         "questions": [
                             {
                                 "id": "capacity",
-                                "title": "商品容量",
-                                "prompt": "请确认水杯的实际容量。",
-                                "type": "TextQuestion",
-                                "allow_custom_input": True,
-                                "placeholder": "例如 500 毫升",
+                                "title": "请选择水杯标注的容量。",
+                                "type": "SingleChoice",
+                                "options": [
+                                    {"label": "350 毫升", "description": "水杯标注容量为 350 毫升"},
+                                    {"label": "500 毫升", "description": "水杯标注容量为 500 毫升"},
+                                    {"label": "750 毫升", "description": "水杯标注容量为 750 毫升"},
+                                    {"label": "不确定/暂不提供", "description": "暂时无法确认容量"},
+                                ],
+                                "allow_custom_input": False,
                             }
                         ],
                     },
@@ -193,7 +207,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             graph=listing_graph,
             conversation_store=conversation_store,
             message_store=message_store,
-            agent_id=LISTING_AGENT_ID,
+            agent=LISTING_AGENT,
             task_result_store=task_result_store,
             attachment_store=attachment_store,
             title_generator=title_generator,
@@ -238,31 +252,30 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             graph=research_graph,
             conversation_store=conversation_store,
             message_store=message_store,
-            agent_id=RESEARCH_AGENT_ID,
+            agent=RESEARCH_AGENT,
             task_result_store=task_result_store,
             title_generator=title_generator,
         )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
-            COMMON_AGENT_ID: AgentApplicationService(runner, publisher),
-            IMAGE_AGENT_ID: AgentApplicationService(image_runner, publisher),
-            LISTING_AGENT_ID: AgentApplicationService(listing_runner, publisher),
-            RESEARCH_AGENT_ID: AgentApplicationService(research_runner, publisher),
+            COMMON_AGENT: AgentApplicationService(runner, publisher),
+            IMAGE_AGENT: AgentApplicationService(image_runner, publisher),
+            LISTING_AGENT: AgentApplicationService(listing_runner, publisher),
+            RESEARCH_AGENT: AgentApplicationService(research_runner, publisher),
         }
         app.state.settings = settings
-        app.state.agent_service = services[COMMON_AGENT_ID]
         app.state.agent_registry = AgentRegistry(
             [
-                AgentDefinition(COMMON_AGENT_ID, COMMON_AGENT_NAME, COMMON_AGENT_DESCRIPTION, False),
-                AgentDefinition(IMAGE_AGENT_ID, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
+                AgentDefinition(COMMON_AGENT, COMMON_AGENT_NAME, COMMON_AGENT_DESCRIPTION, False),
+                AgentDefinition(IMAGE_AGENT, IMAGE_AGENT_NAME, IMAGE_AGENT_DESCRIPTION, True),
                 AgentDefinition(
-                    LISTING_AGENT_ID,
+                    LISTING_AGENT,
                     LISTING_AGENT_NAME,
                     LISTING_AGENT_DESCRIPTION,
                     True,
                 ),
                 AgentDefinition(
-                    RESEARCH_AGENT_ID,
+                    RESEARCH_AGENT,
                     RESEARCH_AGENT_NAME,
                     RESEARCH_AGENT_DESCRIPTION,
                     False,
@@ -274,7 +287,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         task_result_service = TaskResultApplicationService(task_result_store)
         app.state.task_result_service = task_result_service
         app.state.research_service = ResearchApplicationService(
-            services[RESEARCH_AGENT_ID],
+            services[RESEARCH_AGENT],
             task_result_service,
         )
         app.state.attachment_store = attachment_store
@@ -282,6 +295,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             conversation_store,
             message_store,
             task_result_store,
+            attachment_store,
         )
         yield
 
@@ -301,11 +315,11 @@ def _client(settings: AppSettings | None = None) -> TestClient:
     )
 
 
-def test_single_agent_uses_fixed_chat_route() -> None:
-    """单智能体模板使用固定路由，不要求调用方理解或提交 agent_id。"""
+def test_common_agent_uses_registered_chat_route() -> None:
+    """通用智能体通过注册表路由及其字符串枚举值访问。"""
     with _client() as client:
         response = client.post(
-            "/api/agent/chat",
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我整理需求"},
         )
 
@@ -319,13 +333,13 @@ def test_multi_agent_discovery_includes_research_agent() -> None:
 
     assert response.status_code == 200
     assert [
-        (item["agent_id"], item["name"])
+        (item["agent"], item["name"])
         for item in response.json()["data"]
     ] == [
-        (COMMON_AGENT_ID, "通用智能体"),
-        (IMAGE_AGENT_ID, "图片智能体"),
-        (LISTING_AGENT_ID, "listing生成智能体"),
-        (RESEARCH_AGENT_ID, "科研文献检索智能体"),
+        (COMMON_AGENT, "通用智能体"),
+        (IMAGE_AGENT, "图片智能体"),
+        (LISTING_AGENT, "listing生成智能体"),
+        (RESEARCH_AGENT, "科研文献检索智能体"),
     ]
 
 
@@ -412,7 +426,7 @@ def test_stream_chat_uses_stable_sse_event_contract() -> None:
     """流式接口发布命名事件和 JSON 数据，不透传 LangGraph 原始事件。"""
     with _client() as client:
         response = client.post(
-            "/api/agent/chat/stream",
+            f"/api/agents/{COMMON_AGENT}/chat/stream",
             json={"message": "帮我整理需求"},
         )
 
@@ -430,8 +444,8 @@ def test_stream_chat_uses_stable_sse_event_contract() -> None:
     assert question["data"]["questions"][0]["id"] == "goal"
 
 
-def test_legacy_agent_id_route_is_not_supported() -> None:
-    """固定单智能体接口不会接受 agent_id 路径参数。"""
+def test_legacy_agent_route_is_not_supported() -> None:
+    """固定单智能体接口不会接受 agent 路径参数。"""
     with _client() as client:
         response = client.post(
             "/api/agents/missing/chat",
@@ -457,12 +471,12 @@ def test_conversation_cannot_be_reused_by_another_agent() -> None:
     """同一主体也不能把通用智能体的会话切换到图片图继续执行。"""
     with _client() as client:
         common_response = client.post(
-            "/api/agent/chat",
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "创建一个通用智能体会话"},
         )
         conversation_id = common_response.json()["data"][0]["conversation_id"]
         image_response = client.post(
-            f"/api/agents/{IMAGE_AGENT_ID}/chat",
+            f"/api/agents/{IMAGE_AGENT}/chat",
             json={
                 "message": "帮我生成商品图",
                 "conversation_id": conversation_id,
@@ -479,15 +493,15 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     with _client(settings) as client:
         upload = client.post(
             "/api/uploads/images",
-            params={"agent_id": IMAGE_AGENT_ID, "file_name": "../product.png"},
+            params={"agent": IMAGE_AGENT, "file_name": "../product.png"},
             headers={"Content-Type": "text/plain"},
             content=TEST_PNG,
         )
         attachment_id = upload.json()["data"]["attachment_id"]
         paused_response = client.post(
-            f"/api/agents/{IMAGE_AGENT_ID}/chat/stream",
+            f"/api/agents/{IMAGE_AGENT}/chat/stream",
             json={
-                "message": "帮我生成一张淘宝商品主图",
+                "message": "生成一个淘宝详情页。",
                 "attachment_ids": [attachment_id],
             },
         )
@@ -503,7 +517,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         run_id = question_event["run_id"]
 
         resumed = client.post(
-            f"/api/agents/{IMAGE_AGENT_ID}/runs/{run_id}/resume",
+            f"/api/agents/{IMAGE_AGENT}/runs/{run_id}/resume",
             json={
                 "conversation_id": conversation_id,
                 "answers": {"image_size": "1:1 方图（1024×1024）"},
@@ -529,10 +543,39 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
             for message in history
             for item in message["task_results"]
         )
+        user_message = next(item for item in history if item["role"] == "user")
+        image_block = next(
+            block for block in user_message["content"]["blocks"]
+            if block["type"] == "image"
+        )
+        assert image_block == {
+            "type": "image",
+            "attachment_id": attachment_id,
+            "image_url": (
+                f"/api/conversations/{conversation_id}/messages/"
+                f"{user_message['message_id']}/attachments/{attachment_id}/image"
+            ),
+        }
+        uploaded_image_response = client.get(image_block["image_url"])
+        wrong_message_response = client.get(
+            f"/api/conversations/{conversation_id}/messages/"
+            f"{next(item['message_id'] for item in history if item['role'] == 'assistant')}"
+            f"/attachments/{attachment_id}/image"
+        )
+        other_upload = client.post(
+            "/api/uploads/images",
+            params={"agent": IMAGE_AGENT, "file_name": "other.png"},
+            content=TEST_PNG,
+        )
+        wrong_attachment_response = client.get(
+            f"/api/conversations/{conversation_id}/messages/{user_message['message_id']}"
+            f"/attachments/{other_upload.json()['data']['attachment_id']}/image"
+        )
         image_response = client.get(result["image_url"])
 
         client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
         unauthorized = client.get(result["image_url"])
+        unauthorized_upload = client.get(image_block["image_url"])
 
     assert upload.status_code == 200
     assert upload.json()["data"]["mime_type"] == "image/png"
@@ -541,11 +584,17 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     assert question_event["data"]["questions"][0]["id"] == "image_size"
     assert resumed.status_code == 200
     assert result_event["data"]["image_url"] == result["image_url"]
-    assert result["agent_id"] == IMAGE_AGENT_ID
+    assert result["agent"] == IMAGE_AGENT
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/png"
     assert image_response.content == TEST_PNG
+    assert uploaded_image_response.status_code == 200
+    assert uploaded_image_response.headers["content-type"] == "image/png"
+    assert uploaded_image_response.content == TEST_PNG
+    assert wrong_message_response.status_code == 404
+    assert wrong_attachment_response.status_code == 404
     assert unauthorized.status_code == 404
+    assert unauthorized_upload.status_code == 404
 
 
 def test_image_upload_rejects_unrecognized_file_content() -> None:
@@ -564,7 +613,7 @@ def test_listing_chat_requires_at_least_one_product_image() -> None:
     """Listing 路由在运行前拒绝缺少商品图片的任务。"""
     with _client() as client:
         response = client.post(
-            f"/api/agents/{LISTING_AGENT_ID}/chat",
+            f"/api/agents/{LISTING_AGENT}/chat",
             json={"message": "生成商品 Listing"},
         )
 
@@ -577,12 +626,12 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
     with _client() as client:
         upload_response = client.post(
             "/api/uploads/images",
-            params={"agent_id": LISTING_AGENT_ID, "file_name": "cup.png"},
+            params={"agent": LISTING_AGENT, "file_name": "cup.png"},
             content=TEST_PNG,
         )
         attachment_id = upload_response.json()["data"]["attachment_id"]
         first_response = client.post(
-            f"/api/agents/{LISTING_AGENT_ID}/chat",
+            f"/api/agents/{LISTING_AGENT}/chat",
             json={
                 "message": "这是一款蓝色便携水杯，请帮我写淘宝商品内容。",
                 "attachment_ids": [attachment_id],
@@ -596,15 +645,21 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
             event for event in first_events if event["event_type"] == "task_result.updated"
         )
         question_id = question_event["data"]["questions"][0]["id"]
+        assert "prompt" not in question_event["data"]["questions"][0]
+        assert "placeholder" not in question_event["data"]["questions"][0]
+        assert question_event["data"]["questions"][0]["options"][0] == {
+            "label": "350 毫升",
+            "description": "水杯标注容量为 350 毫升",
+        }
         blank_resume = client.post(
-            f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
+            f"/api/agents/{LISTING_AGENT}/runs/{question_event['run_id']}/resume",
             json={
                 "conversation_id": question_event["conversation_id"],
                 "answers": {question_id: "  "},
             },
         )
         resume_response = client.post(
-            f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
+            f"/api/agents/{LISTING_AGENT}/runs/{question_event['run_id']}/resume",
             json={
                 "conversation_id": question_event["conversation_id"],
                 "answers": {question_id: "500 毫升"},
@@ -658,7 +713,7 @@ def test_resume_endpoint_completes_paused_run() -> None:
     """API 调用方可以使用追问事件中的标识恢复并完成同一次运行。"""
     with _client() as client:
         paused_response = client.post(
-            "/api/agent/chat",
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我梳理业务"},
         )
         paused_events = paused_response.json()["data"]
@@ -666,7 +721,7 @@ def test_resume_endpoint_completes_paused_run() -> None:
             event for event in paused_events if event["event_type"] == "question.required"
         )
         resumed_response = client.post(
-            f"/api/agent/runs/{question['run_id']}/resume",
+            f"/api/agents/{COMMON_AGENT}/runs/{question['run_id']}/resume",
             json={
                 "conversation_id": question["conversation_id"],
                 "answers": {"goal": "构建售后工单智能体"},
@@ -680,10 +735,10 @@ def test_resume_endpoint_completes_paused_run() -> None:
 
 
 def test_conversation_and_message_history_endpoints_support_paging() -> None:
-    """会话列表和消息历史 API 返回新建对话，并可按序号读取更早消息。"""
+    """会话列表和消息历史 API 返回新建对话，并可按消息 ID 读取更早消息。"""
     with _client() as client:
         paused_response = client.post(
-            "/api/agent/chat",
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我梳理业务"},
         )
         paused_events = paused_response.json()["data"]
@@ -693,7 +748,7 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
         conversation_id = question["conversation_id"]
 
         resumed_response = client.post(
-            f"/api/agent/runs/{question['run_id']}/resume",
+            f"/api/agents/{COMMON_AGENT}/runs/{question['run_id']}/resume",
             json={
                 "conversation_id": conversation_id,
                 "answers": {"goal": "构建售后工单智能体"},
@@ -714,7 +769,7 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
             f"/api/conversations/{conversation_id}/messages",
             params={
                 "limit": 2,
-                "before_sequence": latest_page["next_before_sequence"],
+                "before_message_id": latest_page["next_before_message_id"],
             },
         )
 
@@ -725,20 +780,31 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
 
     assert latest_page_response.status_code == 200
     assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
-    assert "构建售后工单智能体" in latest_page["items"][0]["content"]
-    assert latest_page["next_before_sequence"] == 3
+    answer_block = latest_page["items"][0]["content"]["blocks"][1]
+    assert answer_block == {
+        "type": "question_answers",
+        "answers": {"goal": "构建售后工单智能体"},
+        "question_titles": {"goal": question["data"]["questions"][0]["title"]},
+    }
+    assert latest_page["next_before_message_id"] == latest_page["items"][0]["message_id"]
 
     earlier_page = earlier_page_response.json()["data"]
     assert earlier_page_response.status_code == 200
-    assert [item["sequence"] for item in earlier_page["items"]] == [1, 2]
     assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
+    question_block = next(
+        block
+        for block in earlier_page["items"][1]["content"]["blocks"]
+        if block["type"] == "question_batch"
+    )
+    assert question_block["run_id"] == question["run_id"]
+    assert question_block["questions"][0]["id"] == "goal"
 
 
 def test_conversation_messages_are_hidden_from_other_principals() -> None:
     """消息历史查询必须验证会话归属，且不泄露其他主体是否拥有会话。"""
     with _client() as client:
         chat_response = client.post(
-            "/api/agent/chat",
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "创建我的会话"},
         )
         event = chat_response.json()["data"][0]
@@ -762,7 +828,7 @@ def test_resume_rejects_unbounded_answer_text() -> None:
     """HTTP 边界拒绝无界恢复内容，防止超大数据进入图 Checkpoint。"""
     with _client() as client:
         response = client.post(
-            "/api/agent/runs/unknown/resume",
+            f"/api/agents/{COMMON_AGENT}/runs/unknown/resume",
             json={
                 "conversation_id": "conversation",
                 "answers": {"goal": "x" * 2_001},
@@ -775,7 +841,7 @@ def test_resume_rejects_unbounded_answer_text() -> None:
 def test_cancel_rejects_unknown_run_without_leaking_memory() -> None:
     """取消不存在运行时返回稳定错误，不把伪造标识写入取消集合。"""
     with _client() as client:
-        response = client.post("/api/agent/runs/123/cancel")
+        response = client.post(f"/api/agents/{COMMON_AGENT}/runs/123/cancel")
 
     assert response.status_code == 409
     assert response.json()["code"] == "RUN_NOT_CANCELLABLE"
@@ -792,6 +858,6 @@ def test_production_rejects_missing_authenticated_principal() -> None:
             lifespan=_test_lifespan(settings, provider),
         )
     ) as client:
-        response = client.post("/api/agent/chat", json={"message": "开始"})
+        response = client.post(f"/api/agents/{COMMON_AGENT}/chat", json={"message": "开始"})
 
     assert response.status_code == 401

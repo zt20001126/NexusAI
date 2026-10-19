@@ -97,8 +97,8 @@ class BaseAgent:
             raise
         except Exception as error:
             logger.warning(
-                "智能体执行失败 agent_id=%s error_type=%s",
-                self._config.agent_id,
+                "智能体执行失败 agent=%s error_type=%s",
+                self._config.agent,
                 type(error).__name__,
             )
             raise BaseAgentExecutionError(
@@ -112,7 +112,7 @@ class BaseAgent:
                 "智能体未生成有效回答",
                 code="missing_agent_answer",
             )
-        return AgentResponse(agent_id=self._config.agent_id, answer=answer)
+        return AgentResponse(agent=self._config.agent, answer=answer)
 
     def _prepare_runnable_config(
         self,
@@ -132,6 +132,6 @@ class BaseAgent:
         prepared.setdefault("recursion_limit", self._config.recursion_limit)
 
         metadata = dict(prepared.get("metadata") or {})
-        metadata.setdefault("agent_id", self._config.agent_id)
+        metadata.setdefault("agent", self._config.agent)
         prepared["metadata"] = metadata
         return prepared

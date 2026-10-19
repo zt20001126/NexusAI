@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { Question, QuestionAnswer } from '../api/agent'
+import type { Question, QuestionAnswer, QuestionOptionValue } from '../api/agent'
 import {
   MAX_QUESTION_ANSWER_CHARS,
   MAX_QUESTION_SELECTION_CHARS,
@@ -8,11 +8,20 @@ import {
 } from '../constants'
 import { selectCurrentQuestionAnswers } from '../model/currentQuestionAnswers.mjs'
 
+function getOptionLabel(option: QuestionOptionValue): string {
+  return typeof option === 'string' ? option : option.label
+}
+
+function getOptionDescription(option: QuestionOptionValue): string | undefined {
+  return typeof option === 'string' ? undefined : option.description
+}
+
 interface AgentInteractionCardProps {
   questions: Question[]
   questionRound: number
   maxQuestionRounds: number
   disabled: boolean
+  embedded?: boolean
   onSubmit: (answers: Record<string, QuestionAnswer>) => void
 }
 
@@ -22,6 +31,7 @@ function AgentInteractionCard({
   questionRound,
   maxQuestionRounds,
   disabled,
+  embedded = false,
   onSubmit,
 }: AgentInteractionCardProps) {
   const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({})
@@ -45,7 +55,8 @@ function AgentInteractionCard({
     if (question.type === 'SingleChoice') {
       return customInputSelected[question.id]
         ? Boolean(customAnswers[question.id]?.trim())
-        : typeof answer === 'string' && question.options.includes(answer)
+        : typeof answer === 'string'
+          && question.options.some((option) => getOptionLabel(option) === answer)
     }
     if (question.type === 'MultiChoice') {
       const selectedOptions = Array.isArray(answer) ? answer : []
@@ -87,7 +98,10 @@ function AgentInteractionCard({
   }
 
   return (
-    <form className="interaction-card" onSubmit={handleSubmit}>
+    <form
+      className={`interaction-card${embedded ? ' interaction-card-message' : ''}`}
+      onSubmit={handleSubmit}
+    >
       <header className="interaction-heading">
         <div>
           <strong>需要补充信息</strong>
@@ -175,22 +189,33 @@ function QuestionInput({
 
       {question.type === 'SingleChoice' && (
         <div className="interaction-options" role="radiogroup" aria-label={question.title}>
-          {question.options.map((option) => (
-            <label className="interaction-option" key={option}>
-              <input
-                type="radio"
-                name={question.id}
-                value={option}
-                checked={!customSelected && value === option}
-                onChange={() => {
-                  onCustomSelectedChange(false)
-                  onChange(option)
-                }}
-                disabled={disabled}
-              />
-              <span>{option}</span>
-            </label>
-          ))}
+          {question.options.map((option) => {
+            const label = getOptionLabel(option)
+            const description = getOptionDescription(option)
+            return (
+              <label className="interaction-option" key={label}>
+                <input
+                  type="radio"
+                  name={question.id}
+                  value={label}
+                  checked={!customSelected && value === label}
+                  onChange={() => {
+                    onCustomSelectedChange(false)
+                    onChange(label)
+                  }}
+                  disabled={disabled}
+                />
+                <span className="interaction-option-content">
+                  <span>{label}</span>
+                  {description && (
+                    <small className="interaction-option-description">
+                      {description}
+                    </small>
+                  )}
+                </span>
+              </label>
+            )
+          })}
           {question.allow_custom_input && (
             <div className="interaction-custom-option">
               <label className="interaction-option">
@@ -225,20 +250,31 @@ function QuestionInput({
 
       {question.type === 'MultiChoice' && (
         <div className="interaction-options" aria-label={question.title}>
-          {question.options.map((option) => (
-            <label className="interaction-option" key={option}>
-              <input
-                type="checkbox"
-                checked={selectedOptions.includes(option)}
-                onChange={(event) => onChange(event.target.checked
-                  ? [...selectedOptions, option]
-                  : selectedOptions.filter((item) => item !== option))}
-                disabled={disabled || (!selectedOptions.includes(option)
-                  && selectedOptions.length + (customSelected ? 1 : 0) >= MAX_QUESTION_SELECTION_COUNT)}
-              />
-              <span>{option}</span>
-            </label>
-          ))}
+          {question.options.map((option) => {
+            const label = getOptionLabel(option)
+            const description = getOptionDescription(option)
+            return (
+              <label className="interaction-option" key={label}>
+                <input
+                  type="checkbox"
+                  checked={selectedOptions.includes(label)}
+                  onChange={(event) => onChange(event.target.checked
+                    ? [...selectedOptions, label]
+                    : selectedOptions.filter((item) => item !== label))}
+                  disabled={disabled || (!selectedOptions.includes(label)
+                    && selectedOptions.length + (customSelected ? 1 : 0) >= MAX_QUESTION_SELECTION_COUNT)}
+                />
+                <span className="interaction-option-content">
+                  <span>{label}</span>
+                  {description && (
+                    <small className="interaction-option-description">
+                      {description}
+                    </small>
+                  )}
+                </span>
+              </label>
+            )
+          })}
           {question.allow_custom_input && (
             <div className="interaction-custom-option">
               <label className="interaction-option">

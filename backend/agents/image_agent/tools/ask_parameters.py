@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 from agent.persistence.interfaces import TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agent.schemas.tool_result import ToolResult
-from agents.image_agent.constants import IMAGE_AGENT_ID, IMAGE_RESULT_TYPE
+from agents.image_agent.constants import IMAGE_AGENT, IMAGE_RESULT_TYPE
 from agents.image_agent.schemas import ImageQuestionToolInput
 
 
@@ -27,7 +27,7 @@ def create_ask_image_parameters_tool(task_result_store: TaskResultStore):
         task_result_store.save(
             TaskResultRecord(
                 task_result_id=task_result_id,
-                agent_id=IMAGE_AGENT_ID,
+                agent=IMAGE_AGENT,
                 user_id=principal_id,
                 conversation_id=conversation_id,
                 run_id=run_id,
@@ -47,7 +47,7 @@ def create_ask_image_parameters_tool(task_result_store: TaskResultStore):
                 "questions": questions,
                 "task_result": {
                     "task_result_id": task_result_id,
-                    "agent_id": IMAGE_AGENT_ID,
+                    "agent": IMAGE_AGENT,
                     "generation_status": TaskResultStatus.AWAITING_INPUT.value,
                 },
             },

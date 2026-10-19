@@ -95,7 +95,7 @@ class AliyunOSSImageStorage:
         conversation_id: str,
         message_id: str,
     ) -> None:
-        """确认附件归属；附件关联随运行输入写入 task_results.input_data。"""
+        """确认附件归属；附件关联随任务输入写入 task_results.input。"""
         del conversation_id, message_id
         self.validate_staged(attachment_ids, user_id)
         owner_hash = _owner_hash(user_id)
@@ -186,6 +186,13 @@ class AliyunOSSImageStorage:
         if not object_key.startswith(expected_prefix) or ".." in object_key.split("/"):
             raise AttachmentAccessDeniedError()
         return self._read_object(object_key, owner_hash, self._result_max_bytes)
+
+    def read_reference(self, attachment_id: str, user_id: str) -> tuple[bytes, str]:
+        """按主体从永久参考图前缀读取已发送图片。"""
+        self._validate_attachment_id(attachment_id)
+        owner_hash = _owner_hash(user_id)
+        object_key = self._key("references", owner_hash, attachment_id)
+        return self._read_object(object_key, owner_hash, self._upload_max_bytes)
 
     def _load_reference(
         self,

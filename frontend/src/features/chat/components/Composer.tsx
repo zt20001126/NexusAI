@@ -4,6 +4,7 @@ import { MAX_REFERENCE_IMAGES } from '../constants'
 interface ComposerProps {
   value: string
   disabled: boolean
+  sending: boolean
   onChange: (value: string) => void
   onSend: () => void
   onCancel: () => void
@@ -18,6 +19,7 @@ interface ComposerProps {
 function Composer({
   value,
   disabled,
+  sending,
   onChange,
   onSend,
   onCancel,
@@ -30,6 +32,7 @@ function Composer({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const interactionDisabled = disabled || sending
 
   useEffect(() => {
     const input = inputRef.current
@@ -47,7 +50,7 @@ function Composer({
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      if (!disabled && (value.trim() || attachments.length > 0)) onSend()
+      if (!interactionDisabled && (value.trim() || attachments.length > 0)) onSend()
     }
   }
 
@@ -62,7 +65,7 @@ function Composer({
               <button
                 type="button"
                 onClick={() => onRemoveAttachment(index)}
-                disabled={disabled}
+                disabled={interactionDisabled}
                 aria-label={`移除 ${file.name}`}
               >
                 ×
@@ -92,7 +95,7 @@ function Composer({
                 className="attach-button"
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={disabled || attachments.length >= MAX_REFERENCE_IMAGES}
+                disabled={interactionDisabled || attachments.length >= MAX_REFERENCE_IMAGES}
                 aria-label="添加参考图片"
                 title="添加参考图片"
               >
@@ -105,19 +108,22 @@ function Composer({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
+            readOnly={sending}
+            aria-disabled={interactionDisabled}
             placeholder="给 NexusAI 发消息…"
             rows={1}
             disabled={disabled}
             aria-label="输入消息"
           />
           {canCancel ? (
-            <button className="stop-button" type="button" onClick={onCancel} aria-label="停止生成" title="停止生成">■</button>
+            <button className="stop-button" type="button" onMouseDown={(event) => event.preventDefault()} onClick={onCancel} aria-label="停止生成" title="停止生成">■</button>
           ) : (
             <button
               className="send-button"
               type="button"
+              onMouseDown={(event) => event.preventDefault()}
               onClick={onSend}
-              disabled={disabled || (!value.trim() && attachments.length === 0)}
+              disabled={interactionDisabled || (!value.trim() && attachments.length === 0)}
               aria-label="发送消息"
               title="发送消息"
             >

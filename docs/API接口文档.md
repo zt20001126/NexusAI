@@ -6,9 +6,49 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 或 `literature_reader_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
+会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。智能体使用 `AgentType` 字符串枚举，当前值为 `common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 和 `literature_reader_agent`。会话列表和任务结果响应中的 `agent` 字段返回对应枚举值。
 
-Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
+Agent 领域错误使用 `{"success": false, "code": "...", "message": "..."}`；冲突返回 HTTP 409，权限失败和资源不存在统一返回 404，事件流过期或运行已结束返回 410，队列或 Redis 暂时不可用返回 503。上传内容错误由 HTTP 400、413 或 415 表示。
+
+## 后端健康检查
+
+健康检查接口不要求用户认证，响应只包含健康状态、探测耗时和稳定错误码，不返回连接地址或底层异常文本。
+
+### `GET /health/live`
+
+返回 HTTP 200 表示后端进程当前能够处理 HTTP 请求。该接口不检查数据库和 Redis。
+
+```json
+{"status": "healthy"}
+```
+
+### `GET /health/ready`
+
+返回最近一次后台巡检结果。后端启动时立即检查 PostgreSQL 和 Redis Broker，之后默认每 30 秒检查一次。依赖均可用且状态未过期时返回 HTTP 200；任一探针失败或巡检结果超过三个巡检周期时返回 HTTP 503。
+
+```json
+{
+  "status": "unhealthy",
+  "checked_at": "2026-10-19T02:30:00Z",
+  "stale": false,
+  "checks": {
+    "postgres": {
+      "status": "healthy",
+      "latency_ms": 4.2,
+      "checked_at": "2026-10-19T02:30:00Z",
+      "error_code": null
+    },
+    "redis": {
+      "status": "unhealthy",
+      "latency_ms": 3000.1,
+      "checked_at": "2026-10-19T02:30:00Z",
+      "error_code": "TIMEOUT"
+    }
+  }
+}
+```
+
+`HEALTH_CHECK_INTERVAL_SECONDS` 和 `HEALTH_CHECK_TIMEOUT_SECONDS` 分别控制巡检间隔和单项探针超时。Compose 每 10 秒检查一次 `/health/ready` 并将结果显示为后端容器健康状态；容器被标记为 `unhealthy` 本身不会触发自动重启。
 
 ## 智能体发现与对话
 
@@ -21,49 +61,49 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
   "success": true,
   "data": [
     {
-      "agent_id": "common_agent",
+      "agent": "common_agent",
       "name": "通用智能体",
       "description": "处理常见对话、需求梳理和信息问答",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "basic_conversation_agent",
+      "agent": "basic_conversation_agent",
       "name": "基础对话助手",
       "description": "基于工程化智能体基座进行多轮自然对话",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "image_agent",
+      "agent": "image_agent",
       "name": "图片智能体",
       "description": "为淘宝商家生成商品主图和详情页图片",
       "supports_image_upload": true,
       "supports_document_upload": false
     },
     {
-      "agent_id": "listing_agent",
+      "agent": "listing_agent",
       "name": "listing生成智能体",
       "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
       "supports_image_upload": true,
       "supports_document_upload": false
     },
     {
-      "agent_id": "research_agent",
+      "agent": "research_agent",
       "name": "科研文献检索智能体",
       "description": "根据研究主题检索 OpenAlex 学术论文，并保存可追溯的结构化结果。",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "labor_law_agent",
+      "agent": "labor_law_agent",
       "name": "劳动法律问答",
       "description": "检索中国大陆全国性劳动法律法规，回答时展示具体条文和官方来源。",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "literature_reader_agent",
+      "agent": "literature_reader_agent",
       "name": "文献解读助手",
       "description": "基于用户选择的中英文文献回答、总结、梳理方法并比较结论。",
       "supports_image_upload": false,
@@ -73,11 +113,11 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-### `POST /api/agents/{agent_id}/chat`
+### `POST /api/agents/{agent}/chat`
 
 执行非流式对话，返回该次运行的完整事件数组。
 
-### `POST /api/agents/{agent_id}/chat/stream`
+### `POST /api/agents/{agent}/chat/stream`
 
 以 `text/event-stream` 返回同一事件协议。请求 JSON：
 
@@ -89,32 +129,77 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-`message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent_id`，不能在其他智能体路由下继续使用。
+`message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent`，不能在其他智能体路由下继续使用。
+
+请求可附带 `request_id`（建议使用 UUID）；同一请求因网络重试时必须复用该值和相同输入。服务端按数据库运行记录中的幂等键复用会话、运行和用户消息。成功 SSE 响应的 `X-Conversation-ID`、`X-Run-ID` 响应头可在收到首个事件前用于建立恢复信息。
 
 通过各智能体的 SSE 聊天入口请求时，文本回复均使用 `message.delta` 增量事件和 `message.completed` 完成事件。通用智能体与基础对话助手会转发面向用户模型节点的生成片段；图片、Listing、科研检索、劳动法律和文献解读等工作流会在任务结果或证据校验完成后，分段发送安全的最终文本。结构化追问和任务结果仍分别通过 `question.required`、`task_result.updated` 事件返回。
 
-### `POST /api/agents/{agent_id}/runs/{run_id}/resume`
+### `POST /api/agents/{agent}/runs/{run_id}/resume`
 
 使用追问事件返回的会话和运行标识恢复原运行。
 
 ```json
 {
   "conversation_id": "<conversation_id>",
+  "request_id": "<本次恢复的稳定幂等 ID>",
+  "after_event_id": "12-0",
   "answers": {
     "image_size": "1:1 方图（1024×1024）"
   }
 }
 ```
 
-答案 key 必须与待回答问题 ID 集合完全匹配；每批最多 5 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多发起 3 批追问；达到上限后运行以 `QUESTION_ROUND_LIMIT` 失败结束，并提示用户在聊天框一次性补充余下信息，不会基于缺失信息生成结果。
+追问恢复同样由 Agent Worker 在后台执行，并继续使用同一个 `run_id`。重试时复用 `request_id` 和答案；`after_event_id` 是提交答案前已收到的最后事件游标。
 
-### `POST /api/agents/{agent_id}/runs/{run_id}/cancel`
+### `GET /api/agents/listen/{conversation_id}?run_id={run_id}&after={last_event_id}`
+
+重连既有运行的 SSE 事件流。服务端先校验会话所有权及 run 与会话的关系，再读取 Redis Stream。`Last-Event-ID` 请求头优先于 `after` 查询参数；只返回游标之后的事件，并在没有新事件时发送 heartbeat。未提供 `run_id` 时，只有该会话恰好有一个 queued/running 运行才会自动选择；多个活动运行返回 `RUN_ID_REQUIRED`。
+
+SSE 的 `event`、`data` JSON 和 `id` 都沿用原有 AgentEvent 协议。事件 ID 是该 run 的 Redis Stream 单调游标（例如 `13-0`）。运行完成、失败、主动停止或等待追问后结束当前监听。收到 `EVENT_STREAM_EXPIRED` 或 `RUN_ALREADY_ENDED` 时，客户端应读取会话历史或运行状态。
+
+若活动 run 的事件正文已过期，前端加载历史后会从活动接口提供的最新游标继续等待新事件，并附带 `X-Agent-History-Loaded: true`。服务端仍会重新校验会话所有权、run 归属和游标；该头只表示客户端已用数据库历史恢复旧内容。
+
+| HTTP 状态 | 错误码 | 说明 |
+|---|---|---|
+| 400 | `EVENT_CURSOR_INVALID` | 游标超出该 run 已生成的事件范围 |
+| 404 | `CONVERSATION_ACCESS_DENIED`、`RUN_NOT_FOUND` | 会话或 run 不存在或当前主体不可访问 |
+| 409 | `RUN_ID_REQUIRED`、`RUN_PREPARATION_PENDING` | 会话活动 run 不唯一，或幂等请求仍在保存首条消息 |
+| 410 | `EVENT_STREAM_EXPIRED`、`RUN_ALREADY_ENDED` | 事件不能续读；加载数据库会话历史 |
+| 503 | `EVENT_STORE_UNAVAILABLE`、`AGENT_QUEUE_UNAVAILABLE` | Redis 事件存储或后台队列暂时不可用 |
+
+### `GET /api/conversations/active`
+
+返回当前登录主体所有 queued/running 运行，支持一个用户同时有多个后台会话：
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "conversation_id": "<conversation_id>",
+        "run_id": "<run_id>",
+        "agent": "common_agent",
+        "status": "running",
+        "last_event_id": "13-0"
+      }
+    ]
+  }
+}
+```
+
+没有活动运行时返回空 `items`。`GET /api/conversations/active/latest` 和 `GET /api/agents/conversation/active/latest` 返回最近一条活动运行；没有时 `data` 为 `null`。
+
+### `GET /api/conversations/{conversation_id}/status?run_id={run_id}`
+
+按会话归属返回最近一次运行（或指定 `run_id`）的 `run_id`、`status`、`last_event_id` 和安全错误摘要。状态包含 `queued`、`running`、`waiting`、`completed`、`cancelled` 和 `failed`。已有会话历史接口 `GET /api/conversations/{conversation_id}/messages` 用于事件过期或 run 结束时恢复已入库消息。
+
+答案 key 必须与待回答问题 ID 集合完全匹配；共享追问协议每轮最多 3 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多追问 3 轮；共享 Runner 会以 `QUESTION_ROUND_LIMIT` 拦截意外的超限问题批次。Listing 智能体每轮只问一道最高优先级问题，第三轮答案提交后直接按已确认和可见事实生成，省略未知属性。
+
+### `POST /api/agents/{agent}/runs/{run_id}/cancel`
 
 请求取消当前主体拥有且仍在运行的任务。成功响应包含 `run_id` 和 `cancel_requested`。
-
-## 兼容路由
-
-原有 `/api/agent/chat`、`/api/agent/chat/stream`、`/api/agent/runs/{run_id}/resume` 和 `/api/agent/runs/{run_id}/cancel` 保留，固定路由到 `common_agent`（通用智能体）。新前端和新增业务使用 `/api/agents/{agent_id}/...`。
 
 ## SSE 事件
 
@@ -122,7 +207,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 ```json
 {
-  "event_id": "<conversation_id>:12",
+  "event_id": "12-0",
   "event_type": "question.required",
   "conversation_id": "<conversation_id>",
   "run_id": "<run_id>",
@@ -142,26 +227,36 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 | `message.completed` | `content` 完整助手消息 |
 | `tool.started` | `tool_name` |
 | `tool.completed` | `tool_name`、`success`、安全的工具结果 `data` |
-| `question.required` | `questions` 结构化数组（每批 1–5 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、题型、题干和适用时的选项 |
-| `task_result.updated` | 通用字段为 `task_result_id`、`agent_id`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
+| `question.required` | `questions` 结构化数组（每轮 1–3 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、标题、题型和适用时的选项；通用题目可附 `prompt` |
+| `task_result.updated` | 通用字段为 `task_result_id`、`agent`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
 | `run.completed` | 空对象 |
 | `run.cancelled` | 空对象 |
 | `run.failed` | 稳定错误 `code` 与用户可读 `message` |
 
-图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。SSE 事件不持久化，当前不支持断线重放。
+图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。生成事件写入 Redis Streams，默认每个 run 保留最多 2,000 条、24 小时；事件流过期不会删除 PostgreSQL 中的会话历史。
 
-追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的单行选项；文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题、题干和选项会去除两端空白并拒绝空值或多行内容。事件数据示例：
+Redis Stream 正文按配置 TTL 过期；活动和等待回答的 run 会保留轻量的 sequence/latest 游标元数据，以便事件正文过期后的续跑仍使用递增 ID。完成、失败或取消的游标元数据会随事件 TTL 过期。等待回答且长期未恢复的 run 会继续占用这两条小型 Redis 元数据 key，直到它恢复并进入终态。
+
+聊天任务由独立 `agent-worker` Celery 队列执行，Redis 同时提供 Broker 和有界事件回放存储。关闭或切换 SSE 连接只结束监听；只有显式调用 cancel 接口才会设置共享停止信号。部署可配置 `AGENT_EVENT_MAX_LENGTH`、`AGENT_EVENT_TTL_SECONDS`、`AGENT_EVENT_REDIS_TIMEOUT_SECONDS` 和每个 Agent Worker 实例唯一的 `AGENT_WORKER_SNOWFLAKE_ID`。
+
+追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的选项；选项可以是字符串，也可以是包含 `label` 和 `description` 的对象，答案始终提交选项的 `label`。文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题、题干、标签和说明会去除两端空白并拒绝空值或多行内容；通用题目的 `prompt` 为可选补充内容。
+
+Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`；每个选项都包含不超过 100 字符的 `label` 和不超过 300 字符的 `description`。Listing 事件数据示例：
 
 ```json
 {
   "questions": [
     {
       "id": "material",
-      "title": "商品材质",
-      "prompt": "请确认商品的主要材质。",
+      "title": "请确认商品的主要材质。",
       "type": "SingleChoice",
-      "options": ["棉", "涤纶"],
-      "allow_custom_input": true
+      "options": [
+        {"label": "棉", "description": "商品主体由棉制成"},
+        {"label": "涤纶", "description": "商品主体由涤纶制成"},
+        {"label": "混纺", "description": "商品主体由多种纤维混合制成"},
+        {"label": "不确定/暂不提供", "description": "暂时无法确认材质"}
+      ],
+      "allow_custom_input": false
     }
   ],
   "question_round": 1,
@@ -173,11 +268,11 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 读取 Listing 或科研文献检索任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是允许公开的结果类型时统一返回 HTTP 404。
 
-成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回 input_data、图片字节、OSS 内部对象键或模型凭据。
+成功响应的 data 包含 task_result_id、agent、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回输入快照、图片字节、OSS 内部对象键或模型凭据。
 
 ## 上传参考图片
 
-### `POST /api/uploads/images?agent_id=image_agent&file_name=product.png`
+### `POST /api/uploads/images?agent=image_agent&file_name=product.png`
 
 请求体是图片原始字节（不是 multipart 或 JSON）；请求头 `Content-Type` 不作为文件类型依据。服务端按文件签名识别 PNG/JPEG，单张最多 5 MiB。最多可在同一聊天请求中提交 3 个附件 ID。
 
@@ -201,19 +296,19 @@ Content-Type: image/png
 }
 ```
 
-附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到本次运行。数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input_data` 中。
+附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到用户消息。`messages.content` 的图片块保存附件 ID，数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input` 中。
 
 ## 读取生成图片
 
 ### `GET /api/task-results/{task_result_id}/image`
 
-成功时以 `image/png` 或 `image/jpeg` 返回阿里云 OSS 中的图片字节。只有结果所有者可以读取；不存在、未完成或其他用户的结果均返回 HTTP 404。结果地址是稳定应用路径，TokenHub 临时链接会在服务端立即下载并转存。数据库 `task_results.result_data` 保存对象键、MIME、大小和图像尺寸，不保存图片字节。
+成功时以 `image/png` 或 `image/jpeg` 返回阿里云 OSS 中的图片字节。只有结果所有者可以读取；不存在、未完成或其他用户的结果均返回 HTTP 404。结果地址是稳定应用路径，TokenHub 临时链接会在服务端立即下载并转存。数据库 `task_results.result` 保存对象键、MIME、大小和图像尺寸，不保存图片字节。
 
 使用图片上传或读取接口时，后端必须配置 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置时图片上传返回 HTTP 503；OSS 操作失败返回受控 HTTP 502。Bucket 必须保持私有，前端不直接访问 OSS。
 
 ## 文献解读助手
 
-文献助手使用独立 API；通用 `/api/agents/{agent_id}/chat` 路由会拒绝该智能体，确保每次问答都绑定用户选择的文献。文献元数据和处理状态存入 PostgreSQL，PDF 原件放入私有 OSS，正文分块和向量保存在 PostgreSQL + pgvector。PDF 解析、切分和向量化由 Celery Worker 异步执行，Redis 为 Broker。
+文献助手使用独立 API；通用 `/api/agents/{agent}/chat` 路由会拒绝该智能体，确保每次问答都绑定用户选择的文献。文献元数据和处理状态存入 PostgreSQL，PDF 原件放入私有 OSS，正文分块和向量保存在 PostgreSQL + pgvector。PDF 解析、切分和向量化由 Celery Worker 异步执行，Redis 为 Broker。
 
 ### `POST /api/v1/literature/documents`
 
@@ -235,16 +330,17 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 
 ## 会话历史
 
-- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
-- `GET /api/conversations/{conversation_id}/messages?limit=50&before_sequence=...` 返回按时间正序排列的消息。助手消息可含 `task_results` 数组，提供生成状态、稳定图片路径和错误摘要，不含图片二进制内容。
+- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
+- `GET /api/conversations/{conversation_id}/messages?limit=50&before_message_id=...` 返回按 `(created_at, message_id)` 时间正序排列的消息。`content.blocks` 可包含文字块、图片块、结构化问题答案块和 `question_batch` 模型追问题块；问题答案块包含答案映射 `answers`，可附带 `question_titles` 映射供界面按原题标题展示；`question_batch` 包含 `run_id`、轮次和完整问题/选项，供界面在聊天时间线上还原题卡；图片块含 `attachment_id` 和服务端补充的 `image_url`，不含图片字节。助手消息可含 `task_results` 数组。
+- `GET /api/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/image` 以 PNG/JPEG 返回消息内引用的上传图片；会话、消息或附件不属于当前用户时返回 404，OSS 读取故障返回 502。部署升级时依次执行 `backend/migrations/006_message_context.sql` 和 `backend/migrations/007_rename_message_context_to_content.sql`，再启动新版后端。
 
 ## listing生成智能体
 
 listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通过多模态 Chat Completions 识别商品外观、可读包装文字和可见特征，并使用同一模型判断必要信息及生成文案。图片以 Base64 `image_url` 内容块传入，模型名称、鉴权、地址和超时均使用现有 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 仍用于 `image_agent` 的生图能力。
 
-Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件最多返回 5 道题；题目按重要性排序，回答后只追问仍缺少的信息。一次运行最多追问 3 批；达到上限后提示商家在聊天框补充其余信息，不会猜测缺失事实或生成结果。
+Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件只返回当前最高优先级的一道题；回答后再评估是否需要追问。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项对象，每项包含 `label` 和 `description`，答案以 `label` 提交；不允许自定义输入。完整题目内容放在 `title`，不返回 `prompt`。一次运行最多追问 3 轮；第三轮答案提交后直接生成，并省略无法确认的属性，不将其猜测为事实。
 
-成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
+成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 `task_results.result`。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
 ## 图片智能体参数
 
@@ -304,6 +400,6 @@ message 必填且长度为 2–20,000；limit 范围为 1–50。session_id 可�
 }
 ~~~
 
-status 为 success、partial、no_results 或 failed。有效查询无匹配论文时仍返回 HTTP 200 和 no_results；已取得部分可用结果时返回 partial。论文完整字段保存在 task_results.result_data，Checkpoint 和 SSE 工具事件只携带任务 ID、业务状态和数量摘要。OpenAlex API Key 可选，通过 OPENALEX_API_KEY 配置；超时、有限重试和最多 3 轮查询由 OPENALEX_TIMEOUT_SECONDS、OPENALEX_MAX_RETRIES、OPENALEX_RETRY_DELAY_SECONDS 和 RESEARCH_MAX_SEARCH_ROUNDS 控制。
+status 为 success、partial、no_results 或 failed。有效查询无匹配论文时仍返回 HTTP 200 和 no_results；已取得部分可用结果时返回 partial。论文完整字段保存在 `task_results.result`，Checkpoint 和 SSE 工具事件只携带任务 ID、业务状态和数量摘要。OpenAlex API Key 可选，通过 OPENALEX_API_KEY 配置；超时、有限重试和最多 3 轮查询由 OPENALEX_TIMEOUT_SECONDS、OPENALEX_MAX_RETRIES、OPENALEX_RETRY_DELAY_SECONDS 和 RESEARCH_MAX_SEARCH_ROUNDS 控制。
 
 GET /api/task-results/{task_result_id} 按所有者读取该结果的完整论文 JSON；越权、未知和未公开的结果类型统一返回 HTTP 404。

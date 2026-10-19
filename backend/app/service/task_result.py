@@ -1,8 +1,8 @@
 """按可信主体读取需要完整 JSON 内容的任务结果。"""
 
 from agent.persistence.interfaces import TaskResultStore
-from agents.listing_agent.constants import LISTING_AGENT_ID, LISTING_RESULT_TYPE
-from agents.research_agent.constants import RESEARCH_AGENT_ID, RESEARCH_RESULT_TYPE
+from agents.listing_agent.constants import LISTING_AGENT, LISTING_RESULT_TYPE
+from agents.research_agent.constants import RESEARCH_AGENT, RESEARCH_RESULT_TYPE
 from app.schemas.task_result import TaskResultDetail
 
 
@@ -25,7 +25,7 @@ class TaskResultApplicationService:
             return None
         return TaskResultDetail(
             task_result_id=record.task_result_id,
-            agent_id=record.agent_id,
+            agent=record.agent,
             result_type=record.result_type,
             generation_status=record.generation_status.value,
             result_data=record.result_data,
@@ -41,13 +41,13 @@ class TaskResultApplicationService:
         record = self._task_result_store.get_owned(task_result_id, principal_id)
         if (
             record is None
-            or record.agent_id != RESEARCH_AGENT_ID
+            or record.agent != RESEARCH_AGENT
             or record.result_type != RESEARCH_RESULT_TYPE
         ):
             return None
         return TaskResultDetail(
             task_result_id=record.task_result_id,
-            agent_id=record.agent_id,
+            agent=record.agent,
             result_type=record.result_type,
             generation_status=record.generation_status.value,
             result_data=record.result_data,
@@ -64,18 +64,18 @@ class TaskResultApplicationService:
         if record is None:
             return None
         is_listing = (
-            record.agent_id == LISTING_AGENT_ID
+            record.agent == LISTING_AGENT
             and record.result_type == LISTING_RESULT_TYPE
         )
         is_research = (
-            record.agent_id == RESEARCH_AGENT_ID
+            record.agent == RESEARCH_AGENT
             and record.result_type == RESEARCH_RESULT_TYPE
         )
         if not is_listing and not is_research:
             return None
         return TaskResultDetail(
             task_result_id=record.task_result_id,
-            agent_id=record.agent_id,
+            agent=record.agent,
             result_type=record.result_type,
             generation_status=record.generation_status.value,
             result_data=record.result_data,

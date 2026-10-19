@@ -9,7 +9,7 @@ _settings = AppSettings()
 celery_app = Celery(
     "nexusai",
     broker=_settings.celery_broker_url,
-    include=["app.service.literature_tasks"],
+    include=["app.service.literature_tasks", "app.service.agent_tasks"],
 )
 celery_app.conf.update(
     task_ignore_result=True,

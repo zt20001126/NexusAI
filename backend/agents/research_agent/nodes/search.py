@@ -24,7 +24,7 @@ def create_search_call_node(max_search_rounds: int) -> Callable[..., Any]:
             "principal_id": state.get("principal_id", ""),
             "conversation_id": state.get("conversation_id", ""),
             "run_id": state.get("run_id", ""),
-            "agent_id": state.get("agent_id", ""),
+            "agent": state.get("agent", ""),
             "max_search_rounds": max_search_rounds,
         }
         call = {

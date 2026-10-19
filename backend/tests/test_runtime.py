@@ -13,7 +13,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.constants import BASE_CONVERSATION_AGENT_ID
+from agent.constants import BASE_CONVERSATION_AGENT
 from agent.errors import InvalidResumeAnswersError
 from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
@@ -80,6 +80,33 @@ async def test_malformed_question_tool_result_fails_instead_of_waiting_forever()
     assert events[0].data["code"] == "INVALID_QUESTION_PAYLOAD"
 
 
+async def test_question_round_limit_rejects_a_fourth_round() -> None:
+    """单次运行已追问三轮时拒绝继续发布第四轮。"""
+    runner = _create_runtime()
+    record = RunRecord(
+        run_id="run",
+        conversation_id="conversation",
+        principal_id="developer-a",
+        status=RunStatus.RUNNING,
+        metadata={"question_round_count": 3},
+    )
+    message = ToolMessage(
+        content=(
+            '{"success":true,"data":{"questions":[{"id":"goal",'
+            '"title":"目标","prompt":"请说明目标。"}]}}'
+        ),
+        tool_call_id="tool-1",
+        name="ask_user_question",
+    )
+
+    events = [event async for event in runner._events_for_message(record, message)]
+
+    assert len(events) == 1
+    assert events[0].event_type == AgentEventType.RUN_FAILED
+    assert events[0].data["code"] == "QUESTION_ROUND_LIMIT"
+    assert record.metadata["question_round_count"] == 3
+
+
 async def test_resume_executes_tool_and_completes_once() -> None:
     """提交问题答案后，从相同运行恢复，执行工具并且只完成一次。"""
     runtime = _create_runtime()
@@ -116,14 +143,14 @@ async def test_resume_executes_tool_and_completes_once() -> None:
 async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
     """基础对话助手实时转发模型片段，并在完成事件中保留完整文本。"""
     assistant = create_basic_conversation_agent(
-        agent_id=BASE_CONVERSATION_AGENT_ID,
+        agent=BASE_CONVERSATION_AGENT,
         chat_model=_StreamingReplyModel(),
         checkpointer=MemorySaver(),
     )
     runtime = build_memory_runner(
         AppSettings(_env_file=None),
         graph=assistant.compiled_graph,
-        agent_id=BASE_CONVERSATION_AGENT_ID,
+        agent=BASE_CONVERSATION_AGENT,
         title_generator=_UnavailableTitleGenerator(),
     )
 

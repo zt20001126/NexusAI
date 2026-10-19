@@ -1,6 +1,7 @@
 """PDF 文献库管理、历史文献选择和文献 SSE 问答接口。"""
 
 import asyncio
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Request, UploadFile
@@ -102,13 +103,22 @@ async def stream_literature_chat(
     principal_id: str = Depends(get_principal_id),
 ) -> EventSourceResponse:
     """按会话中已验证的文献集合运行文献助手并返回统一 SSE 事件。"""
-    events = request.app.state.literature_service.stream_chat(
+    record, events = request.app.state.literature_service.submit_chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
         document_ids=payload.document_ids,
         principal_id=principal_id,
+        request_id=payload.request_id or uuid.uuid4().hex,
     )
-    return EventSourceResponse(encode_sse_events(events), ping=None)
+    return EventSourceResponse(
+        encode_sse_events(events),
+        ping=None,
+        headers={
+            "X-Conversation-ID": record.conversation_id,
+            "X-Run-ID": record.run_id,
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 @router.get("/conversations/{conversation_id}/documents")

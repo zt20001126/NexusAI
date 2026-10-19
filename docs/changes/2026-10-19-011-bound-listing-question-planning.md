@@ -1,0 +1,43 @@
+# 限制 Listing 规划追问
+
+- 日期：2026-10-19
+- 变更类型：缺陷修复
+- 影响范围：Listing 规划、追问恢复和信息不足时的生成行为
+
+## 背景
+
+Listing 规划器每轮可生成多道问题，且无法读取已用追问轮数。即使共享 Runner 限制最多 3 轮，规划器仍可能在第三轮答案后继续提出问题，导致运行失败且没有 Listing 结果。
+
+## 变更内容
+
+- Listing 规划与追问输入 Schema 每轮最多允许 1 道问题；提示词要求优先选择对事实准确性或合规影响最大的缺项。
+- Runner 将当前 Listing 追问轮数传给新运行和恢复运行；Listing 图状态也记录已发布的问题轮数。
+- 第三轮答案提交后不再接受模型追加问题，直接按已确认或图片可见事实生成；未知商品属性可留空并省略，不猜测。
+- 更新 Listing PRD、TDD、API 文档和 `[Unreleased]` 摘要；调整原规划测试夹具以符合单题约束。
+
+## 涉及文件
+
+- `backend/agent/runner.py`、`backend/agents/listing_agent/state.py`：向 Listing 图传递当前追问轮数。
+- `backend/agents/listing_agent/constants.py`、`prompts.py`、`schemas.py`、`nodes/ask.py`、`nodes/plan.py`：执行每轮单题、优先级选择和最终轮收敛规则。
+- `backend/agents/listing_agent/schemas.py`：允许未知属性省略，包括属性为空的结果。
+- `backend/tests/test_listing_agent.py`：将规划节点测试数据改为单题。
+- `docs/agents/listing/prd.md`、`docs/agents/listing/tdd.md`、`docs/API接口文档.md`、`CHANGELOG.md`：同步追问与最终轮生成约定。
+
+## 设计决策
+
+- 保留共享 Runner 的 3 轮失败保护，Listing 规划节点在耗尽轮数后强制返回空问题列表，避免触发第 4 轮。
+- 最终轮后使用现有事实安全规则生成；将无法确认的属性留空，避免为了满足属性字段而编造事实。
+
+## 测试与验证
+
+- 未运行自动化测试；本次请求未要求执行测试。
+- 命令：`git diff --check`
+- 结果：通过。
+
+## 潜在影响
+
+- 需要核实的信息超过 3 项时，Listing 将在第三轮后省略未确认属性并生成结果。
+
+## 后续事项
+
+- 无。

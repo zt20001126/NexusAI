@@ -44,7 +44,7 @@ class LiteratureDocument(Base):
     )
     owner_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("user_identities.user_id", ondelete="CASCADE"),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
         comment="文献所有者的内部用户 ID",
     )

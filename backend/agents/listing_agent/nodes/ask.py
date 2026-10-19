@@ -10,7 +10,7 @@ from agents.listing_agent.constants import LISTING_ASK_TOOL_NAME
 from agents.listing_agent.state import ListingAgentState
 
 
-def create_ask_node() -> Callable[..., dict[str, list[AIMessage]]]:
+def create_ask_node() -> Callable[..., dict[str, Any]]:
     """创建由服务端补全可信身份的批量追问工具调用节点。"""
 
     def ask_node(state: ListingAgentState) -> dict[str, list[AIMessage]]:
@@ -33,6 +33,9 @@ def create_ask_node() -> Callable[..., dict[str, list[AIMessage]]]:
             "id": uuid.uuid4().hex,
             "type": "tool_call",
         }
-        return {"messages": [AIMessage(content="", tool_calls=[call])]}
+        return {
+            "question_round_count": state.get("question_round_count", 0) + 1,
+            "messages": [AIMessage(content="", tool_calls=[call])],
+        }
 
     return ask_node

@@ -6,6 +6,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent.enums import AgentType
 
 DEFAULT_MAX_INPUT_CHARS = 20_000
 DEFAULT_RECURSION_LIMIT = 24
@@ -16,10 +17,7 @@ class BaseAgentConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True)
 
-    agent_id: str = Field(
-        min_length=1,
-        description="稳定的智能体业务标识。",
-    )
+    agent: AgentType = Field(description="稳定的智能体类型。")
     system_prompt: str = Field(
         min_length=1,
         description="该智能体使用的系统提示词。",

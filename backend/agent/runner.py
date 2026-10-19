@@ -1,8 +1,10 @@
 """传输层无关的单实例智能体运行器。"""
 
 import asyncio
+import hashlib
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import suppress
 from typing import Any
@@ -10,10 +12,12 @@ from typing import Any
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
+from agent.enums import AgentType
 from agent.constants import (
-    BASE_CONVERSATION_AGENT_ID,
+    BASE_CONVERSATION_AGENT,
     CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
-    COMMON_AGENT_ID,
+    COMMON_AGENT,
+    LISTING_AGENT,
     MAX_QUESTION_ROUNDS_PER_RUN,
 )
 from agent.errors import (
@@ -22,6 +26,9 @@ from agent.errors import (
     RunBusyError,
     RunNotCancellableError,
     RunNotResumableError,
+    AgentRunRequestConflictError,
+    AgentRunPreparationPendingError,
+    DuplicateAgentRunRequest,
 )
 from agent.graph import build_agent_graph
 from agent.persistence.interfaces import (
@@ -51,6 +58,7 @@ from agent.title import (
     fallback_conversation_title,
 )
 from agent.schemas.run import RunRecord, RunStatus
+from agent.schemas.conversation import text_content
 from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.question import QuestionPayload
 from agent.schemas.tool_result import ToolResult
@@ -65,8 +73,8 @@ logger = logging.getLogger(__name__)
 MESSAGE_DELTA_CHUNK_SIZE = 24
 # 仅列出安全的面向用户模型节点；任务型智能体在结果安全后分段呈现用户文本。
 STREAMING_RESPONSE_NODES_BY_AGENT = {
-    COMMON_AGENT_ID: frozenset({"agent", "result"}),
-    BASE_CONVERSATION_AGENT_ID: frozenset({"chat_node"}),
+    COMMON_AGENT: frozenset({"agent", "result"}),
+    BASE_CONVERSATION_AGENT: frozenset({"chat_node"}),
 }
 
 
@@ -108,18 +116,19 @@ class AgentRunner:
         max_tool_calls: int,
         max_output_chars: int,
         run_timeout_seconds: int,
-        agent_id: str = COMMON_AGENT_ID,
+        agent: AgentType = COMMON_AGENT,
         task_result_store: TaskResultStore | None = None,
         attachment_store: AttachmentStore | None = None,
         title_generator: ConversationTitleGenerator | None = None,
         id_generator: SnowflakeIdGenerator | None = None,
+        cancel_signal: Any | None = None,
     ) -> None:
         """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
-        self._agent_id = agent_id
+        self._agent = agent
         # 仅允许已确认面向用户的模型节点实时转发 token，避免暴露业务计划和结构化草稿。
         self._streaming_response_nodes = STREAMING_RESPONSE_NODES_BY_AGENT.get(
-            agent_id,
+            agent,
             frozenset(),
         )
         self._run_store = run_store
@@ -136,6 +145,7 @@ class AgentRunner:
         self._attachment_store = attachment_store
         self._title_generator = title_generator
         self._id_generator = id_generator or get_snowflake_generator()
+        self._cancel_signal = cancel_signal
         self._cancel_events: dict[str, asyncio.Event] = {}
 
     def stream_chat(
@@ -146,10 +156,70 @@ class AgentRunner:
         principal_id: str = "local-development",
         attachment_ids: list[str] | None = None,
         graph_context: dict[str, Any] | None = None,
+        request_id: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        """启动一次运行，并将会话绑定到可信主体和智能体。"""
+        """兼容同步流式调用；HTTP 后台任务通过 prepare_chat/execute_prepared 分段执行。"""
+        record = self.prepare_chat(
+            message=message,
+            conversation_id=conversation_id,
+            principal_id=principal_id,
+            attachment_ids=attachment_ids,
+            graph_context=graph_context,
+            request_id=request_id,
+        )
+        return self.execute_prepared(record.run_id)
+
+    def prepare_chat(
+        self,
+        *,
+        message: str,
+        conversation_id: str | None,
+        principal_id: str,
+        attachment_ids: list[str] | None = None,
+        graph_context: dict[str, Any] | None = None,
+        request_id: str | None = None,
+    ) -> RunRecord:
+        """先保存用户输入和排队运行，供 Celery Worker 脱离 HTTP 连接执行。
+
+        Step 1: 校验会话与附件所有权，并计算请求幂等摘要。
+        Step 2: 创建或复用排队运行，保存已有消息表可读取的执行输入。
+        Step 3: 返回稳定会话及运行标识，由应用服务派发后台任务。
+        """
         resolved_id = conversation_id or self._id_generator.next_id_string()
         resolved_attachments = attachment_ids or []
+        resolved_context = dict(graph_context or {})
+        payload_hash = hashlib.sha256(json.dumps(
+            {
+                "agent": self._agent.value,
+                "conversation_id": conversation_id,
+                "message": message,
+                "attachment_ids": resolved_attachments,
+                "graph_context": resolved_context,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        request_key = (
+            hashlib.sha256(f"{principal_id}:{request_id}".encode("utf-8")).hexdigest()
+            if request_id
+            else None
+        )
+        if request_id:
+            existing = self._run_store.get_by_request_id(request_id, principal_id)
+            if existing is not None:
+                if existing.metadata.get("request_hash") != payload_hash:
+                    raise AgentRunRequestConflictError()
+                for _ in range(40):
+                    if existing.metadata.get("input_message_id"):
+                        return existing
+                    time.sleep(0.025)
+                    existing = self._run_store.get_by_request_id(request_id, principal_id)
+                    if existing is None:
+                        break
+                if existing is not None and existing.metadata.get("input_message_id"):
+                    return existing
+                raise AgentRunPreparationPendingError()
         if resolved_attachments:
             if self._attachment_store is None:
                 raise ValueError("当前智能体不支持图片附件")
@@ -157,29 +227,58 @@ class AgentRunner:
         conversation = self._conversation_store.get(resolved_id)
         if conversation is not None and (
             conversation.get("principal_id") != principal_id
-            or conversation.get("agent_id", COMMON_AGENT_ID) != self._agent_id
+            or conversation.get("agent", COMMON_AGENT) != self._agent
         ):
             raise ConversationAccessDeniedError()
         self._conversation_store.save(
             resolved_id,
-            {"principal_id": principal_id, "agent_id": self._agent_id},
+            {"principal_id": principal_id, "agent": self._agent},
         )
-        title_source_message = message if conversation is None else None
         task_result_id = self._id_generator.next_id_string()
         record = RunRecord(
             run_id=self._id_generator.next_id_string(),
             conversation_id=resolved_id,
             principal_id=principal_id,
-            status=RunStatus.RUNNING,
+            status=RunStatus.QUEUED,
             metadata={
                 "task_result_id": task_result_id,
                 "attachment_ids": resolved_attachments,
                 "question_round_count": 0,
+                "request_id": request_id,
+                "request_key": request_key,
+                "request_hash": payload_hash,
+                "graph_context": resolved_context,
+                "is_new_conversation": conversation is None,
             },
-            agent_id=self._agent_id,
+            agent=self._agent,
         )
+        try:
+            self._run_store.save(record)
+        except DuplicateAgentRunRequest:
+            existing = self._run_store.get_by_request_id(request_id or "", principal_id)
+            if existing is None:
+                raise
+            if existing.metadata.get("request_hash") != payload_hash:
+                raise AgentRunRequestConflictError() from None
+            # 首个请求先写运行、再写消息；短暂等待它完成该小段数据库准备。
+            for _ in range(40):
+                if existing.metadata.get("input_message_id"):
+                    return existing
+                time.sleep(0.025)
+                existing = self._run_store.get_by_request_id(request_id or "", principal_id)
+                if existing is None:
+                    break
+            if existing is not None and existing.metadata.get("input_message_id"):
+                return existing
+            raise AgentRunPreparationPendingError() from None
+        user_content = text_content(message)
+        user_content["blocks"].extend(
+            {"type": "image", "attachment_id": attachment_id}
+            for attachment_id in resolved_attachments
+        )
+        message_id = self._message_store.save(resolved_id, "user", user_content)
+        record.metadata["input_message_id"] = message_id
         self._run_store.save(record)
-        message_id = self._message_store.save(resolved_id, record.run_id, "user", message)
         if resolved_attachments:
             if self._attachment_store is None:
                 raise ValueError("当前智能体不支持图片附件")
@@ -189,23 +288,109 @@ class AgentRunner:
                 resolved_id,
                 message_id,
             )
-        graph_input = dict(graph_context or {})
-        graph_input.update({
-            "messages": [HumanMessage(content=message)],
-            "original_request": message,
-            "resume_answers": {},
-            "agent_id": self._agent_id,
-            "principal_id": principal_id,
-            "conversation_id": resolved_id,
-            "run_id": record.run_id,
-            "task_result_id": task_result_id,
-            "attachment_ids": resolved_attachments,
-        })
-        return self._stream_graph(
-            record=record,
-            graph_input=graph_input,
-            title_source_message=title_source_message,
-        )
+        return record
+
+    def execute_prepared(self, run_id: str) -> AsyncIterator[AgentEvent]:
+        """从数据库中的排队记录和用户消息重建图输入并开始执行。"""
+        return self._execute_prepared_events(run_id)
+
+    async def _execute_prepared_events(self, run_id: str) -> AsyncIterator[AgentEvent]:
+        """用 run 级共享锁排除重复投递，再声明运行并执行现有图。"""
+        record = self._run_store.get(run_id)
+        if record is None or record.agent != self._agent or record.status not in {
+            RunStatus.QUEUED,
+            RunStatus.RUNNING,
+        }:
+            return
+
+        # 先持有 run 级锁再 claim，避免同一 request_id 的并发 Celery 投递
+        # 在首个 Worker 写入会话锁前，把正常运行误判为中断。
+        run_lock_key = f"agent-run:{run_id}"
+        lock_acquired = False
+        try:
+            try:
+                await self._run_lock.acquire(run_lock_key)
+                lock_acquired = True
+            except RunBusyError:
+                return
+
+            claim = getattr(self._run_store, "claim", None)
+            if callable(claim) and not claim(run_id):
+                record = self._run_store.get(run_id) or record
+                if record.status != RunStatus.RUNNING:
+                    return
+                record.status = RunStatus.FAILED
+                record.metadata["error_summary"] = "智能体 Worker 中断，本轮未能安全续跑"
+                yield self._event(
+                    record,
+                    AgentEventType.RUN_FAILED,
+                    {
+                        "code": "AGENT_WORKER_INTERRUPTED",
+                        "message": "本轮执行中断，请重新提交消息后重试",
+                    },
+                )
+                return
+
+            record = self._run_store.get(run_id) or record
+            if record.metadata.get("action") == "resume":
+                answers = record.metadata.get("resume_answers")
+                if not isinstance(answers, dict):
+                    record.status = RunStatus.FAILED
+                    record.metadata["error_summary"] = "本轮输入暂时无法读取"
+                    yield self._event(
+                        record,
+                        AgentEventType.RUN_FAILED,
+                        {"code": "RUN_INPUT_MISSING", "message": "本轮输入暂时无法读取"},
+                    )
+                    return
+                events = self._execute_resume_record(record, answers)
+            else:
+                message_id = record.metadata.get("input_message_id")
+                input_message = self._message_store.get_for_conversation(
+                    record.conversation_id, message_id
+                ) if isinstance(message_id, str) else None
+                if input_message is None:
+                    record.status = RunStatus.FAILED
+                    record.metadata["error_summary"] = "本轮输入暂时无法读取"
+                    yield self._event(
+                        record,
+                        AgentEventType.RUN_FAILED,
+                        {"code": "RUN_INPUT_MISSING", "message": "本轮输入暂时无法读取"},
+                    )
+                    return
+                blocks = input_message.content.get("blocks", [])
+                message_text = _message_text(blocks)
+                graph_input = dict(record.metadata.get("graph_context") or {})
+                graph_input.update({
+                    "messages": [HumanMessage(content=message_text)],
+                    "original_request": message_text,
+                    "resume_answers": {},
+                    "agent": self._agent,
+                    "principal_id": record.principal_id,
+                    "conversation_id": record.conversation_id,
+                    "run_id": record.run_id,
+                    "task_result_id": record.metadata.get("task_result_id"),
+                    "attachment_ids": record.metadata.get("attachment_ids", []),
+                })
+                if self._agent == LISTING_AGENT:
+                    graph_input["question_round_count"] = 0
+                events = self._stream_graph(
+                    record=record,
+                    graph_input=graph_input,
+                    title_source_message=(
+                        message_text if record.metadata.get("is_new_conversation") else None
+                    ),
+                )
+
+            async for event in events:
+                yield event
+        finally:
+            if lock_acquired:
+                # 终止事件由 Worker 消费者先写入 Redis，再请求下一事件；此处
+                # 随生成器收尾保存终态并释放锁。
+                if record is not None:
+                    self._run_store.save(record)
+                await self._run_lock.release(run_lock_key)
 
     def resume(
         self,
@@ -214,62 +399,154 @@ class AgentRunner:
         run_id: str,
         answers: dict[str, Any],
         principal_id: str = "local-development",
+        request_id: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        """校验等待状态和问题标识后，从相同 Checkpoint 恢复图。"""
+        """兼容同步恢复；HTTP 恢复通过 prepare_resume 后派发后台任务。"""
+        record = self.prepare_resume(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            answers=answers,
+            principal_id=principal_id,
+            request_id=request_id or self._id_generator.next_id_string(),
+        )
+        return self.execute_prepared(record.run_id)
+
+    def prepare_resume(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        answers: dict[str, Any],
+        principal_id: str,
+        request_id: str,
+    ) -> RunRecord:
+        """验证追问答案并把恢复请求持久化为可幂等派发的 queued 运行。"""
         record = self._run_store.get(run_id)
+        request_hash = hashlib.sha256(json.dumps(
+            answers, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        if (
+            record is not None
+            and record.conversation_id == conversation_id
+            and record.principal_id == principal_id
+            and record.agent == self._agent
+            and record.metadata.get("resume_request_id") == request_id
+        ):
+            if record.metadata.get("resume_request_hash") != request_hash:
+                raise AgentRunRequestConflictError()
+            if record.status == RunStatus.QUEUED and not record.metadata.get("resume_message_id"):
+                for _ in range(40):
+                    time.sleep(0.025)
+                    record = self._run_store.get(run_id) or record
+                    if record.metadata.get("resume_message_id"):
+                        break
+                if not record.metadata.get("resume_message_id"):
+                    self._save_resume_message(record, answers)
+            return record
         if (
             record is None
             or record.status != RunStatus.WAITING
             or record.conversation_id != conversation_id
             or record.principal_id != principal_id
-            or record.agent_id != self._agent_id
+            or record.agent != self._agent
         ):
             raise RunNotResumableError()
         pending_question_ids = set(record.metadata.get("pending_question_ids", []))
         if not pending_question_ids or set(answers) != pending_question_ids:
             raise InvalidResumeAnswersError()
         pending_questions_data = record.metadata.get("pending_questions")
+        question_titles: dict[str, str] = {}
         if isinstance(pending_questions_data, list):
             try:
-                QuestionPayload(questions=pending_questions_data).validate_answers(answers)
+                pending_questions = QuestionPayload(questions=pending_questions_data)
+                pending_questions.validate_answers(answers)
+                question_titles = {
+                    question.id: question.title
+                    for question in pending_questions.questions
+                }
             except ValueError as error:
                 raise InvalidResumeAnswersError() from error
         if "question_round_count" not in record.metadata:
             # 兼容升级前创建、只持久化了问题 ID 的等待中运行。
             record.metadata["question_round_count"] = 1
-        record.status = RunStatus.RUNNING
+        record.metadata.update({
+            "action": "resume",
+            "resume_request_id": request_id,
+            "resume_request_hash": request_hash,
+            "resume_answers": answers,
+        })
+        record.status = RunStatus.QUEUED
         self._run_store.save(record)
+        self._save_resume_message(record, answers)
+        return record
+
+    def _save_resume_message(self, record: RunRecord, answers: dict[str, Any]) -> None:
+        """把追问回答按现有消息内容块存入会话历史。"""
+        question_titles: dict[str, str] = {}
+        questions_data = record.metadata.get("pending_questions")
+        if isinstance(questions_data, list):
+            with suppress(ValueError):
+                questions = QuestionPayload(questions=questions_data)
+                question_titles = {question.id: question.title for question in questions.questions}
         answer_text = "\n".join(
             f"{question_id}: {', '.join(value) if isinstance(value, list) else value}"
             for question_id, value in answers.items()
         )
-        self._message_store.save(
-            conversation_id,
-            record.run_id,
+        message_id = self._message_store.save(
+            record.conversation_id,
             "user",
-            answer_text,
+            {
+                "blocks": [
+                    {"type": "text", "text": answer_text},
+                    {
+                        "type": "question_answers",
+                        "answers": answers,
+                        **({"question_titles": question_titles} if question_titles else {}),
+                    },
+                ]
+            },
         )
+        record.metadata["resume_message_id"] = message_id
+        self._run_store.save(record)
+
+    def _execute_resume_record(
+        self,
+        record: RunRecord,
+        answers: dict[str, Any],
+    ) -> AsyncIterator[AgentEvent]:
+        """从已校验并保存的结构化答案恢复 LangGraph Checkpoint。"""
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
             "resume_answers": answers,
-            "agent_id": self._agent_id,
-            "principal_id": principal_id,
-            "conversation_id": conversation_id,
+            "agent": self._agent,
+            "principal_id": record.principal_id,
+            "conversation_id": record.conversation_id,
             "run_id": record.run_id,
             "task_result_id": record.metadata.get("task_result_id"),
             "attachment_ids": record.metadata.get("attachment_ids", []),
         }
+        if self._agent == LISTING_AGENT:
+            question_round_count = record.metadata.get("question_round_count", 0)
+            if (
+                not isinstance(question_round_count, int)
+                or isinstance(question_round_count, bool)
+            ):
+                question_round_count = 0
+            graph_input["question_round_count"] = question_round_count
         return self._stream_graph(record=record, graph_input=graph_input)
 
     def cancel(self, *, run_id: str, principal_id: str) -> None:
-        """校验运行归属和状态后，立即设置进程内取消信号。"""
+        """校验运行归属后通过共享信号请求 Worker 停止。"""
         record = self._run_store.get(run_id)
         if (
             record is None
             or record.principal_id != principal_id
-            or record.status != RunStatus.RUNNING
+            or record.agent != self._agent
+            or record.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
         ):
             raise RunNotCancellableError()
+        if self._cancel_signal is not None:
+            self._cancel_signal.request_cancel(run_id)
         self._cancel_events.setdefault(run_id, asyncio.Event()).set()
 
     def submit_task(self, task_name: str, payload: dict[str, Any]) -> str:
@@ -291,10 +568,17 @@ class AgentRunner:
         output_char_count = 0
         streamed_text_by_node: dict[str, str] = {}
         cancel_event = self._cancel_events.setdefault(record.run_id, asyncio.Event())
+        record.status = RunStatus.RUNNING
+        self._run_store.save(record)
         title_task: asyncio.Task[str | None] | None = None
+        cancel_monitor: asyncio.Task[None] | None = None
         try:
             await self._run_lock.acquire(scope_key)
             lock_acquired = True
+            if self._cancel_signal is not None:
+                cancel_monitor = asyncio.create_task(
+                    self._watch_shared_cancel(record.run_id, cancel_event)
+                )
             if title_source_message is not None and self._title_generator is not None:
                 # 首轮标题调用在后台并行执行，不阻塞智能体开始输出。
                 title_task = asyncio.create_task(
@@ -472,6 +756,31 @@ class AgentRunner:
                         await self._run_lock.release(scope_key)
                 finally:
                     self._cancel_events.pop(record.run_id, None)
+                    if cancel_monitor is not None:
+                        cancel_monitor.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await cancel_monitor
+
+    async def _watch_shared_cancel(
+        self,
+        run_id: str,
+        cancel_event: asyncio.Event,
+    ) -> None:
+        """轮询 Redis 取消标志，使 API 实例的显式停止到达执行 Worker。"""
+        while not cancel_event.is_set():
+            try:
+                requested = await asyncio.to_thread(
+                    self._cancel_signal.is_cancel_requested,
+                    run_id,
+                )
+            except Exception:
+                logger.warning("读取共享取消信号失败 run_id=%s", run_id)
+                await asyncio.sleep(1)
+                continue
+            if requested:
+                cancel_event.set()
+                return
+            await asyncio.sleep(0.5)
 
     async def _persist_conversation_title(
         self,
@@ -556,9 +865,8 @@ class AgentRunner:
             if isinstance(message.content, str) and message.content:
                 message_id = self._message_store.save(
                     record.conversation_id,
-                    record.run_id,
                     "assistant",
-                    message.content,
+                    text_content(message.content),
                 )
                 task_result_id = record.metadata.get("task_result_id")
                 if isinstance(task_result_id, str) and self._task_result_store is not None:
@@ -585,7 +893,10 @@ class AgentRunner:
                 )
                 return
             try:
-                questions = QuestionPayload.model_validate(payload.get("data", {}))
+                tool_data = payload.get("data", {})
+                questions = QuestionPayload.model_validate(
+                    {"questions": tool_data.get("questions")}
+                )
             except ValueError:
                 yield self._event(
                     record,
@@ -616,7 +927,7 @@ class AgentRunner:
                 return
             question_round = question_round_count + 1
             record.metadata["question_round_count"] = question_round
-            question_data = questions.model_dump(mode="json")
+            question_data = questions.model_dump(mode="json", exclude_none=True)
             question_data["question_round"] = question_round
             question_data["max_question_rounds"] = MAX_QUESTION_ROUNDS_PER_RUN
             record.metadata["pending_questions"] = question_data["questions"]
@@ -625,12 +936,29 @@ class AgentRunner:
             ]
             question_message_id = self._message_store.save(
                 record.conversation_id,
-                record.run_id,
                 "assistant",
-                "\n".join(
-                    f"{question.title}\n{question.prompt}"
-                    for question in questions.questions
-                ),
+                {
+                    "blocks": [
+                        {
+                            "type": "text",
+                            "text": "\n".join(
+                                "\n".join(
+                                    text
+                                    for text in (question.title, question.prompt)
+                                    if text
+                                )
+                                for question in questions.questions
+                            ),
+                        },
+                        {
+                            "type": "question_batch",
+                            "run_id": record.run_id,
+                            "question_round": question_round,
+                            "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                            "questions": question_data["questions"],
+                        },
+                    ]
+                },
             )
             task_result = payload.get("data", {}).get("task_result")
             if (
@@ -704,8 +1032,8 @@ class AgentRunner:
     def _scope_key(record: RunRecord) -> str:
         """用可信主体隔离锁和 Checkpoint 内部键。"""
         checkpoint_agent_name = CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY.get(
-            record.agent_id,
-            record.agent_id,
+            record.agent,
+            record.agent,
         )
         return f"{record.principal_id}:{checkpoint_agent_name}:{record.conversation_id}"
 
@@ -717,7 +1045,7 @@ def build_memory_runner(
     *,
     conversation_store: ConversationStore | None = None,
     message_store: MessageStore | None = None,
-    agent_id: str = COMMON_AGENT_ID,
+    agent: AgentType = COMMON_AGENT,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,
@@ -734,7 +1062,7 @@ def build_memory_runner(
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,
-        agent_id=agent_id,
+        agent=agent,
         task_result_store=task_result_store or MemoryTaskResultStore(),
         attachment_store=attachment_store or MemoryAttachmentStore(),
         title_generator=title_generator,
@@ -753,13 +1081,14 @@ def build_agent_runner(
     event_sequence: EventSequence,
     model_provider: ChatModelProvider | None = None,
     graph: Any | None = None,
-    agent_id: str = COMMON_AGENT_ID,
+    agent: AgentType = COMMON_AGENT,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,
     id_generator: SnowflakeIdGenerator | None = None,
+    cancel_signal: Any | None = None,
 ) -> AgentRunner:
-    """用注入的存储协议为一个 agent_id 组装运行器。"""
+    """用注入的存储协议为一个 agent 组装运行器。"""
     provider = model_provider or OpenAICompatibleProvider(settings)
     if graph is None:
         graph = build_agent_graph(checkpointer, provider.create_chat_model())
@@ -769,11 +1098,12 @@ def build_agent_runner(
     )
     return AgentRunner(
         graph=graph,
-        agent_id=agent_id,
+        agent=agent,
         task_result_store=task_result_store,
         attachment_store=attachment_store,
         title_generator=resolved_title_generator,
         id_generator=id_generator,
+        cancel_signal=cancel_signal,
         run_store=run_store,
         run_lock=run_lock,
         conversation_store=conversation_store,

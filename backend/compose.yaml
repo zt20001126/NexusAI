@@ -13,6 +13,16 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
     ports:
       - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,6 +48,32 @@ services:
       - --loglevel=INFO
       - --pool=solo
       - --concurrency=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  agent-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      AGENT_WORKER_SNOWFLAKE_ID: ${AGENT_WORKER_SNOWFLAKE_ID:-2}
+      LANGGRAPH_STRICT_MSGPACK: "true"
+    command:
+      - celery
+      - -A
+      - infra.celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --pool=solo
+      - --concurrency=1
+      - --queues=agents
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from agent.enums import AgentType
 from agent.persistence.interfaces import TaskResultStore
 from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.tool_result import ToolResult
@@ -33,7 +34,7 @@ def create_research_search_tool(
         principal_id: str,
         conversation_id: str,
         run_id: str,
-        agent_id: str,
+        agent: AgentType,
         max_search_rounds: int,
     ) -> str:
         """检索 OpenAlex 并返回状态摘要；完整论文只写入任务结果表。"""
@@ -46,7 +47,7 @@ def create_research_search_tool(
                 "principal_id": principal_id,
                 "conversation_id": conversation_id,
                 "run_id": run_id,
-                "agent_id": agent_id,
+                "agent": agent,
                 "max_search_rounds": max_search_rounds,
             }
         )
@@ -59,7 +60,7 @@ def create_research_search_tool(
                 "message": result.message,
                 "task_result": {
                     "task_result_id": payload.task_result_id,
-                    "agent_id": payload.agent_id,
+                    "agent": payload.agent,
                     "result_type": RESEARCH_RESULT_TYPE,
                     "generation_status": TaskResultStatus.SUCCEEDED.value,
                 },

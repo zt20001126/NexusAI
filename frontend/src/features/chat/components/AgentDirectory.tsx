@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '../api/agent'
+import type { AgentType } from '../constants'
 import AgentAvatar from './AgentAvatar'
 
 interface AgentDirectoryProps {
@@ -7,7 +8,7 @@ interface AgentDirectoryProps {
   error: string | null
   canReturnToConversation: boolean
   returnLabel: string
-  onSelect: (agentId: string) => void
+  onSelect: (agent: AgentType) => void
   onOpenGame: () => void
   onReturnToConversation: () => void
   onRetry: () => void
@@ -67,13 +68,13 @@ function AgentDirectory({
           <button
             className="agent-directory-card"
             type="button"
-            key={agent.agent_id}
-            onClick={() => onSelect(agent.agent_id)}
+            key={agent.agent}
+            onClick={() => onSelect(agent.agent)}
             aria-label={`选择${agent.name}：${agent.description}`}
           >
             <span className="agent-directory-card-top">
               <span className="agent-directory-avatar" aria-hidden="true">
-                <AgentAvatar agentId={agent.agent_id} />
+                <AgentAvatar agent={agent.agent} />
               </span>
               <span className="agent-directory-arrow" aria-hidden="true">↗</span>
             </span>

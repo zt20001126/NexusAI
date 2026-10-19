@@ -3,12 +3,14 @@
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from agent.enums import AgentType
+
 
 @dataclass(frozen=True)
 class AgentDefinition:
     """注册中心使用的智能体描述，不包含请求级状态。"""
 
-    agent_id: str
+    agent: AgentType
     name: str
     description: str
     supports_image_upload: bool

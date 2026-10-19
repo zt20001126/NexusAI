@@ -1,6 +1,7 @@
 /** 科研文献检索结果详情 API 和数据类型。 */
 
 import { requestJson } from '../../../shared/api/http'
+import type { AgentType } from '../constants'
 
 export interface ResearchPaper {
   id: string
@@ -20,7 +21,7 @@ export interface ResearchPaper {
 
 export interface ResearchTaskResult {
   task_result_id: string
-  agent_id: string
+  agent: AgentType
   result_type: 'research_search'
   generation_status: string
   result_data: {

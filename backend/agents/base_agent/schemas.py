@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent.enums import AgentType
 
 class AgentRequest(BaseModel):
     """单轮调用的用户输入；会话历史由可选 Checkpointer 管理。"""
@@ -19,5 +20,5 @@ class AgentResponse(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    agent_id: str = Field(description="生成此回复的智能体业务标识。")
+    agent: AgentType = Field(description="生成此回复的智能体类型。")
     answer: str = Field(min_length=1, description="智能体最终回复文本。")

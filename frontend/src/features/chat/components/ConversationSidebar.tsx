@@ -75,7 +75,7 @@ function ConversationSidebar({
             title={conversation.title ?? '新会话'}
           >
             <span className="conversation-icon" aria-hidden="true">
-              <AgentAvatar agentId={conversation.agent_id} />
+              <AgentAvatar agent={conversation.agent} />
             </span>
             <span className="conversation-title">{conversation.title || '新会话'}</span>
           </button>

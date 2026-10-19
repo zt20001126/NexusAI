@@ -12,7 +12,7 @@ from agent.persistence.interfaces import AttachmentStore, TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agent.schemas.tool_result import ToolResult
 from agents.image_agent.constants import (
-    IMAGE_AGENT_ID,
+    IMAGE_AGENT,
     IMAGE_PROMPT_MAX_LENGTH,
     IMAGE_RESULT_TYPE,
     IMAGE_RESULT_URL_PREFIX,
@@ -79,7 +79,7 @@ def create_generate_image_tool(
         task_result_store.save(
             TaskResultRecord(
                 task_result_id=task_result_id,
-                agent_id=IMAGE_AGENT_ID,
+                agent=IMAGE_AGENT,
                 user_id=principal_id,
                 conversation_id=conversation_id,
                 run_id=run_id,
@@ -117,7 +117,7 @@ def create_generate_image_tool(
             task_result_store.save(
                 TaskResultRecord(
                     task_result_id=task_result_id,
-                    agent_id=IMAGE_AGENT_ID,
+                    agent=IMAGE_AGENT,
                     user_id=principal_id,
                     conversation_id=conversation_id,
                     run_id=run_id,
@@ -162,7 +162,7 @@ def create_generate_image_tool(
             task_result_store.save(
                 TaskResultRecord(
                     task_result_id=task_result_id,
-                    agent_id=IMAGE_AGENT_ID,
+                    agent=IMAGE_AGENT,
                     user_id=principal_id,
                     conversation_id=conversation_id,
                     run_id=run_id,
@@ -176,7 +176,7 @@ def create_generate_image_tool(
             stable_image_url = f"{IMAGE_RESULT_URL_PREFIX}/{task_result_id}/image"
             task_result_data = {
                 "task_result_id": task_result_id,
-                "agent_id": IMAGE_AGENT_ID,
+                "agent": IMAGE_AGENT,
                 "generation_status": TaskResultStatus.SUCCEEDED.value,
                 "image_url": stable_image_url,
                 **{key: value for key, value in output.items() if key != "object_key"},
@@ -233,7 +233,7 @@ def _failure(code: str, message: str, task_result_id: str) -> str:
             "summary": message,
             "task_result": {
                 "task_result_id": task_result_id,
-                "agent_id": IMAGE_AGENT_ID,
+                "agent": IMAGE_AGENT,
                 "generation_status": TaskResultStatus.FAILED.value,
             },
         },

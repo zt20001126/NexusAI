@@ -2,8 +2,10 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
-from agent.persistence.memory import MemoryEventSequence
+from agent.persistence.memory import MemoryEventSequence, MemoryMessageStore
+from agent.schemas.conversation import text_content
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.streaming.publisher import EventPublisher
 
@@ -45,3 +47,17 @@ async def test_service_emits_protocol_heartbeat_while_graph_is_quiet() -> None:
         if event.event_type == AgentEventType.HEARTBEAT
     )
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+
+
+def test_message_history_uses_id_to_break_created_at_ties() -> None:
+    """相同创建时间的消息按 ID 稳定翻页，不重复也不遗漏。"""
+    store = MemoryMessageStore()
+    ids = [store.save("1", "user", text_content(str(index))) for index in range(3)]
+    tied_time = datetime(2026, 10, 19, tzinfo=timezone.utc)
+    for item in store.messages["1"]:
+        item["created_at"] = tied_time
+
+    first_page = store.list_by_conversation("1", 2, None)
+    second_page = store.list_by_conversation("1", 2, first_page[-1].message_id)
+
+    assert [item.message_id for item in first_page + second_page] == list(reversed(ids))

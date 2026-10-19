@@ -44,6 +44,17 @@ def test_conversation_title_timeout_is_configurable(monkeypatch) -> None:
     assert settings.conversation_title_timeout_seconds == 12
 
 
+def test_health_check_interval_and_timeout_are_configurable(monkeypatch) -> None:
+    """后端健康巡检间隔和单项探针超时可由部署环境覆盖。"""
+    monkeypatch.setenv("HEALTH_CHECK_INTERVAL_SECONDS", "45")
+    monkeypatch.setenv("HEALTH_CHECK_TIMEOUT_SECONDS", "5")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.health_check_interval_seconds == 45
+    assert settings.health_check_timeout_seconds == 5
+
+
 def test_openalex_configuration_uses_environment_aliases(monkeypatch) -> None:
     """OpenAlex 凭据及重试配置可由部署环境覆盖。"""
     monkeypatch.setenv("OPENALEX_API_KEY", "test-key")

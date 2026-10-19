@@ -1,11 +1,27 @@
 """图片图节点、TokenHub 和工具边界使用的类型化模型。"""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.constants import MAX_QUESTIONS_PER_BATCH, MAX_REFERENCE_IMAGE_COUNT
 from agent.schemas.question import Question
+from agents.image_agent.constants import IMAGE_PROMPT_MAX_LENGTH
+
+
+class ImageRequestAnalysis(BaseModel):
+    """模型对本轮图片意图和生图提示词的结构化判断。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Literal["generate_image", "other"] = Field(
+        description="本轮意图：立即生成商品图片，或其他咨询",
+    )
+    image_prompt: str = Field(
+        default="",
+        max_length=IMAGE_PROMPT_MAX_LENGTH,
+        description="仅在需要生图时返回的中文视觉提示词",
+    )
 
 
 class ImageGenerationOptions(BaseModel):

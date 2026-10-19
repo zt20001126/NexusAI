@@ -1,20 +1,22 @@
 """多智能体发现、聊天、图片上传及生成结果接口。"""
 
 import asyncio
+import re
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from sse_starlette import EventSourceResponse
 
-from agent.constants import IMAGE_AGENT_ID
-from agent.constants import LITERATURE_READER_AGENT_ID
+from agent.constants import IMAGE_AGENT
+from agent.constants import LITERATURE_READER_AGENT
 from agent.schemas.task_result import TaskResultStatus
 from infra.object_storage import ObjectStorageError, ObjectStorageNotConfiguredError
 from agent.streaming import encode_sse_events
 from app.dependencies.auth import get_principal_id
 from app.schemas.agent import ChatRequest, ResumeRequest
-from agents.listing_agent.constants import LISTING_AGENT_ID
+from agents.listing_agent.constants import LISTING_AGENT
 
 router = APIRouter(tags=["智能体"])
 
@@ -31,7 +33,7 @@ def list_agents(request: Request) -> dict[str, Any]:
     return _success(
         [
             {
-                "agent_id": item.agent_id,
+                "agent": item.agent,
                 "name": item.name,
                 "description": item.description,
                 "supports_image_upload": item.supports_image_upload,
@@ -42,21 +44,21 @@ def list_agents(request: Request) -> dict[str, Any]:
     )
 
 
-@router.post("/api/agents/{agent_id}/chat")
+@router.post("/api/agents/{agent}/chat")
 async def chat(
-    agent_id: str,
+    agent: str,
     payload: ChatRequest,
     request: Request,
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
     """执行指定智能体的非流式对话。"""
     registry = request.app.state.agent_registry
-    definition = registry.get_definition(agent_id)
-    if agent_id == LITERATURE_READER_AGENT_ID:
+    definition = registry.get_definition(agent)
+    if agent == LITERATURE_READER_AGENT:
         raise HTTPException(status_code=400, detail="文献助手必须通过文献问答接口并选择文献")
     _validate_attachment_support(definition, payload.attachment_ids)
-    _validate_listing_image_input(agent_id, payload.attachment_ids)
-    service = registry.get_service(agent_id)
+    _validate_listing_image_input(agent, payload.attachment_ids)
+    service = registry.get_service(agent)
     events = await service.chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
@@ -66,58 +68,112 @@ async def chat(
     return _success([event.model_dump(mode="json") for event in events])
 
 
-@router.post("/api/agents/{agent_id}/chat/stream")
+@router.post("/api/agents/{agent}/chat/stream")
 async def stream_chat(
-    agent_id: str,
+    agent: str,
     payload: ChatRequest,
     request: Request,
     principal_id: str = Depends(get_principal_id),
 ) -> EventSourceResponse:
     """通过公共 SSE 编码器流式执行指定智能体。"""
     registry = request.app.state.agent_registry
-    definition = registry.get_definition(agent_id)
-    if agent_id == LITERATURE_READER_AGENT_ID:
+    definition = registry.get_definition(agent)
+    if agent == LITERATURE_READER_AGENT:
         raise HTTPException(status_code=400, detail="文献助手必须通过文献问答接口并选择文献")
     _validate_attachment_support(definition, payload.attachment_ids)
-    _validate_listing_image_input(agent_id, payload.attachment_ids)
-    service = registry.get_service(agent_id)
-    events = service.stream_chat(
+    _validate_listing_image_input(agent, payload.attachment_ids)
+    service = registry.get_service(agent)
+    record, events = service.submit_chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
         principal_id=principal_id,
+        request_id=payload.request_id or uuid.uuid4().hex,
         attachment_ids=payload.attachment_ids,
     )
-    return EventSourceResponse(encode_sse_events(events), ping=None)
+    return EventSourceResponse(
+        encode_sse_events(events),
+        ping=None,
+        headers={
+            "X-Conversation-ID": record.conversation_id,
+            "X-Run-ID": record.run_id,
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
-@router.post("/api/agents/{agent_id}/runs/{run_id}/resume")
+@router.get("/api/agents/listen/{conversation_id}")
+async def listen_agent_run(
+    conversation_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
+    request: Request,
+    run_id: str | None = Query(default=None, pattern=r"^[1-9][0-9]{0,18}$"),
+    after: str | None = Query(default=None, max_length=40),
+    principal_id: str = Depends(get_principal_id),
+) -> EventSourceResponse:
+    """授权后从共享事件流按游标恢复监听；断开只关闭本读取器。"""
+    header_cursor = request.headers.get("last-event-id")
+    cursor = header_cursor if header_cursor is not None else after
+    if cursor is not None and re.fullmatch(r"[0-9]+-[0-9]+", cursor) is None:
+        raise HTTPException(status_code=400, detail="事件游标格式不合法")
+    events = request.app.state.agent_session_service.listen(
+        conversation_id=conversation_id,
+        principal_id=principal_id,
+        run_id=run_id,
+        after=cursor,
+        allow_missing_at_latest=(
+            request.headers.get("x-agent-history-loaded", "").lower() == "true"
+        ),
+    )
+    return EventSourceResponse(encode_sse_events(events), ping=None, headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/api/agents/conversation/active/latest")
+def get_latest_active_agent_run(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """返回当前主体最新一个后台运行；并行运行时返回列表供逐会话管理。"""
+    items = request.app.state.agent_session_service.active_runs(principal_id)
+    return _success(items[0] if items else None)
+
+
+@router.post("/api/agents/{agent}/runs/{run_id}/resume")
 async def resume_run(
-    agent_id: str,
+    agent: str,
     run_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
     payload: ResumeRequest,
     request: Request,
     principal_id: str = Depends(get_principal_id),
 ) -> EventSourceResponse:
     """向指定智能体提交结构化答案并恢复原运行。"""
-    service = request.app.state.agent_registry.get_service(agent_id)
-    events = service.resume(
+    service = request.app.state.agent_registry.get_service(agent)
+    record, events = service.submit_resume(
         conversation_id=payload.conversation_id,
         run_id=run_id,
         answers=payload.answers,
         principal_id=principal_id,
+        request_id=payload.request_id or uuid.uuid4().hex,
+        after=payload.after_event_id,
     )
-    return EventSourceResponse(encode_sse_events(events), ping=None)
+    return EventSourceResponse(
+        encode_sse_events(events),
+        ping=None,
+        headers={
+            "X-Conversation-ID": record.conversation_id,
+            "X-Run-ID": record.run_id,
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
-@router.post("/api/agents/{agent_id}/runs/{run_id}/cancel")
+@router.post("/api/agents/{agent}/runs/{run_id}/cancel")
 def cancel_run(
-    agent_id: str,
+    agent: str,
     run_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
     request: Request,
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
     """取消属于当前主体且仍在执行的指定智能体运行。"""
-    request.app.state.agent_registry.get_service(agent_id).cancel(
+    request.app.state.agent_registry.get_service(agent).cancel(
         run_id=run_id,
         principal_id=principal_id,
     )
@@ -127,12 +183,12 @@ def cancel_run(
 @router.post("/api/uploads/images")
 async def upload_reference_image(
     request: Request,
-    agent_id: str = Query(default=IMAGE_AGENT_ID, min_length=1, max_length=64),
+    agent: str = Query(default=IMAGE_AGENT.value, min_length=1, max_length=64),
     file_name: str = Query(default="reference-image", max_length=255),
     principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
     """接收单个原始 PNG/JPEG 请求体并暂存为用户私有附件。"""
-    definition = request.app.state.agent_registry.get_definition(agent_id)
+    definition = request.app.state.agent_registry.get_definition(agent)
     if not definition.supports_image_upload:
         raise HTTPException(status_code=400, detail="该智能体不支持图片上传")
 
@@ -256,9 +312,9 @@ def _validate_attachment_support(definition: Any, attachment_ids: list[str]) -> 
         raise HTTPException(status_code=400, detail="该智能体不支持图片上传")
 
 
-def _validate_listing_image_input(agent_id: str, attachment_ids: list[str]) -> None:
+def _validate_listing_image_input(agent: str, attachment_ids: list[str]) -> None:
     """Listing 必须从至少一张商品图片开始，避免缺少视觉识别的空任务。"""
-    if agent_id == LISTING_AGENT_ID and not attachment_ids:
+    if agent == LISTING_AGENT and not attachment_ids:
         raise HTTPException(status_code=422, detail="Listing 生成需要至少上传一张商品图片")
 
 

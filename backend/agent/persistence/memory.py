@@ -8,7 +8,7 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
 from agent.errors import (
     AttachmentAccessDeniedError,
     BackendNotConfiguredError,
@@ -79,7 +79,7 @@ class MemoryConversationStore:
                 title=value.get("_title"),
                 created_at=value["_created_at"],
                 updated_at=value["_updated_at"],
-                agent_id=value.get("agent_id", COMMON_AGENT_ID),
+                agent=value.get("agent", COMMON_AGENT),
             )
             for conversation_id, value in self._conversations.items()
             if value.get("principal_id") == principal_id
@@ -97,9 +97,8 @@ class MemoryMessageStore:
     def save(
         self,
         conversation_id: str,
-        run_id: str,
         role: str,
-        content: str,
+        content: dict[str, Any],
     ) -> str:
         """按写入顺序保存测试消息。"""
         message_id = get_snowflake_generator().next_id_string()
@@ -107,8 +106,6 @@ class MemoryMessageStore:
             {
                 "message_id": message_id,
                 "conversation_id": conversation_id,
-                "run_id": run_id,
-                "sequence": len(self.messages[conversation_id]) + 1,
                 "role": role,
                 "content": content,
                 "created_at": datetime.now(timezone.utc),
@@ -116,23 +113,40 @@ class MemoryMessageStore:
         )
         return message_id
 
+    def get_for_conversation(
+        self, conversation_id: str, message_id: str
+    ) -> MessageRecord | None:
+        """在测试存储中按会话定位指定消息。"""
+        for item in self.messages.get(conversation_id, []):
+            if item["message_id"] == message_id:
+                return MessageRecord(**item)
+        return None
+
     def list_by_conversation(
         self,
         conversation_id: str,
         limit: int,
-        before_sequence: int | None,
+        before_message_id: str | None,
     ) -> list[MessageRecord]:
         """从最新消息向前读取一页，并按新到旧顺序返回。"""
         messages = self.messages.get(conversation_id, [])
+        anchor = next(
+            (item for item in messages if item["message_id"] == before_message_id),
+            None,
+        ) if before_message_id is not None else None
+        if before_message_id is not None and anchor is None:
+            return []
         eligible = [
-            item
-            for item in messages
-            if before_sequence is None or item["sequence"] < before_sequence
+            item for item in messages
+            if anchor is None or
+            (item["created_at"], int(item["message_id"]))
+            < (anchor["created_at"], int(anchor["message_id"]))
         ]
-        return [
-            MessageRecord(**item)
-            for item in reversed(eligible[-limit:])
-        ]
+        eligible.sort(
+            key=lambda item: (item["created_at"], int(item["message_id"])),
+            reverse=True,
+        )
+        return [MessageRecord(**item) for item in eligible[:limit]]
 
 
 class MemoryRunStore:
@@ -148,6 +162,38 @@ class MemoryRunStore:
     def get(self, run_id: str) -> RunRecord | None:
         """按标识读取记录。"""
         return self._records.get(run_id)
+
+    def get_by_request_id(self, request_id: str, principal_id: str) -> RunRecord | None:
+        """按请求幂等键查找当前主体已建立的运行。"""
+        return next((
+            record for record in self._records.values()
+            if record.principal_id == principal_id
+            and record.metadata.get("request_id") == request_id
+        ), None)
+
+    def list_active(self, principal_id: str) -> list[RunRecord]:
+        """返回主体排队或运行中的运行记录。"""
+        active = {RunStatus.QUEUED, RunStatus.RUNNING}
+        return [record for record in self._records.values()
+                if record.principal_id == principal_id and record.status in active]
+
+    def claim(self, run_id: str) -> bool:
+        """只允许一个内存 Worker 将 queued 运行声明为 running。"""
+        record = self._records.get(run_id)
+        if record is None or record.status != RunStatus.QUEUED:
+            return False
+        from dataclasses import replace
+        self._records[run_id] = replace(record, status=RunStatus.RUNNING)
+        return True
+
+    def get_latest_for_conversation(
+        self, conversation_id: str, principal_id: str
+    ) -> RunRecord | None:
+        """查找主体在指定会话中最近创建的运行。"""
+        records = [record for record in self._records.values()
+                   if record.conversation_id == conversation_id
+                   and record.principal_id == principal_id]
+        return max(records, key=lambda record: int(record.run_id), default=None)
 
 
 class MemoryRunLock:
@@ -197,7 +243,6 @@ class MemoryTaskResultStore:
                 "created_at": record.created_at or (
                     existing.created_at if existing is not None else datetime.now(timezone.utc)
                 ),
-                "updated_at": datetime.now(timezone.utc),
             }
         )
 
@@ -216,7 +261,6 @@ class MemoryTaskResultStore:
         self.records[task_result_id] = replace(
             record,
             generation_status=status,
-            updated_at=datetime.now(timezone.utc),
         )
         return True
 
@@ -229,7 +273,6 @@ class MemoryTaskResultStore:
             self.records[task_result_id] = replace(
                 record,
                 message_id=message_id,
-                updated_at=datetime.now(timezone.utc),
             )
 
     def get_owned(self, task_result_id: str, user_id: str) -> TaskResultRecord | None:
@@ -376,6 +419,13 @@ class MemoryAttachmentStore:
             raise AttachmentAccessDeniedError()
         mime_type, image_data = result
         return image_data, mime_type
+
+    def read_reference(self, attachment_id: str, user_id: str) -> tuple[bytes, str]:
+        """读取已绑定且属于当前用户的测试参考图。"""
+        record = self.records.get(attachment_id)
+        if record is None or record.user_id != user_id or record.status != "attached":
+            raise AttachmentAccessDeniedError()
+        return record.image_data, record.mime_type
 
 
 class DisabledTaskDispatcher:
