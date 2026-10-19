@@ -23,9 +23,14 @@ flowchart LR
     BootstrapRuntime --> HealthMonitor[HealthMonitor]
     HealthMonitor --> HealthProbes[PostgreSQL/Redis 探针]
     HealthRouter[健康检查 Router] --> HealthMonitor
+    Service --> AgentQueue[Celery Agent 队列]
+    AgentQueue --> AgentWorker[Agent Worker]
+    AgentWorker --> Runner
+    AgentWorker --> EventStream[Redis Streams]
+    EventStream --> Router
 ```
 
-`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `AgentType` 字符串枚举从显式注册表取得对应应用 Service。文献导入另由 Celery Worker 执行；文献 API 只创建记录并将文献 ID 发送到 Redis Broker，解析和向量化状态以 PostgreSQL 为准。
+`bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。聊天 SSE 提交先保存 queued 运行和用户消息，再派发到独立 Celery Agent Worker；Worker 执行 Runner 并把业务事件写入 Redis Streams，HTTP SSE 连接只读取事件流。连接断开不影响 Worker；显式停止通过 Redis 共享取消标志到达执行进程。Router 按 `AgentType` 字符串枚举从显式注册表取得对应应用 Service。文献导入仍由单独的 Celery Worker 执行，解析和向量化状态以 PostgreSQL 为准。
 
 后端健康巡检器在 `bootstrap.runtime` lifespan 中创建、启动和停止，定时并发探测 PostgreSQL 与 Redis Broker。`app.router.health` 只读取最近一次状态快照；具体连接和探测由 `infra.health_probes` 提供，避免将轮询和外部客户端放进 HTTP 路由。
 
@@ -45,6 +50,8 @@ flowchart LR
 | `agents/registry.py` | 按 `AgentType` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
 | `agent/persistence/interfaces.py` | 声明 Runner 所依赖的存储协议；`memory.py` 提供内存测试适配器 | PostgreSQL SQL 和 FastAPI 路由 |
 | `infra/` | 集中管理配置、外部 Provider 和 PostgreSQL/Redis 健康探针 | 承载 HTTP 路由或业务图流程 |
+| `infra/agent_event_store.py` | 使用 Redis Streams 分配 run 游标、保存/回放事件及共享取消标志 | 取代进程内 SSE 缓冲，不承担消息历史 |
+| `infra/agent_task_queue.py`、`app/service/agent_tasks.py` | 将稳定运行 ID 派发到专属 Celery 队列，并在 Worker 中重建 Runtime | HTTP/SSE 连接生命周期 |
 | `main.py` | 暴露 Uvicorn 所需的 `app` 实例 | 组装运行依赖 |
 
 ## 依赖与数据边界

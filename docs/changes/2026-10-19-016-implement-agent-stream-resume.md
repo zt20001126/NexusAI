@@ -1,0 +1,64 @@
+# 实现智能体会话流断线重连
+
+- 日期：2026-10-19
+- 变更类型：新功能、架构、接口和数据模型
+- 影响范围：智能体 SSE 任务生命周期、Redis 事件回放、会话恢复、文献助手流式入口和聊天前端
+
+## 背景
+
+此前智能体图由 SSE 请求中的异步生成器执行。浏览器关闭连接会结束这次流式读取，事件也没有跨连接回放能力；页面刷新或切换会话后不能从最后收到的事件继续。
+
+## 变更内容
+
+- 将普通 Agent SSE、追问恢复和文献问答提交改为保存运行/用户消息后派发到独立 Celery `agents` 队列；Worker 复用既有 Runner、Agent 图和 PostgreSQL Checkpointer。
+- 新增 Redis Streams 事件存储，按 conversation/run 隔离事件，使用单调 Stream ID 回放；事件正文配置最大数量与 TTL，活动及等待 run 保留 sequence/latest 元数据，终态元数据随事件 TTL 清理。
+- 增加 `queued` 运行状态、用户级 request_id 幂等索引、Worker run 级 advisory lock、共享取消信号、事件过期/Redis/队列安全错误处理。
+- 新增授权后的 listen、活动会话列表/最近活动会话、会话运行状态接口；复用原有取消接口和消息历史接口。
+- 前端解析 SSE 的 `event`、`data` 和 `id`，保存 run/cursor，断线后按游标重连；刷新后恢复活动会话；切换会话只关闭旧监听，不停止后台任务；过期或结束后加载消息历史。
+- 更新 API、架构、数据库、部署启动说明和未发布变更摘要；增加 Redis 游标回放测试与 SSE parser 测试。
+- 将聊天 `AgentType` 从 TypeScript `enum` 改为等价 `const` 对象与类型别名，以满足项目 `erasableSyntaxOnly` 构建配置。
+
+## 涉及文件
+
+- `backend/agent/`：更新 Runner 生命周期、运行状态、持久化协议和稳定错误。
+- `backend/app/`：更新运行 CRUD、HTTP DTO、路由、应用服务、异常映射和 Celery Worker 入口。
+- `backend/infra/`：新增 Redis Streams 与 Agent Celery Queue 适配器，更新 Celery 注册和运行配置。
+- `backend/bootstrap/runtime.py`、`backend/compose.yaml`、`backend/.env.example`：向 API/Worker 注入共享设施并增加 Agent Worker 服务及配置。
+- `backend/migrations/011_agent_stream_resume.sql`：允许 queued 状态并新增按可信主体 request key 计算的部分唯一索引。
+- `backend/tests/test_agent_event_store.py`：检查重放事件 ID、游标过期和空 Stream 情况。
+- `frontend/src/shared/api/`、`frontend/src/features/chat/`：实现流协议、重连状态、活动会话恢复、文献提交和会话切换。
+- `frontend/tests/sseParser.test.mjs`：检查 SSE 命名事件、ID、多行 data 和注释帧解析。
+- `README.md`、`docs/API接口文档.md`、`docs/ARCHITECTURE.md`、`docs/数据库表结构.md`、方案文档和 `CHANGELOG.md`：同步部署、接口、架构、持久化和变更说明。
+
+## 设计决策
+
+- 复用现有会话、消息、运行、Checkpointer 和 Celery/Redis，不增加新的会话或消息表。幂等键为 `sha256(principal_id:request_id)`，请求摘要保存在运行 metadata。
+- Worker 任务参数只包含 agent 和 run ID。相同 run 的重复投递由 PostgreSQL advisory lock 与 queued->running 条件更新协调；如果 Worker 丢失且运行不能安全续跑，写入受控的中断失败事件，不从未知 Checkpoint 位置盲目重放。
+- 监听端先校验会话所有权，再查 run 和 Redis；关闭 SSE 只释放读取器。用户主动停止通过 Redis 共享取消标志传递到 Worker。
+- 追问恢复仍使用同一个 run ID，并从 Redis 当前最后事件之后读取，防止幂等重试重新播放之前的 `question.required` 事件。
+
+## 测试与验证
+
+- 命令：`python -m compileall -q agent app bootstrap infra tests`（`backend/`）
+- 结果：通过；只验证 Python 文件可编译，不代表后端运行时集成通过。
+- 命令：`python -m pytest -q`（`backend/`）
+- 结果：未能收集测试；当前 Python 环境缺少 `langchain_core`、`langgraph`、`oss2`、`redis` 等项目依赖，且仓库要求 Python 3.12.13，本机可见版本为 3.8 和 3.11。
+- 命令：`python -m pytest tests/test_agent_event_store.py -q`（`backend/`）
+- 结果：收集阶段失败，当前环境缺少 `redis` 包；新增后端测试尚未实际执行。
+- 命令：`npm test`（`frontend/`）
+- 结果：通过，13 项测试全部通过。
+- 命令：`npm run build`（`frontend/`）
+- 结果：TypeScript 检查和 Vite 生产构建通过；Vite 提示现有主 chunk 超过 500 kB。
+- 命令：`git diff --check`
+- 结果：通过；Git 显示 Windows 工作区的 LF/CRLF 转换提示，没有空白错误。
+
+## 潜在影响
+
+- 部署前必须应用 `backend/migrations/011_agent_stream_resume.sql`，并启动 `agent-worker`；多实例 Agent Worker 必须配置不同的 `AGENT_WORKER_SNOWFLAKE_ID`。
+- 事件默认每个 run 最多 2,000 条并保留 24 小时。等待用户回答的 run 为保持后续事件 ID 单调，会保留少量 Redis 游标元数据直到恢复并进入终态。
+- 尚未在当前环境验证真实 Redis/PostgreSQL、Celery Worker 和浏览器断网/刷新/切换端到端行为。Python Worker 被强制终止后不提供外部副作用 exactly-once 保证。
+
+## 后续事项
+
+- 在 Python 3.12.13 且安装 `backend/requirements.txt` 的环境中运行后端测试，并在 Compose Redis/PostgreSQL 环境中验证 Worker 与断线恢复。
+- 无需新增数据库回滚；旧版部署不理解 queued 状态和新 Worker 任务，回滚前应停止新提交并排空 Agent 队列。

@@ -19,8 +19,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_agent_error(request: Request, error: AgentError) -> JSONResponse:
         """把预期 Agent 异常映射为机器可读的冲突响应。"""
         del request
+        status_code = {
+            "CONVERSATION_ACCESS_DENIED": 404,
+            "RUN_NOT_FOUND": 404,
+            "EVENT_CURSOR_INVALID": 400,
+            "EVENT_STREAM_EXPIRED": 410,
+            "RUN_ALREADY_ENDED": 410,
+            "EVENT_STORE_UNAVAILABLE": 503,
+            "AGENT_QUEUE_UNAVAILABLE": 503,
+        }.get(error.code, 409)
         return JSONResponse(
-            status_code=409,
+            status_code=status_code,
             content={"success": False, "code": error.code, "message": error.message},
         )
 

@@ -1,8 +1,12 @@
 """提供智能体运行记录的 ORM 持久化及恢复查询。"""
 
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
+import hashlib
 
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
+
+from agent.errors import DuplicateAgentRunRequest
 from agent.enums import AgentType
 from agent.schemas.run import RunRecord, RunStatus
 from app.db.database import PostgresDatabase
@@ -36,8 +40,13 @@ class PostgresRunStore:
                 "updated_at": func.now(),
             },
         )
-        with self._database.session_factory.begin() as session:
-            session.execute(statement)
+        try:
+            with self._database.session_factory.begin() as session:
+                session.execute(statement)
+        except IntegrityError as error:
+            if record.metadata.get("request_id"):
+                raise DuplicateAgentRunRequest() from error
+            raise
 
     def get(self, run_id: str) -> RunRecord | None:
         """读取运行记录并转换为 Agent 层领域记录。"""
@@ -68,3 +77,66 @@ class PostgresRunStore:
             metadata=dict(run.run_metadata or {}),
             agent=AgentType(agent),
         )
+
+    def get_by_request_id(self, request_id: str, principal_id: str) -> RunRecord | None:
+        """读取幂等请求已绑定的运行，并同时按可信主体过滤。"""
+        statement = (
+            select(AgentRun.run_id)
+            .join(Conversation, Conversation.conversation_id == AgentRun.conversation_id)
+            .join(User, User.user_id == Conversation.owner_id)
+            .where(
+                User.account == principal_id,
+                AgentRun.run_metadata["request_key"].astext
+                == hashlib.sha256(f"{principal_id}:{request_id}".encode("utf-8")).hexdigest(),
+            )
+            .limit(1)
+        )
+        with self._database.session_factory() as session:
+            database_run_id = session.scalar(statement)
+        return self.get(str(database_run_id)) if database_run_id is not None else None
+
+    def list_active(self, principal_id: str) -> list[RunRecord]:
+        """按主体读取最新的排队及执行中运行，排除等待回答和终态。"""
+        statement = (
+            select(AgentRun.run_id)
+            .join(Conversation, Conversation.conversation_id == AgentRun.conversation_id)
+            .join(User, User.user_id == Conversation.owner_id)
+            .where(User.account == principal_id, AgentRun.status.in_(["queued", "running"]))
+            .order_by(AgentRun.updated_at.desc(), AgentRun.run_id.desc())
+        )
+        with self._database.session_factory() as session:
+            run_ids = session.scalars(statement).all()
+        return [record for run_id in run_ids if (record := self.get(str(run_id))) is not None]
+
+    def claim(self, run_id: str) -> bool:
+        """以单条条件更新原子声明排队运行，避免 Celery 重复投递重复执行。"""
+        statement = (
+            update(AgentRun)
+            .where(
+                AgentRun.run_id == to_database_id(run_id),
+                AgentRun.status == "queued",
+            )
+            .values(status="running", updated_at=func.now())
+            .returning(AgentRun.run_id)
+        )
+        with self._database.session_factory.begin() as session:
+            return session.scalar(statement) is not None
+
+    def get_latest_for_conversation(
+        self, conversation_id: str, principal_id: str
+    ) -> RunRecord | None:
+        """从指定主体的会话中读取最近更新的运行。"""
+        statement = (
+            select(AgentRun.run_id)
+            .join(Conversation, Conversation.conversation_id == AgentRun.conversation_id)
+            .join(User, User.user_id == Conversation.owner_id)
+            .where(
+                AgentRun.conversation_id == to_database_id(conversation_id),
+                User.account == principal_id,
+            )
+            .order_by(AgentRun.updated_at.desc(), AgentRun.run_id.desc())
+            .limit(1)
+        )
+        with self._database.session_factory() as session:
+            database_run_id = session.scalar(statement)
+        return self.get(str(database_run_id)) if database_run_id is not None else None

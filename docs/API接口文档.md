@@ -8,7 +8,7 @@ API 使用服务端认证上下文中的可信主体标识，不接受请求体�
 
 会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。智能体使用 `AgentType` 字符串枚举，当前值为 `common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 和 `literature_reader_agent`。会话列表和任务结果响应中的 `agent` 字段返回对应枚举值。
 
-Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
+Agent 领域错误使用 `{"success": false, "code": "...", "message": "..."}`；冲突返回 HTTP 409，权限失败和资源不存在统一返回 404，事件流过期或运行已结束返回 410，队列或 Redis 暂时不可用返回 503。上传内容错误由 HTTP 400、413 或 415 表示。
 
 ## 后端健康检查
 
@@ -131,6 +131,8 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 `message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent`，不能在其他智能体路由下继续使用。
 
+请求可附带 `request_id`（建议使用 UUID）；同一请求因网络重试时必须复用该值和相同输入。服务端按数据库运行记录中的幂等键复用会话、运行和用户消息。成功 SSE 响应的 `X-Conversation-ID`、`X-Run-ID` 响应头可在收到首个事件前用于建立恢复信息。
+
 通过各智能体的 SSE 聊天入口请求时，文本回复均使用 `message.delta` 增量事件和 `message.completed` 完成事件。通用智能体与基础对话助手会转发面向用户模型节点的生成片段；图片、Listing、科研检索、劳动法律和文献解读等工作流会在任务结果或证据校验完成后，分段发送安全的最终文本。结构化追问和任务结果仍分别通过 `question.required`、`task_result.updated` 事件返回。
 
 ### `POST /api/agents/{agent}/runs/{run_id}/resume`
@@ -140,11 +142,58 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 ```json
 {
   "conversation_id": "<conversation_id>",
+  "request_id": "<本次恢复的稳定幂等 ID>",
+  "after_event_id": "12-0",
   "answers": {
     "image_size": "1:1 方图（1024×1024）"
   }
 }
 ```
+
+追问恢复同样由 Agent Worker 在后台执行，并继续使用同一个 `run_id`。重试时复用 `request_id` 和答案；`after_event_id` 是提交答案前已收到的最后事件游标。
+
+### `GET /api/agents/listen/{conversation_id}?run_id={run_id}&after={last_event_id}`
+
+重连既有运行的 SSE 事件流。服务端先校验会话所有权及 run 与会话的关系，再读取 Redis Stream。`Last-Event-ID` 请求头优先于 `after` 查询参数；只返回游标之后的事件，并在没有新事件时发送 heartbeat。未提供 `run_id` 时，只有该会话恰好有一个 queued/running 运行才会自动选择；多个活动运行返回 `RUN_ID_REQUIRED`。
+
+SSE 的 `event`、`data` JSON 和 `id` 都沿用原有 AgentEvent 协议。事件 ID 是该 run 的 Redis Stream 单调游标（例如 `13-0`）。运行完成、失败、主动停止或等待追问后结束当前监听。收到 `EVENT_STREAM_EXPIRED` 或 `RUN_ALREADY_ENDED` 时，客户端应读取会话历史或运行状态。
+
+若活动 run 的事件正文已过期，前端加载历史后会从活动接口提供的最新游标继续等待新事件，并附带 `X-Agent-History-Loaded: true`。服务端仍会重新校验会话所有权、run 归属和游标；该头只表示客户端已用数据库历史恢复旧内容。
+
+| HTTP 状态 | 错误码 | 说明 |
+|---|---|---|
+| 400 | `EVENT_CURSOR_INVALID` | 游标超出该 run 已生成的事件范围 |
+| 404 | `CONVERSATION_ACCESS_DENIED`、`RUN_NOT_FOUND` | 会话或 run 不存在或当前主体不可访问 |
+| 409 | `RUN_ID_REQUIRED`、`RUN_PREPARATION_PENDING` | 会话活动 run 不唯一，或幂等请求仍在保存首条消息 |
+| 410 | `EVENT_STREAM_EXPIRED`、`RUN_ALREADY_ENDED` | 事件不能续读；加载数据库会话历史 |
+| 503 | `EVENT_STORE_UNAVAILABLE`、`AGENT_QUEUE_UNAVAILABLE` | Redis 事件存储或后台队列暂时不可用 |
+
+### `GET /api/conversations/active`
+
+返回当前登录主体所有 queued/running 运行，支持一个用户同时有多个后台会话：
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "conversation_id": "<conversation_id>",
+        "run_id": "<run_id>",
+        "agent": "common_agent",
+        "status": "running",
+        "last_event_id": "13-0"
+      }
+    ]
+  }
+}
+```
+
+没有活动运行时返回空 `items`。`GET /api/conversations/active/latest` 和 `GET /api/agents/conversation/active/latest` 返回最近一条活动运行；没有时 `data` 为 `null`。
+
+### `GET /api/conversations/{conversation_id}/status?run_id={run_id}`
+
+按会话归属返回最近一次运行（或指定 `run_id`）的 `run_id`、`status`、`last_event_id` 和安全错误摘要。状态包含 `queued`、`running`、`waiting`、`completed`、`cancelled` 和 `failed`。已有会话历史接口 `GET /api/conversations/{conversation_id}/messages` 用于事件过期或 run 结束时恢复已入库消息。
 
 答案 key 必须与待回答问题 ID 集合完全匹配；共享追问协议每轮最多 3 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多追问 3 轮；共享 Runner 会以 `QUESTION_ROUND_LIMIT` 拦截意外的超限问题批次。Listing 智能体每轮只问一道最高优先级问题，第三轮答案提交后直接按已确认和可见事实生成，省略未知属性。
 
@@ -158,7 +207,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 ```json
 {
-  "event_id": "<conversation_id>:12",
+  "event_id": "12-0",
   "event_type": "question.required",
   "conversation_id": "<conversation_id>",
   "run_id": "<run_id>",
@@ -184,7 +233,11 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 | `run.cancelled` | 空对象 |
 | `run.failed` | 稳定错误 `code` 与用户可读 `message` |
 
-图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。SSE 事件不持久化，当前不支持断线重放。
+图片状态包括 `pending`、`awaiting_input`、`running`、`succeeded`、`failed` 和 `cancelled`。图片结果事件中的 URL 是应用内路径，不含 TokenHub 临时签名地址或密钥。生成事件写入 Redis Streams，默认每个 run 保留最多 2,000 条、24 小时；事件流过期不会删除 PostgreSQL 中的会话历史。
+
+Redis Stream 正文按配置 TTL 过期；活动和等待回答的 run 会保留轻量的 sequence/latest 游标元数据，以便事件正文过期后的续跑仍使用递增 ID。完成、失败或取消的游标元数据会随事件 TTL 过期。等待回答且长期未恢复的 run 会继续占用这两条小型 Redis 元数据 key，直到它恢复并进入终态。
+
+聊天任务由独立 `agent-worker` Celery 队列执行，Redis 同时提供 Broker 和有界事件回放存储。关闭或切换 SSE 连接只结束监听；只有显式调用 cancel 接口才会设置共享停止信号。部署可配置 `AGENT_EVENT_MAX_LENGTH`、`AGENT_EVENT_TTL_SECONDS`、`AGENT_EVENT_REDIS_TIMEOUT_SECONDS` 和每个 Agent Worker 实例唯一的 `AGENT_WORKER_SNOWFLAKE_ID`。
 
 追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的选项；选项可以是字符串，也可以是包含 `label` 和 `description` 的对象，答案始终提交选项的 `label`。文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题、题干、标签和说明会去除两端空白并拒绝空值或多行内容；通用题目的 `prompt` 为可选补充内容。
 

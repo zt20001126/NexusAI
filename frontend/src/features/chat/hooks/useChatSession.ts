@@ -9,13 +9,16 @@ import {
 import {
   cancelAgentRun,
   getAgents,
+  listenAgentRun,
   resumeAgentRun,
   streamChat,
   uploadReferenceImage,
 } from '../api/agent'
-import type { AgentDefinition, AgentEvent } from '../api/agent'
+import type { AgentDefinition, AgentEvent, UploadedImage } from '../api/agent'
 import {
   getConversationMessages,
+  getActiveAgentRuns,
+  getConversationRunStatus,
   getConversations,
   type Conversation,
   type TaskResultSummary,
@@ -31,12 +34,23 @@ interface PendingQuestion {
   maxQuestionRounds: number
 }
 
+interface RetryableChatSubmission {
+  signature: string
+  requestId: string
+  uploadedImages: UploadedImage[]
+}
+
+interface RetryableResumeSubmission {
+  signature: string
+  requestId: string
+}
+
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
 export function useChatSession() {
   const [agents, setAgents] = useState<AgentDefinition[]>([])
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
-  const [activeAgent, setActiveAgent] = useState(COMMON_AGENT)
+  const [activeAgent, setActiveAgent] = useState<AgentType>(COMMON_AGENT)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMessage[]>([])
@@ -53,10 +67,30 @@ export function useChatSession() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const activeConversationRef = useRef<string | null>(null)
   const activeRunRef = useRef<string | null>(null)
-  const activeAgentRef = useRef(COMMON_AGENT)
+  const activeAgentRef = useRef<AgentType>(COMMON_AGENT)
+  const runByConversationRef = useRef(new Map<string, string>())
+  const listenerControllerRef = useRef<AbortController | null>(null)
+  const listenerKeyRef = useRef<string | null>(null)
+  const liveRunKeysRef = useRef(new Set<string>())
+  const retryableSubmissionRef = useRef<RetryableChatSubmission | null>(null)
+  const retryableResumeRef = useRef<RetryableResumeSubmission | null>(null)
+  const handleAgentEventRef = useRef<((event: AgentEvent, eventId?: string) => void) | null>(null)
+
+  const detachCurrentListener = useCallback(() => {
+    const key = listenerKeyRef.current
+    if (key) liveRunKeysRef.current.delete(key)
+    listenerControllerRef.current?.abort()
+    listenerControllerRef.current = null
+    listenerKeyRef.current = null
+  }, [])
 
   const selectConversation = useCallback((conversationId: string | null) => {
+    if (conversationId === activeConversationRef.current) return
+    detachCurrentListener()
     activeConversationRef.current = conversationId
+    activeRunRef.current = conversationId
+      ? runByConversationRef.current.get(conversationId) ?? null
+      : null
     setActiveConversationId(conversationId)
     const conversation = conversations.find((item) => item.conversation_id === conversationId)
     if (conversation) {
@@ -66,9 +100,12 @@ export function useChatSession() {
     setPendingQuestion(null)
     setError(null)
     setOlderCursor(null)
-  }, [conversations])
+    setSending(false)
+  }, [conversations, detachCurrentListener])
 
   const selectAgent = useCallback((agent: AgentType) => {
+    detachCurrentListener()
+    activeRunRef.current = null
     activeAgentRef.current = agent
     setActiveAgent(agent)
     activeConversationRef.current = null
@@ -78,7 +115,8 @@ export function useChatSession() {
     setError(null)
     setOlderCursor(null)
     setStatus('随时可以开始')
-  }, [])
+    setSending(false)
+  }, [detachCurrentListener])
 
   const loadAgents = useCallback(async (isCurrent: () => boolean = () => true) => {
     setAgentsLoading(true)
@@ -127,15 +165,33 @@ export function useChatSession() {
   useEffect(() => {
     let mounted = true
     void getConversations()
-      .then((page) => {
+      .then(async (page) => {
         if (!mounted) return
         setConversations(page.items)
         setConversationHasMore(page.has_more)
-        if (page.items[0]) {
-          activeConversationRef.current = page.items[0].conversation_id
-          activeAgentRef.current = page.items[0].agent
-          setActiveAgent(page.items[0].agent)
-          setActiveConversationId(page.items[0].conversation_id)
+        let activeRun
+        try {
+          activeRun = (await getActiveAgentRuns()).items[0]
+        } catch {
+          // Redis 暂时不可用时仍打开历史会话；用户可稍后重新进入运行会话。
+          activeRun = undefined
+        }
+        if (!mounted) return
+        if (activeRun) {
+          runByConversationRef.current.set(activeRun.conversation_id, activeRun.run_id)
+          activeRunRef.current = activeRun.run_id
+        }
+        const selectedConversationId = activeRun?.conversation_id ?? page.items[0]?.conversation_id
+        if (selectedConversationId) {
+          activeConversationRef.current = selectedConversationId
+          const selectedConversation = page.items.find(
+            (item) => item.conversation_id === selectedConversationId,
+          )
+          const selectedAgent = activeRun?.agent ?? selectedConversation?.agent ?? COMMON_AGENT
+          activeAgentRef.current = selectedAgent
+          setActiveAgent(selectedAgent)
+          setActiveConversationId(selectedConversationId)
+          if (activeRun) setStatus('正在恢复后台生成…')
         }
       })
       .catch((requestError: unknown) => {
@@ -154,14 +210,84 @@ export function useChatSession() {
       return
     }
     let current = true
+    let controller: AbortController | null = null
     setMessages([])
     setHistoryLoading(true)
     setOlderCursor(null)
-    getConversationMessages(activeConversationId)
-      .then((page) => {
+    const conversationId = activeConversationId
+    void getConversationMessages(conversationId)
+      .then(async (page) => {
         if (!current) return
         setMessages(page.items.map(toDisplayMessage))
         setOlderCursor(page.next_before_message_id)
+        const savedQuestion = [...page.items].reverse().find((item) =>
+          item.role === 'assistant'
+          && item.content.blocks.some((block) => block.type === 'question_batch'),
+        )?.content.blocks.find((block) => block.type === 'question_batch')
+        try {
+          const run = await getConversationRunStatus(conversationId)
+          if (!current) return
+          if (run.status === 'waiting' && savedQuestion?.type === 'question_batch') {
+            setPendingQuestion({
+              conversationId,
+              runId: savedQuestion.run_id,
+              questions: savedQuestion.questions,
+              questionRound: savedQuestion.question_round,
+              maxQuestionRounds: savedQuestion.max_question_rounds,
+            })
+          } else if (run.status !== 'queued' && run.status !== 'running') {
+            setPendingQuestion(null)
+            setStatus(run.status === 'waiting' ? '等待你的补充信息'
+              : run.status === 'cancelled' ? '已停止生成'
+                : run.status === 'failed' ? '本轮未完成' : '随时可以开始')
+          }
+          runByConversationRef.current.set(conversationId, run.run_id)
+          if (run.status !== 'queued' && run.status !== 'running') {
+            if (activeConversationRef.current === conversationId) activeRunRef.current = null
+            return
+          }
+          const key = `${conversationId}:${run.run_id}`
+          activeRunRef.current = run.run_id
+          setStatus(run.status === 'queued' ? '正在排队…' : '正在恢复后台生成…')
+          if (liveRunKeysRef.current.has(key)) return
+          const after = readSavedRunCursor(conversationId, run.run_id) ?? run.last_event_id
+          controller = new AbortController()
+          listenerControllerRef.current = controller
+          listenerKeyRef.current = key
+          liveRunKeysRef.current.add(key)
+          setSending(true)
+          void listenAgentRun(conversationId, run.run_id, after, (event, eventId) => {
+            handleAgentEventRef.current?.(event, eventId)
+          }, {
+            signal: controller.signal,
+            onEventId: (eventId) => saveRunCursor(conversationId, run.run_id, eventId),
+            onExpired: async () => {
+              clearRunCursor(conversationId, run.run_id)
+              await refreshHistory(conversationId)
+              const latest = await getConversationRunStatus(conversationId, run.run_id)
+              return latest.status === 'queued' || latest.status === 'running'
+                ? latest.last_event_id
+                : null
+            },
+          }).then(async () => {
+            if (current && activeConversationRef.current === conversationId) {
+              await refreshHistory(conversationId)
+            }
+          }).catch((requestError: unknown) => {
+            if (current && !controller?.signal.aborted) setError(getErrorMessage(requestError))
+          }).finally(() => {
+            liveRunKeysRef.current.delete(key)
+            if (listenerControllerRef.current === controller) {
+              listenerControllerRef.current = null
+              listenerKeyRef.current = null
+              setSending(false)
+            }
+          })
+        } catch (requestError) {
+          // 没有任何历史运行时 404 是正常状态，不覆盖已经加载的会话记录。
+          if (current && getErrorMessage(requestError).includes('运行记录')) return
+          if (current) setError(getErrorMessage(requestError))
+        }
       })
       .catch((requestError: unknown) => {
         if (current) setError(getErrorMessage(requestError))
@@ -169,15 +295,18 @@ export function useChatSession() {
       .finally(() => {
         if (current) setHistoryLoading(false)
       })
-    return () => { current = false }
-  }, [activeConversationId])
-
-  const handleAgentEvent = useCallback((event: AgentEvent) => {
-    activeRunRef.current = event.run_id
-    if (event.conversation_id && activeConversationRef.current !== event.conversation_id) {
-      activeConversationRef.current = event.conversation_id
-      setActiveConversationId(event.conversation_id)
+    return () => {
+      current = false
+      if (controller && listenerControllerRef.current === controller) detachCurrentListener()
     }
+  }, [activeConversationId, detachCurrentListener, refreshHistory])
+
+  const handleAgentEvent = useCallback((event: AgentEvent, eventId?: string) => {
+    const resolvedEventId = eventId ?? event.event_id
+    runByConversationRef.current.set(event.conversation_id, event.run_id)
+    if (resolvedEventId) saveRunCursor(event.conversation_id, event.run_id, resolvedEventId)
+    if (activeConversationRef.current !== event.conversation_id) return
+    activeRunRef.current = event.run_id
 
     switch (event.event_type) {
       case 'run.started':
@@ -225,16 +354,16 @@ export function useChatSession() {
       }
       case 'run.completed':
         setPendingQuestion(null)
-        activeRunRef.current = null
+        if (activeRunRef.current === event.run_id) activeRunRef.current = null
         setStatus('回复完成')
         break
       case 'run.cancelled':
-        activeRunRef.current = null
+        if (activeRunRef.current === event.run_id) activeRunRef.current = null
         setPendingQuestion(null)
         setStatus('已停止生成')
         break
       case 'run.failed':
-        activeRunRef.current = null
+        if (activeRunRef.current === event.run_id) activeRunRef.current = null
         setPendingQuestion(null)
         setStatus('本轮未完成')
         setError(readString(event.data.message) || '对话执行失败，请重试。')
@@ -244,8 +373,9 @@ export function useChatSession() {
     }
   }, [])
 
-  async function finishTurn() {
-    const conversationId = activeConversationRef.current
+  handleAgentEventRef.current = handleAgentEvent
+
+  async function finishTurn(conversationId = activeConversationRef.current) {
     const updatedConversations = await refreshConversations()
     if (conversationId && activeConversationRef.current === conversationId) {
       try {
@@ -267,6 +397,29 @@ export function useChatSession() {
     if (!trimmedMessage || sending) return
 
     const conversationId = activeConversationRef.current
+    const submittedAgent = activeAgentRef.current
+    const submissionSignature = JSON.stringify({
+      message: trimmedMessage,
+      conversationId,
+      agent: submittedAgent,
+      documentIds,
+      files: imageFiles.map((file) => [file.name, file.size, file.lastModified]),
+    })
+    const retryable = retryableSubmissionRef.current?.signature === submissionSignature
+      ? retryableSubmissionRef.current
+      : null
+    const requestId = retryable?.requestId ?? createRequestId()
+    retryableSubmissionRef.current = {
+      signature: submissionSignature,
+      requestId,
+      uploadedImages: retryable?.uploadedImages ?? [],
+    }
+    const controller = new AbortController()
+    let resolvedConversationId = conversationId
+    let accepted = false
+    let connectionKey: string | null = null
+    listenerControllerRef.current = controller
+    listenerKeyRef.current = null
     setError(null)
     setPendingQuestion(null)
     setSending(true)
@@ -274,30 +427,88 @@ export function useChatSession() {
     let sent = false
 
     try {
-      const uploadedImages = await Promise.all(
-        imageFiles.map((file) => uploadReferenceImage(file, activeAgentRef.current)),
-      )
-      setMessages((current) => [
-        ...current,
-        {
-          id: `local-${Date.now()}`,
-          role: 'user',
-          content: trimmedMessage,
-          attachments: uploadedImages.map((item, index) => ({
-            attachment_id: item.attachment_id,
-            image_url: '',
-            previewFile: imageFiles[index],
-          })),
+      const uploadedImages = retryable?.uploadedImages.length
+        ? retryable.uploadedImages
+        : await Promise.all(
+          imageFiles.map((file) => uploadReferenceImage(file, submittedAgent)),
+        )
+      retryableSubmissionRef.current = {
+        signature: submissionSignature,
+        requestId,
+        uploadedImages,
+      }
+      if (activeConversationRef.current === conversationId) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `local-${Date.now()}`,
+            role: 'user',
+            content: trimmedMessage,
+            attachments: uploadedImages.map((item, index) => ({
+              attachment_id: item.attachment_id,
+              image_url: '',
+              previewFile: imageFiles[index],
+            })),
+          },
+        ])
+      }
+      const onRun = (newConversationId: string, runId: string) => {
+        accepted = true
+        retryableSubmissionRef.current = null
+        resolvedConversationId = newConversationId
+        runByConversationRef.current.set(newConversationId, runId)
+        saveRunIdentity(newConversationId, runId)
+        setConversations((current) => current.some(
+          (item) => item.conversation_id === newConversationId,
+        ) ? current : [{
+          conversation_id: newConversationId,
+          title: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          agent: submittedAgent,
+        }, ...current])
+        connectionKey = `${newConversationId}:${runId}`
+        liveRunKeysRef.current.add(connectionKey)
+        listenerControllerRef.current = controller
+        listenerKeyRef.current = connectionKey
+        activeRunRef.current = runId
+        if (activeConversationRef.current === conversationId) {
+          activeConversationRef.current = newConversationId
+          setActiveConversationId(newConversationId)
+          activeAgentRef.current = submittedAgent
+          setActiveAgent(submittedAgent)
+        }
+      }
+      const streamOptions = {
+        signal: controller.signal,
+        onRun,
+        onEventId: (eventId: string) => {
+          if (resolvedConversationId) {
+            const runId = runByConversationRef.current.get(resolvedConversationId)
+            if (runId) saveRunCursor(resolvedConversationId, runId, eventId)
+          }
         },
-      ])
-      if (activeAgentRef.current === LITERATURE_READER_AGENT) {
+        onExpired: async () => {
+          if (!resolvedConversationId || !runByConversationRef.current.get(resolvedConversationId)) return null
+          await refreshHistory(resolvedConversationId)
+          const runId = runByConversationRef.current.get(resolvedConversationId)
+          if (!runId) return null
+          const latest = await getConversationRunStatus(resolvedConversationId, runId)
+          return latest.status === 'queued' || latest.status === 'running'
+            ? latest.last_event_id
+            : null
+        },
+      }
+      if (submittedAgent === LITERATURE_READER_AGENT) {
         await streamLiteratureChat(
           {
             message: trimmedMessage,
             ...(conversationId ? { conversation_id: conversationId } : {}),
             document_ids: documentIds,
+            request_id: requestId,
           },
           handleAgentEvent,
+          streamOptions,
         )
       } else {
         await streamChat(
@@ -307,43 +518,102 @@ export function useChatSession() {
             ...(uploadedImages.length > 0
               ? { attachment_ids: uploadedImages.map((item) => item.attachment_id) }
               : {}),
+            request_id: requestId,
           },
           handleAgentEvent,
-          activeAgentRef.current,
+          submittedAgent,
+          streamOptions,
         )
       }
-      await finishTurn()
+      if (resolvedConversationId) await finishTurn(resolvedConversationId)
+      retryableSubmissionRef.current = null
       sent = true
     } catch (requestError) {
-      setError(getErrorMessage(requestError))
-      setStatus('请求未完成')
+      if (controller.signal.aborted) {
+        sent = true
+      } else {
+        setError(getErrorMessage(requestError))
+        setStatus('请求未完成')
+      }
     } finally {
-      activeRunRef.current = null
-      setSending(false)
+      if (connectionKey) liveRunKeysRef.current.delete(connectionKey)
+      if (listenerControllerRef.current === controller) {
+        listenerControllerRef.current = null
+        listenerKeyRef.current = null
+        setSending(false)
+      }
+      if (activeConversationRef.current === resolvedConversationId
+        && activeRunRef.current && !accepted) activeRunRef.current = null
     }
     return sent
   }
 
   async function resumeRun(answers: Record<string, QuestionAnswer>) {
     if (!pendingQuestion || sending) return
+    const pending = pendingQuestion
+    const controller = new AbortController()
+    const resumeSignature = JSON.stringify({ runId: pending.runId, answers })
+    const retryableResume = retryableResumeRef.current?.signature === resumeSignature
+      ? retryableResumeRef.current
+      : null
+    const requestId = retryableResume?.requestId ?? createRequestId()
+    retryableResumeRef.current = { signature: resumeSignature, requestId }
+    let connectionKey: string | null = null
+    listenerControllerRef.current = controller
+    listenerKeyRef.current = null
     setError(null)
     setSending(true)
     setStatus('正在继续处理…')
     try {
       await resumeAgentRun(
-        pendingQuestion.runId,
-        pendingQuestion.conversationId,
+        pending.runId,
+        pending.conversationId,
         answers,
         handleAgentEvent,
         activeAgentRef.current,
+        {
+          signal: controller.signal,
+          onRun: (conversationId, runId) => {
+            retryableResumeRef.current = null
+            const key = `${conversationId}:${runId}`
+            connectionKey = key
+            runByConversationRef.current.set(conversationId, runId)
+            saveRunIdentity(conversationId, runId)
+            liveRunKeysRef.current.add(key)
+            listenerKeyRef.current = key
+            activeRunRef.current = runId
+          },
+          onEventId: (eventId) => saveRunCursor(
+            pending.conversationId,
+            pending.runId,
+            eventId,
+          ),
+          onExpired: async () => {
+            clearRunCursor(pending.conversationId, pending.runId)
+            await refreshHistory(pending.conversationId)
+            const latest = await getConversationRunStatus(pending.conversationId, pending.runId)
+            return latest.status === 'queued' || latest.status === 'running'
+              ? latest.last_event_id
+              : null
+          },
+        },
+        readSavedRunCursor(pending.conversationId, pending.runId),
+        requestId,
       )
-      await finishTurn()
+      await finishTurn(pending.conversationId)
+      retryableResumeRef.current = null
     } catch (requestError) {
-      setError(getErrorMessage(requestError))
-      setStatus('恢复请求未完成')
+      if (!controller.signal.aborted) {
+        setError(getErrorMessage(requestError))
+        setStatus('恢复请求未完成')
+      }
     } finally {
-      activeRunRef.current = null
-      setSending(false)
+      if (connectionKey) liveRunKeysRef.current.delete(connectionKey)
+      if (listenerControllerRef.current === controller) {
+        listenerControllerRef.current = null
+        listenerKeyRef.current = null
+        setSending(false)
+      }
     }
   }
 
@@ -504,4 +774,51 @@ function upsertAssistantMessage(
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '发生未知错误，请稍后重试。'
+}
+
+function createRequestId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2).padEnd(16, '0')}`
+}
+
+function runIdentityKey(conversationId: string): string {
+  return `nexusai:agent-run:${conversationId}`
+}
+
+function runCursorKey(conversationId: string, runId: string): string {
+  return `nexusai:agent-cursor:${conversationId}:${runId}`
+}
+
+function saveRunIdentity(conversationId: string, runId: string): void {
+  try {
+    window.sessionStorage.setItem(runIdentityKey(conversationId), runId)
+  } catch {
+    // 隐私模式禁用 sessionStorage 时仍可在当前连接内续接。
+  }
+}
+
+function readSavedRunCursor(conversationId: string, runId: string): string | null {
+  try {
+    if (window.sessionStorage.getItem(runIdentityKey(conversationId)) !== runId) return null
+    return window.sessionStorage.getItem(runCursorKey(conversationId, runId))
+  } catch {
+    return null
+  }
+}
+
+function saveRunCursor(conversationId: string, runId: string, eventId: string): void {
+  try {
+    saveRunIdentity(conversationId, runId)
+    window.sessionStorage.setItem(runCursorKey(conversationId, runId), eventId)
+  } catch {
+    // 游标不可持久化时，服务端仍可从历史和运行状态恢复。
+  }
+}
+
+function clearRunCursor(conversationId: string, runId: string): void {
+  try {
+    window.sessionStorage.removeItem(runCursorKey(conversationId, runId))
+  } catch {
+    // 存储不可用不影响历史消息恢复。
+  }
 }

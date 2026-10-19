@@ -42,6 +42,25 @@ def list_conversations(
     return _success(data.model_dump(mode="json"))
 
 
+@router.get("/active")
+def list_active_agent_runs(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """返回当前主体全部后台运行，供刷新后按会话恢复监听。"""
+    return _success({"items": request.app.state.agent_session_service.active_runs(principal_id)})
+
+
+@router.get("/active/latest")
+def get_latest_active_agent_run(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """返回最近活动会话；没有活动运行时 data 为 null。"""
+    items = request.app.state.agent_session_service.active_runs(principal_id)
+    return _success(items[0] if items else None)
+
+
 @router.get("/{conversation_id}/messages")
 def list_conversation_messages(
     conversation_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
@@ -62,6 +81,22 @@ def list_conversation_messages(
         before_message_id=before_message_id,
     )
     return _success(data.model_dump(mode="json"))
+
+
+@router.get("/{conversation_id}/status")
+def get_conversation_run_status(
+    conversation_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
+    request: Request,
+    run_id: str | None = Query(default=None, pattern=r"^[1-9][0-9]{0,18}$"),
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """返回该会话最近运行状态，允许 run_id 精确选择某轮。"""
+    result = request.app.state.agent_session_service.status(
+        conversation_id=conversation_id,
+        principal_id=principal_id,
+        run_id=run_id,
+    )
+    return _success(result)
 
 
 @router.get("/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/image")

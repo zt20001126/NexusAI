@@ -163,6 +163,38 @@ class MemoryRunStore:
         """按标识读取记录。"""
         return self._records.get(run_id)
 
+    def get_by_request_id(self, request_id: str, principal_id: str) -> RunRecord | None:
+        """按请求幂等键查找当前主体已建立的运行。"""
+        return next((
+            record for record in self._records.values()
+            if record.principal_id == principal_id
+            and record.metadata.get("request_id") == request_id
+        ), None)
+
+    def list_active(self, principal_id: str) -> list[RunRecord]:
+        """返回主体排队或运行中的运行记录。"""
+        active = {RunStatus.QUEUED, RunStatus.RUNNING}
+        return [record for record in self._records.values()
+                if record.principal_id == principal_id and record.status in active]
+
+    def claim(self, run_id: str) -> bool:
+        """只允许一个内存 Worker 将 queued 运行声明为 running。"""
+        record = self._records.get(run_id)
+        if record is None or record.status != RunStatus.QUEUED:
+            return False
+        from dataclasses import replace
+        self._records[run_id] = replace(record, status=RunStatus.RUNNING)
+        return True
+
+    def get_latest_for_conversation(
+        self, conversation_id: str, principal_id: str
+    ) -> RunRecord | None:
+        """查找主体在指定会话中最近创建的运行。"""
+        records = [record for record in self._records.values()
+                   if record.conversation_id == conversation_id
+                   and record.principal_id == principal_id]
+        return max(records, key=lambda record: int(record.run_id), default=None)
+
 
 class MemoryRunLock:
     """阻止同一进程内的同会话并发执行。"""

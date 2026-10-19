@@ -1,7 +1,8 @@
 /** Agent 对话、追问恢复和运行取消 API。 */
 
 import { requestBinary, requestJson, streamEvents } from '../../../shared/api/http'
-import { COMMON_AGENT, type AgentType } from '../constants'
+import type { StreamEventOptions } from '../../../shared/api/http'
+import { COMMON_AGENT, normalizeAgentType, type AgentType } from '../constants'
 
 export interface AgentEvent {
   event_id: string
@@ -17,6 +18,7 @@ export interface ChatRequest {
   message: string
   conversation_id?: string
   attachment_ids?: string[]
+  request_id?: string
 }
 
 export interface AgentDefinition {
@@ -25,6 +27,11 @@ export interface AgentDefinition {
   description: string
   supports_image_upload: boolean
   supports_document_upload: boolean
+}
+
+type AgentDefinitionResponse = Omit<AgentDefinition, 'agent'> & {
+  agent?: unknown
+  agent_id?: unknown
 }
 
 export interface UploadedImage {
@@ -83,24 +90,53 @@ export type Question = QuestionBase & (
 
 export async function streamChat(
   payload: ChatRequest,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent, eventId?: string) => void,
   agent: AgentType = COMMON_AGENT,
+  options: StreamEventOptions = {},
 ): Promise<void> {
-  await streamEvents(`/api/agents/${encodeURIComponent(agent)}/chat/stream`, payload, onEvent)
+  await streamEvents(`/api/agents/${encodeURIComponent(agent)}/chat/stream`, payload, onEvent, options)
+}
+
+/** 监听已存在运行的 Redis Stream，并从浏览器最后保存的游标续接。 */
+export async function listenAgentRun(
+  conversationId: string,
+  runId: string,
+  after: string | null,
+  onEvent: (event: AgentEvent, eventId?: string) => void,
+  options: Omit<StreamEventOptions, 'run'> = {},
+): Promise<void> {
+  await streamEvents('', null, onEvent, {
+    ...options,
+    run: { conversationId, runId, after },
+  })
 }
 
 export async function resumeAgentRun(
   runId: string,
   conversationId: string,
   answers: Record<string, QuestionAnswer>,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent, eventId?: string) => void,
   agent: AgentType = COMMON_AGENT,
+  options: StreamEventOptions = {},
+  afterEventId: string | null = null,
+  requestId: string = createRequestId(),
 ): Promise<void> {
   await streamEvents(
     `/api/agents/${encodeURIComponent(agent)}/runs/${encodeURIComponent(runId)}/resume`,
-    { conversation_id: conversationId, answers },
+    {
+      conversation_id: conversationId,
+      answers,
+      request_id: requestId,
+      after_event_id: afterEventId,
+    },
     onEvent,
+    options,
   )
+}
+
+function createRequestId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2).padEnd(16, '0')}`
 }
 
 export function cancelAgentRun(runId: string, agent: AgentType = COMMON_AGENT): Promise<{ run_id: string; cancel_requested: boolean }> {
@@ -109,8 +145,12 @@ export function cancelAgentRun(runId: string, agent: AgentType = COMMON_AGENT): 
   })
 }
 
-export function getAgents(): Promise<AgentDefinition[]> {
-  return requestJson('/api/agents')
+export async function getAgents(): Promise<AgentDefinition[]> {
+  const definitions = await requestJson<AgentDefinitionResponse[]>('/api/agents')
+  return definitions.map(({ agent, agent_id, ...definition }) => ({
+    ...definition,
+    agent: normalizeAgentType(agent ?? agent_id),
+  }))
 }
 
 export function getListingTaskResult(taskResultId: string): Promise<ListingTaskResult> {

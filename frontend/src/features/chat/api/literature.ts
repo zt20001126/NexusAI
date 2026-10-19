@@ -2,6 +2,7 @@
 /** 文献库管理、历史文献选择和文献限定 SSE API。 */
 
 import { requestFormData, requestJson, streamEvents } from '../../../shared/api/http'
+import type { StreamEventOptions } from '../../../shared/api/http'
 import type { AgentEvent } from './agent'
 
 export interface LiteratureDocument {
@@ -34,6 +35,7 @@ export interface LiteratureChatRequest {
   message: string
   conversation_id?: string
   document_ids?: string[]
+  request_id?: string
 }
 
 /** 上传 PDF 原件并创建异步入库记录。 */
@@ -82,7 +84,8 @@ export function updateConversationLiteratureDocuments(
 /** 将问题和所选文献 ID 发送到专用文献问答 SSE 入口。 */
 export async function streamLiteratureChat(
   payload: LiteratureChatRequest,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent, eventId?: string) => void,
+  options: StreamEventOptions = {},
 ): Promise<void> {
-  await streamEvents('/api/v1/literature/chat/stream', payload, onEvent)
+  await streamEvents('/api/v1/literature/chat/stream', payload, onEvent, options)
 }

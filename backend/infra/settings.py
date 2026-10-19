@@ -146,6 +146,16 @@ class AppSettings(BaseSettings):
         default="redis://127.0.0.1:6379/1",
         validation_alias=AliasChoices("CELERY_BROKER_URL", "celery_broker_url"),
     )
+    # Agent 事件流沿用 Redis Broker 服务，但使用独立 key 前缀和有界保留策略。
+    agent_event_max_length: int = Field(default=2_000, ge=100, le=100_000)
+    agent_event_ttl_seconds: int = Field(default=86_400, ge=300, le=604_800)
+    agent_event_redis_timeout_seconds: int = Field(default=5, ge=1, le=30)
+    agent_worker_snowflake_id: int = Field(
+        default=2,
+        ge=0,
+        le=1_020,
+        validation_alias=AliasChoices("AGENT_WORKER_SNOWFLAKE_ID", "agent_worker_snowflake_id"),
+    )
     # Celery Worker 使用独立 Snowflake worker ID；并行 Worker 部署时各进程必须唯一。
     literature_worker_snowflake_id: int = Field(
         default=1,

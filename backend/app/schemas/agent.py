@@ -33,6 +33,13 @@ class ChatRequest(BaseModel):
         max_length=MAX_REFERENCE_IMAGE_COUNT,
         description="已上传并暂存的参考图片标识，单次最多 3 张",
     )
+    request_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="本次提交的幂等请求标识；客户端重试时必须复用",
+    )
 
     @field_validator("attachment_ids")
     @classmethod
@@ -58,6 +65,18 @@ class ResumeRequest(BaseModel):
         min_length=1,
         max_length=MAX_QUESTIONS_PER_BATCH,
         description="按问题标识提交的结构化答案",
+    )
+    request_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="追问恢复请求的幂等标识；重试时复用",
+    )
+    after_event_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9]+-[0-9]+$",
+        description="提交答案前已收到的事件游标",
     )
 
     @field_validator("answers")
@@ -90,3 +109,23 @@ class ResumeRequest(BaseModel):
                 ):
                     raise ValueError("多选答案为空、重复或超出允许范围")
         return answers
+
+
+class ActiveAgentRunItem(BaseModel):
+    """当前主体的一条活动 Agent 运行恢复信息。"""
+
+    conversation_id: str = Field(description="活动会话 ID")
+    run_id: str = Field(description="当前运行 ID")
+    agent: str = Field(description="运行所属智能体类型")
+    status: str = Field(description="后台运行状态")
+    last_event_id: str | None = Field(description="最后一个已持久化事件游标")
+
+
+class AgentRunStatusResponse(BaseModel):
+    """单轮 Agent 执行状态和事件续接游标。"""
+
+    conversation_id: str = Field(description="运行所属会话 ID")
+    run_id: str = Field(description="运行 ID")
+    status: str = Field(description="后台运行状态")
+    last_event_id: str | None = Field(description="最后一个已持久化事件游标")
+    error: str | None = Field(description="可安全展示的失败摘要")

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,10 +16,16 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('running', 'waiting', 'completed', 'cancelled', 'failed')",
+            "status IN ('queued', 'running', 'waiting', 'completed', 'cancelled', 'failed')",
             name="ck_agent_runs_status",
         ),
         Index("idx_agent_runs_conversation_id", "conversation_id"),
+        Index(
+            "uq_agent_runs_request_id",
+            text("(metadata->>'request_key')"),
+            unique=True,
+            postgresql_where=text("metadata ? 'request_key'"),
+        ),
         {"comment": "智能体运行状态与恢复信息"},
     )
 

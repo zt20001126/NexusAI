@@ -11,6 +11,7 @@ from agent.enums import AgentType
 class RunStatus(StrEnum):
     """运行状态；等待回答不是完成态。"""
 
+    QUEUED = "queued"
     RUNNING = "running"
     WAITING = "waiting"
     COMPLETED = "completed"

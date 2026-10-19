@@ -1,6 +1,8 @@
 """多智能体发现、聊天、图片上传及生成结果接口。"""
 
 import asyncio
+import re
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
@@ -81,13 +83,57 @@ async def stream_chat(
     _validate_attachment_support(definition, payload.attachment_ids)
     _validate_listing_image_input(agent, payload.attachment_ids)
     service = registry.get_service(agent)
-    events = service.stream_chat(
+    record, events = service.submit_chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
         principal_id=principal_id,
+        request_id=payload.request_id or uuid.uuid4().hex,
         attachment_ids=payload.attachment_ids,
     )
-    return EventSourceResponse(encode_sse_events(events), ping=None)
+    return EventSourceResponse(
+        encode_sse_events(events),
+        ping=None,
+        headers={
+            "X-Conversation-ID": record.conversation_id,
+            "X-Run-ID": record.run_id,
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@router.get("/api/agents/listen/{conversation_id}")
+async def listen_agent_run(
+    conversation_id: Annotated[str, Path(pattern=r"^[1-9][0-9]{0,18}$")],
+    request: Request,
+    run_id: str | None = Query(default=None, pattern=r"^[1-9][0-9]{0,18}$"),
+    after: str | None = Query(default=None, max_length=40),
+    principal_id: str = Depends(get_principal_id),
+) -> EventSourceResponse:
+    """授权后从共享事件流按游标恢复监听；断开只关闭本读取器。"""
+    header_cursor = request.headers.get("last-event-id")
+    cursor = header_cursor if header_cursor is not None else after
+    if cursor is not None and re.fullmatch(r"[0-9]+-[0-9]+", cursor) is None:
+        raise HTTPException(status_code=400, detail="事件游标格式不合法")
+    events = request.app.state.agent_session_service.listen(
+        conversation_id=conversation_id,
+        principal_id=principal_id,
+        run_id=run_id,
+        after=cursor,
+        allow_missing_at_latest=(
+            request.headers.get("x-agent-history-loaded", "").lower() == "true"
+        ),
+    )
+    return EventSourceResponse(encode_sse_events(events), ping=None, headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/api/agents/conversation/active/latest")
+def get_latest_active_agent_run(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """返回当前主体最新一个后台运行；并行运行时返回列表供逐会话管理。"""
+    items = request.app.state.agent_session_service.active_runs(principal_id)
+    return _success(items[0] if items else None)
 
 
 @router.post("/api/agents/{agent}/runs/{run_id}/resume")
@@ -100,13 +146,23 @@ async def resume_run(
 ) -> EventSourceResponse:
     """向指定智能体提交结构化答案并恢复原运行。"""
     service = request.app.state.agent_registry.get_service(agent)
-    events = service.resume(
+    record, events = service.submit_resume(
         conversation_id=payload.conversation_id,
         run_id=run_id,
         answers=payload.answers,
         principal_id=principal_id,
+        request_id=payload.request_id or uuid.uuid4().hex,
+        after=payload.after_event_id,
     )
-    return EventSourceResponse(encode_sse_events(events), ping=None)
+    return EventSourceResponse(
+        encode_sse_events(events),
+        ping=None,
+        headers={
+            "X-Conversation-ID": record.conversation_id,
+            "X-Run-ID": record.run_id,
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 @router.post("/api/agents/{agent}/runs/{run_id}/cancel")

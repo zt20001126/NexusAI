@@ -46,7 +46,7 @@ from app.crud import (
     PostgresTaskResultStore,
 )
 from app.db.database import PostgresDatabase
-from app.service.agent import AgentApplicationService
+from app.service.agent import AgentApplicationService, AgentSessionApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.health import HealthMonitor
 from app.service.research import ResearchApplicationService
@@ -61,6 +61,8 @@ from infra.literature_document_storage import (
 )
 from infra.health_probes import PostgresHealthProbe, RedisBrokerHealthProbe
 from infra.literature_task_queue import CeleryLiteratureTaskQueue
+from infra.agent_event_store import RedisAgentEventStore
+from infra.agent_task_queue import CeleryAgentTaskQueue
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
 
@@ -96,7 +98,10 @@ def build_lifespan(
             with PostgresDatabase(settings.database_url, id_generator) as database:
                 conversation_store = PostgresConversationStore(database)
                 message_store = PostgresMessageStore(database)
+                run_store = PostgresRunStore(database)
                 task_result_store = PostgresTaskResultStore(database)
+                event_store = RedisAgentEventStore(settings)
+                agent_task_queue = CeleryAgentTaskQueue()
 
                 def create_postgres_runner(
                     agent: AgentType,
@@ -107,7 +112,7 @@ def build_lifespan(
                     return build_agent_runner(
                         settings=settings,
                         checkpointer=checkpointer,
-                        run_store=PostgresRunStore(database),
+                        run_store=run_store,
                         run_lock=PostgresRunLock(database),
                         conversation_store=conversation_store,
                         message_store=message_store,
@@ -118,6 +123,7 @@ def build_lifespan(
                         task_result_store=task_result_store,
                         attachment_store=attachment_store,
                         id_generator=id_generator,
+                        cancel_signal=event_store,
                     )
 
                 runner = create_postgres_runner(COMMON_AGENT)
@@ -154,6 +160,9 @@ def build_lifespan(
                     resolved_model_provider.create_chat_model(),
                     task_result_store,
                     image_storage,
+                    event_store,
+                    agent_task_queue,
+                    run_store,
                 )
                 listing_runner = create_postgres_runner(
                     agent=LISTING_AGENT,
@@ -226,6 +235,9 @@ def build_lifespan(
                     message_store,
                     task_result_store,
                     image_storage,
+                    event_store,
+                    agent_task_queue,
+                    run_store,
                 )
                 app_instance.state.literature_service = LiteratureApplicationService(
                     repository=literature_repository,
@@ -257,6 +269,7 @@ def build_lifespan(
                 finally:
                     await health_monitor.stop()
                     await redis_probe.aclose()
+                    await event_store.aclose()
 
     return lifespan
 
@@ -270,16 +283,34 @@ def _install_runtime_state(
     message_store: PostgresMessageStore,
     task_result_store: PostgresTaskResultStore,
     attachment_store: Any,
+    event_store: RedisAgentEventStore,
+    agent_task_queue: CeleryAgentTaskQueue,
+    run_store: PostgresRunStore,
 ) -> None:
     """组装注册表、共享事件发布器和查询服务。"""
     publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
     services = {
-        agent: AgentApplicationService(runner, publisher)
+        agent: AgentApplicationService(
+            runner,
+            publisher,
+            conversation_store=conversation_store,
+            run_store=run_store,
+            event_store=event_store,
+            task_queue=agent_task_queue,
+        )
         for agent, runner in runners.items()
     }
     registry = AgentRegistry(PROJECT_AGENT_DEFINITIONS, services)
     app_instance.state.settings = settings
+    app_instance.state.agent_event_store = event_store
+    app_instance.state.agent_task_queue = agent_task_queue
     app_instance.state.agent_registry = registry
+    app_instance.state.agent_session_service = AgentSessionApplicationService(
+        conversation_store=conversation_store,
+        run_store=run_store,
+        event_store=event_store,
+        agent_services={agent.value: service for agent, service in services.items()},
+    )
     app_instance.state.task_result_store = task_result_store
     task_result_service = TaskResultApplicationService(task_result_store)
     app_instance.state.task_result_service = task_result_service

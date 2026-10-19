@@ -122,7 +122,7 @@ function ChatPage() {
         loading={chat.sidebarLoading}
         hasMore={chat.conversationHasMore}
         loadingMore={chat.loadingMoreConversations}
-        disabled={chat.sending}
+        disabled={false}
         error={chat.sidebarError}
         agentDirectoryOpen={agentDirectoryOpen}
         onCreate={openAgentSelection}
@@ -176,7 +176,7 @@ function ChatPage() {
                 <span><i className="status-dot" /> {activeAgentName} · {chat.status}</span>
               </div>
             </div>
-            <button className="mobile-new-conversation" type="button" onClick={openAgentSelection} disabled={chat.sending}>＋ 新对话</button>
+            <button className="mobile-new-conversation" type="button" onClick={openAgentSelection}>＋ 新对话</button>
           </header>
 
           <div className="chat-content">

@@ -298,6 +298,56 @@ class LiteratureApplicationService:
 
         return persist_new_conversation_scope()
 
+    def submit_chat(
+        self,
+        *,
+        message: str,
+        conversation_id: str | None,
+        document_ids: list[str] | None,
+        principal_id: str,
+        request_id: str,
+    ) -> tuple[Any, AsyncIterator[AgentEvent]]:
+        """校验文献范围后排队运行，并在 Worker 启动前绑定会话文献。
+
+        Step 1: 恢复或校验主体拥有且已就绪的文献范围。
+        Step 2: 准备稳定运行；新会话关联文献后才投递 Celery 任务。
+        Step 3: 返回可回放 Redis Stream，连接断开不影响 Worker。
+        """
+        if document_ids is None:
+            if conversation_id is None:
+                raise LiteratureDocumentNotReadyError()
+            stored_ids = self._repository.get_conversation_document_ids(
+                conversation_id, principal_id
+            )
+            if stored_ids is None:
+                raise ConversationAccessDeniedError()
+            if not stored_ids:
+                raise LiteratureDocumentNotReadyError()
+            resolved_document_ids = stored_ids
+        else:
+            if not document_ids or len(document_ids) > LITERATURE_AGENT_MAX_DOCUMENTS:
+                raise LiteratureDocumentNotReadyError()
+            resolved_document_ids = list(dict.fromkeys(document_ids))
+            if len(resolved_document_ids) != len(document_ids):
+                raise LiteratureDocumentNotReadyError()
+
+        self._repository.get_owned_ready_documents(resolved_document_ids, principal_id)
+
+        def bind_documents(record: Any) -> None:
+            """在消息入队前绑定新会话文献，避免 Worker 先读到空范围。"""
+            self._repository.set_conversation_documents(
+                record.conversation_id, resolved_document_ids, principal_id
+            )
+
+        return self._chat_service.submit_chat(
+            message=message,
+            conversation_id=conversation_id,
+            principal_id=principal_id,
+            request_id=request_id,
+            graph_context={"document_ids": resolved_document_ids},
+            before_enqueue=bind_documents,
+        )
+
 
 def _to_summary(record: LiteratureDocumentRecord) -> LiteratureDocumentSummary:
     """将内部文献记录映射为不含主体和 OSS 键的公开响应。"""
