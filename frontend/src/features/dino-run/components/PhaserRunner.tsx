@@ -59,7 +59,7 @@ function PhaserRunner({ commandsRef, onSnapshot }: PhaserRunnerProps) {
     return () => {
       commandsRef.current = null
       game.events.off(RUNNER_STATUS_EVENT, handleSnapshot)
-      game.destroy(true, true)
+      game.destroy(true)
     }
   }, [commandsRef])
 
