@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agent.constants import MAX_QUESTION_ROUNDS_PER_RUN
 from agents.listing_agent.constants import LISTING_VERSION_COUNT
 from agents.listing_agent.prompts import PLAN_PROMPT
 from agents.listing_agent.schemas import ListingPlan
@@ -26,10 +27,26 @@ def create_plan_node(chat_model: BaseChatModel) -> Callable[..., Any]:
                 raise ValueError("必要问题必须提供非空答案")
             confirmed_answers[question_id] = value
 
+        question_round_count = state.get("question_round_count", 0)
+        if (
+            not isinstance(question_round_count, int)
+            or isinstance(question_round_count, bool)
+        ):
+            question_round_count = 0
+        remaining_question_rounds = max(
+            0,
+            MAX_QUESTION_ROUNDS_PER_RUN - question_round_count,
+        )
+
         context = {
             "seller_message": state.get("original_request", ""),
             "image_analysis": state.get("image_analysis", {}),
             "confirmed_answers": confirmed_answers,
+            "question_progress": {
+                "completed_rounds": question_round_count,
+                "max_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                "remaining_rounds": remaining_question_rounds,
+            },
             "required_output": {
                 "title": True,
                 "selling_points": True,
@@ -53,9 +70,15 @@ def create_plan_node(chat_model: BaseChatModel) -> Callable[..., Any]:
         )
         plan = _parse_model_json(response.content, ListingPlan)
         answered_ids = set(confirmed_answers)
-        unanswered_questions = [
-            question for question in plan.questions if question.id not in answered_ids
-        ]
+        unanswered_questions = (
+            [
+                question
+                for question in plan.questions
+                if question.id not in answered_ids
+            ]
+            if remaining_question_rounds > 0
+            else []
+        )
         return {
             "confirmed_answers": confirmed_answers,
             "product_facts": plan.product_facts,

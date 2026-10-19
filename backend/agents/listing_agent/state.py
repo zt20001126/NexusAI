@@ -18,6 +18,7 @@ class ListingAgentState(TypedDict, total=False):
     conversation_id: str
     run_id: str
     task_result_id: str
+    question_round_count: int
     attachment_ids: list[str]
     image_analysis: dict[str, Any]
     product_facts: dict[str, Any]

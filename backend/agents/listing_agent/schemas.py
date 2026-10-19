@@ -146,10 +146,7 @@ class ListingVersion(BaseModel):
     product_attributes: dict[
         Annotated[str, Field(min_length=1, max_length=100)],
         Annotated[str, Field(min_length=1, max_length=500)],
-    ] = Field(
-        min_length=1,
-        max_length=MAX_LISTING_ATTRIBUTES,
-    )
+    ] = Field(max_length=MAX_LISTING_ATTRIBUTES)
 
     @field_validator("description")
     @classmethod

@@ -14,6 +14,7 @@ from agent.constants import (
     BASE_CONVERSATION_AGENT_ID,
     CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
     COMMON_AGENT_ID,
+    LISTING_AGENT_ID,
     MAX_QUESTION_ROUNDS_PER_RUN,
 )
 from agent.errors import (
@@ -207,6 +208,8 @@ class AgentRunner:
             "task_result_id": task_result_id,
             "attachment_ids": resolved_attachments,
         })
+        if self._agent_id == LISTING_AGENT_ID:
+            graph_input["question_round_count"] = 0
         return self._stream_graph(
             record=record,
             graph_input=graph_input,
@@ -279,6 +282,14 @@ class AgentRunner:
             "task_result_id": record.metadata.get("task_result_id"),
             "attachment_ids": record.metadata.get("attachment_ids", []),
         }
+        if self._agent_id == LISTING_AGENT_ID:
+            question_round_count = record.metadata.get("question_round_count", 0)
+            if (
+                not isinstance(question_round_count, int)
+                or isinstance(question_round_count, bool)
+            ):
+                question_round_count = 0
+            graph_input["question_round_count"] = question_round_count
         return self._stream_graph(record=record, graph_input=graph_input)
 
     def cancel(self, *, run_id: str, principal_id: str) -> None:

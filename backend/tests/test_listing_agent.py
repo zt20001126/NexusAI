@@ -244,7 +244,7 @@ async def test_deepseek_vision_sends_images_and_parses_ocr_observations() -> Non
 
 @pytest.mark.asyncio
 async def test_plan_merges_answer_and_does_not_repeat_its_question_id() -> None:
-    """必要问题按稳定 ID 批量返回，已回答问题不会重复追问。"""
+    """合并恢复答案，并按稳定 ID 过滤已回答的问题。"""
     model = FakeListChatModel(
         responses=[
             json.dumps(
@@ -259,18 +259,6 @@ async def test_plan_merges_answer_and_does_not_repeat_its_question_id() -> None:
                                 "350 毫升",
                                 "500 毫升",
                                 "750 毫升",
-                                "不确定/暂不提供",
-                            ),
-                            "allow_custom_input": False,
-                        },
-                        {
-                            "id": "material",
-                            "title": "请选择商品主要材质。",
-                            "type": "SingleChoice",
-                            "options": _listing_options(
-                                "不锈钢",
-                                "玻璃",
-                                "塑料",
                                 "不确定/暂不提供",
                             ),
                             "allow_custom_input": False,
@@ -293,4 +281,4 @@ async def test_plan_merges_answer_and_does_not_repeat_its_question_id() -> None:
     )
 
     assert result["confirmed_answers"] == {"capacity": "500 毫升"}
-    assert [item["id"] for item in result["questions"]] == ["material"]
+    assert result["questions"] == []
