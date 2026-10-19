@@ -19,7 +19,8 @@ class AppSettings(BaseSettings):
 
     统一管理模型、数据库和智能体运行限制。应用运行时始终使用 PostgreSQL，
     DATABASE_URL 是唯一的应用数据库连接配置；本地运行时指向 localhost，
-    Compose 网络内由服务配置覆盖为 postgres 主机名。内存适配器只供测试代码显式使用。
+    Compose 网络内由服务配置覆盖为 postgres 主机名。健康巡检配置控制 PostgreSQL 和 Redis
+    Broker 的后台探测频率与单项超时；过短的巡检间隔会增加基础设施连接开销。内存适配器只供测试代码显式使用。
     """
 
     model_config = SettingsConfigDict(
@@ -231,3 +232,7 @@ class AppSettings(BaseSettings):
     agent_run_timeout_seconds: int = Field(default=180, ge=1, le=3600)
     conversation_title_timeout_seconds: int = Field(default=8, ge=1, le=60)
     sse_heartbeat_seconds: int = Field(default=15, ge=5, le=60)
+
+    # 后端依赖健康巡检配置，控制 Postgres/Redis 探测频率和单次超时；间隔过短会增加基础设施连接开销。
+    health_check_interval_seconds: int = Field(default=30, ge=5, le=300)
+    health_check_timeout_seconds: int = Field(default=3, ge=1, le=30)

@@ -20,9 +20,14 @@ flowchart LR
     PersistenceCRUD --> ORMModels[app.models]
     PersistenceCRUD --> Database[app.db]
     BootstrapRuntime --> Infrastructure[模型 Provider 与外部适配器]
+    BootstrapRuntime --> HealthMonitor[HealthMonitor]
+    HealthMonitor --> HealthProbes[PostgreSQL/Redis 探针]
+    HealthRouter[健康检查 Router] --> HealthMonitor
 ```
 
 `bootstrap.application` 创建 FastAPI 应用并注册 Router 和异常处理器；`bootstrap.runtime` 启动时创建各智能体图和 Runner，并将 `app.crud` 中的 PostgreSQL Store 注入运行器所依赖的持久化协议。每个 Runner 绑定独立图实例，但共享 Checkpointer、数据库连接池和 SSE 发布器。Router 按 `agent_id` 从显式注册表取得对应应用 Service。文献导入另由 Celery Worker 执行；文献 API 只创建记录并将文献 ID 发送到 Redis Broker，解析和向量化状态以 PostgreSQL 为准。
+
+后端健康巡检器在 `bootstrap.runtime` lifespan 中创建、启动和停止，定时并发探测 PostgreSQL 与 Redis Broker。`app.router.health` 只读取最近一次状态快照；具体连接和探测由 `infra.health_probes` 提供，避免将轮询和外部客户端放进 HTTP 路由。
 
 ## 模块职责
 
@@ -30,7 +35,7 @@ flowchart LR
 |---|---|---|
 | `bootstrap/` | 创建 FastAPI 应用；组装模型 Provider、智能体图、Runner、Service、存储和运行资源生命周期 | 承载 HTTP 路由实现、业务用例和 SQL 查询 |
 | `app/router/` | 接收 HTTP 参数、解析身份、调用 Service、转换 JSON/SSE 响应 | Agent 流程和 SQL |
-| `app/service/` | 编排应用用例；不依赖 FastAPI 请求对象 | 直接执行 SQL |
+| `app/service/` | 编排应用用例和健康巡检状态；不依赖 FastAPI 请求对象 | 直接执行 SQL |
 | `app/crud/` | 按会话、消息、运行和任务结果执行 SQLAlchemy ORM 查询及持久化 | HTTP 参数解析和智能体图流程 |
 | `app/models/` | 定义与 Pydantic DTO 分离的 SQLAlchemy 持久化模型 | HTTP 请求和响应校验 |
 | `app/db/` | 创建 SQLAlchemy 引擎和 Session 工厂，管理数据库资源生命周期 | 业务查询和 HTTP 流程 |
@@ -39,7 +44,7 @@ flowchart LR
 | `agents/` | 按业务目录保存独立智能体图、状态、节点、提示词、工具和 Provider 适配 | 复制公共 Runner、SSE 或持久化代码 |
 | `agents/registry.py` | 按稳定 `agent_id` 显式登记智能体定义和应用 Service | 自动发现任意 Python 包 |
 | `agent/persistence/interfaces.py` | 声明 Runner 所依赖的存储协议；`memory.py` 提供内存测试适配器 | PostgreSQL SQL 和 FastAPI 路由 |
-| `infra/` | 集中管理配置及外部 Provider | 承载 HTTP 路由或业务图流程 |
+| `infra/` | 集中管理配置、外部 Provider 和 PostgreSQL/Redis 健康探针 | 承载 HTTP 路由或业务图流程 |
 | `main.py` | 暴露 Uvicorn 所需的 `app` 实例 | 组装运行依赖 |
 
 ## 依赖与数据边界

@@ -10,6 +10,46 @@ API 使用服务端认证上下文中的可信主体标识，不接受请求体�
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
+## 后端健康检查
+
+健康检查接口不要求用户认证，响应只包含健康状态、探测耗时和稳定错误码，不返回连接地址或底层异常文本。
+
+### `GET /health/live`
+
+返回 HTTP 200 表示后端进程当前能够处理 HTTP 请求。该接口不检查数据库和 Redis。
+
+```json
+{"status": "healthy"}
+```
+
+### `GET /health/ready`
+
+返回最近一次后台巡检结果。后端启动时立即检查 PostgreSQL 和 Redis Broker，之后默认每 30 秒检查一次。依赖均可用且状态未过期时返回 HTTP 200；任一探针失败或巡检结果超过三个巡检周期时返回 HTTP 503。
+
+```json
+{
+  "status": "unhealthy",
+  "checked_at": "2026-10-19T02:30:00Z",
+  "stale": false,
+  "checks": {
+    "postgres": {
+      "status": "healthy",
+      "latency_ms": 4.2,
+      "checked_at": "2026-10-19T02:30:00Z",
+      "error_code": null
+    },
+    "redis": {
+      "status": "unhealthy",
+      "latency_ms": 3000.1,
+      "checked_at": "2026-10-19T02:30:00Z",
+      "error_code": "TIMEOUT"
+    }
+  }
+}
+```
+
+`HEALTH_CHECK_INTERVAL_SECONDS` 和 `HEALTH_CHECK_TIMEOUT_SECONDS` 分别控制巡检间隔和单项探针超时。Compose 每 10 秒检查一次 `/health/ready` 并将结果显示为后端容器健康状态；容器被标记为 `unhealthy` 本身不会触发自动重启。
+
 ## 智能体发现与对话
 
 ### `GET /api/agents`

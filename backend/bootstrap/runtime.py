@@ -47,6 +47,7 @@ from app.crud import (
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService
 from app.service.conversation import ConversationApplicationService
+from app.service.health import HealthMonitor
 from app.service.research import ResearchApplicationService
 from app.service.literature import LiteratureApplicationService
 from app.service.task_result import TaskResultApplicationService
@@ -57,6 +58,7 @@ from infra.literature_document_storage import (
     AliyunOSSLiteratureStorage,
     UnavailableLiteratureStorage,
 )
+from infra.health_probes import PostgresHealthProbe, RedisBrokerHealthProbe
 from infra.literature_task_queue import CeleryLiteratureTaskQueue
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
@@ -234,7 +236,26 @@ def build_lifespan(
                     settings=settings,
                     id_generator=id_generator,
                 )
-                yield
+                postgres_probe = PostgresHealthProbe(
+                    settings.database_url,
+                    settings.health_check_timeout_seconds,
+                )
+                redis_probe = RedisBrokerHealthProbe(
+                    settings.celery_broker_url,
+                    settings.health_check_timeout_seconds,
+                )
+                health_monitor = HealthMonitor(
+                    [postgres_probe, redis_probe],
+                    interval_seconds=settings.health_check_interval_seconds,
+                    timeout_seconds=settings.health_check_timeout_seconds,
+                )
+                app_instance.state.health_monitor = health_monitor
+                try:
+                    await health_monitor.start()
+                    yield
+                finally:
+                    await health_monitor.stop()
+                    await redis_probe.aclose()
 
     return lifespan
 
