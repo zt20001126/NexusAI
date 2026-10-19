@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import AgentDirectory from './components/AgentDirectory'
-import AgentInteractionCard from './components/AgentInteractionCard'
 import AgentSelectionDialog from './components/AgentSelectionDialog'
 import Composer from './components/Composer'
 import ConversationSidebar from './components/ConversationSidebar'
@@ -65,13 +64,6 @@ function ChatPage() {
     setAgentSelectionOpen(false)
   }
 
-  const pendingQuestionKey = chat.pendingQuestion
-    ? JSON.stringify({
-        runId: chat.pendingQuestion.runId,
-        questionRound: chat.pendingQuestion.questionRound,
-        questions: chat.pendingQuestion.questions,
-      })
-    : undefined
   const latestAssistantResponseId = [...chat.messages].reverse().find((message) =>
     message.role === 'assistant'
     && (message.content.trim().length > 0 || (message.taskResults?.length ?? 0) > 0),
@@ -206,17 +198,10 @@ function ChatPage() {
               loading={chat.historyLoading}
               conversationId={chat.activeConversationId}
               agentId={chat.activeAgentId || COMMON_AGENT_ID}
+              pendingQuestion={chat.pendingQuestion}
+              questionDisabled={chat.sending}
+              onSubmitQuestion={(answers) => { void chat.resumeRun(answers) }}
             />
-            {chat.pendingQuestion && chat.pendingQuestion.questions.length > 0 && (
-              <AgentInteractionCard
-                key={pendingQuestionKey}
-                questions={chat.pendingQuestion.questions}
-                questionRound={chat.pendingQuestion.questionRound}
-                maxQuestionRounds={chat.pendingQuestion.maxQuestionRounds}
-                disabled={chat.sending}
-                onSubmit={(answers) => { void chat.resumeRun(answers) }}
-              />
-            )}
             {(chat.error || attachmentError) && (
               <div className="error-banner" role="alert">{attachmentError || chat.error}</div>
             )}

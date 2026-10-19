@@ -21,6 +21,7 @@ interface AgentInteractionCardProps {
   questionRound: number
   maxQuestionRounds: number
   disabled: boolean
+  embedded?: boolean
   onSubmit: (answers: Record<string, QuestionAnswer>) => void
 }
 
@@ -30,6 +31,7 @@ function AgentInteractionCard({
   questionRound,
   maxQuestionRounds,
   disabled,
+  embedded = false,
   onSubmit,
 }: AgentInteractionCardProps) {
   const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({})
@@ -96,7 +98,10 @@ function AgentInteractionCard({
   }
 
   return (
-    <form className="interaction-card" onSubmit={handleSubmit}>
+    <form
+      className={`interaction-card${embedded ? ' interaction-card-message' : ''}`}
+      onSubmit={handleSubmit}
+    >
       <header className="interaction-heading">
         <div>
           <strong>需要补充信息</strong>

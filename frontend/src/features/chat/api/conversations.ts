@@ -1,6 +1,7 @@
 /** 会话列表和消息历史 API。 */
 
 import { requestJson } from '../../../shared/api/http'
+import type { Question } from './agent'
 
 export interface Conversation {
   conversation_id: string
@@ -43,6 +44,13 @@ export interface ConversationMessage {
           type: 'question_answers'
           answers: Record<string, unknown>
           question_titles?: Record<string, string>
+        }
+      | {
+          type: 'question_batch'
+          run_id: string
+          question_round: number
+          max_question_rounds: number
+          questions: Question[]
         }
     >
   }

@@ -648,14 +648,28 @@ class AgentRunner:
             question_message_id = self._message_store.save(
                 record.conversation_id,
                 "assistant",
-                text_content("\n".join(
-                    "\n".join(
-                        text
-                        for text in (question.title, question.prompt)
-                        if text
-                    )
-                    for question in questions.questions
-                )),
+                {
+                    "blocks": [
+                        {
+                            "type": "text",
+                            "text": "\n".join(
+                                "\n".join(
+                                    text
+                                    for text in (question.title, question.prompt)
+                                    if text
+                                )
+                                for question in questions.questions
+                            ),
+                        },
+                        {
+                            "type": "question_batch",
+                            "run_id": record.run_id,
+                            "question_round": question_round,
+                            "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                            "questions": question_data["questions"],
+                        },
+                    ]
+                },
             )
             task_result = payload.get("data", {}).get("task_result")
             if (

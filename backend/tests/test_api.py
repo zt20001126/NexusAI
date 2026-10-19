@@ -792,6 +792,13 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
     earlier_page = earlier_page_response.json()["data"]
     assert earlier_page_response.status_code == 200
     assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
+    question_block = next(
+        block
+        for block in earlier_page["items"][1]["content"]["blocks"]
+        if block["type"] == "question_batch"
+    )
+    assert question_block["run_id"] == question["run_id"]
+    assert question_block["questions"][0]["id"] == "goal"
 
 
 def test_conversation_messages_are_hidden_from_other_principals() -> None:

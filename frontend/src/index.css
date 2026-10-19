@@ -300,11 +300,17 @@ a { color: inherit; text-decoration: none; }
 .error-banner { width: min(790px, calc(100% - 64px)); padding: 10px 13px; margin: 0 auto 12px; border: 1px solid var(--border-subtle); border-radius: 9px; color: var(--brand-navy); background: var(--surface-info); font-size: 11px; line-height: 1.6; }
 
 .interaction-card { width: min(740px, calc(100% - 64px)); padding: 24px; margin: 0 auto 16px; border: 1px solid #E8EDF3; border-radius: 15px; background: #FFFFFF; animation: fade-in .2s ease-out; }
+.interaction-card-message { width: 100%; padding: 18px; margin: 0; }
 .interaction-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
 .interaction-heading strong { color: var(--text-primary); font-size: 15px; font-weight: 650; }
 .interaction-heading p { margin: 6px 0 0; color: #64748B; font-size: 12px; line-height: 1.6; }
 .interaction-round-badge { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #DCE8F8; border-radius: 999px; color: #2764A8; background: #F2F7FE; font-size: 10px; font-weight: 600; }
 .interaction-questions { display: grid; gap: 17px; }
+.question-batch-history .interaction-heading { margin-bottom: 14px; }
+.question-history-field { padding-bottom: 2px; }
+.question-history-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 0; margin: 9px 0 0; list-style: none; }
+.question-history-options li { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 8px 10px; border: 1px solid #E8EDF3; border-radius: 9px; color: var(--text-primary); background: #F8FAFC; font-size: 11px; line-height: 1.45; }
+.question-history-options small { color: var(--text-secondary); font-size: 10px; }
 .interaction-field { min-width: 0; padding: 0; margin: 0; border: 0; }
 .interaction-field legend { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
 .interaction-question-index { color: #718198; font-size: 10px; font-weight: 600; }
@@ -409,7 +415,9 @@ a { color: inherit; text-decoration: none; }
   .composer-wrap { padding-bottom: 10px; }
   .composer-box { min-height: 60px; border-radius: 14px; }
   .interaction-card { padding: 19px; margin-bottom: 9px; }
+  .interaction-card-message { width: 100%; padding: 15px; margin: 0; }
   .interaction-heading { flex-direction: column; }
+  .question-history-options { grid-template-columns: minmax(0, 1fr); }
   .agent-directory { padding: 26px 16px; }
   .agent-directory-heading { padding-bottom: 20px; margin-bottom: 16px; }
   .agent-directory-heading-top { margin-bottom: 21px; }

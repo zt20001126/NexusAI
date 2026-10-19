@@ -282,7 +282,7 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 ## 会话历史
 
 - `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
-- `GET /api/conversations/{conversation_id}/messages?limit=50&before_message_id=...` 返回按 `(created_at, message_id)` 时间正序排列的消息。`content.blocks` 可包含文字块、图片块及结构化问题答案块；问题答案块包含答案映射 `answers`，可附带 `question_titles` 映射供界面按原题标题展示；图片块含 `attachment_id` 和服务端补充的 `image_url`，不含图片字节。助手消息可含 `task_results` 数组。
+- `GET /api/conversations/{conversation_id}/messages?limit=50&before_message_id=...` 返回按 `(created_at, message_id)` 时间正序排列的消息。`content.blocks` 可包含文字块、图片块、结构化问题答案块和 `question_batch` 模型追问题块；问题答案块包含答案映射 `answers`，可附带 `question_titles` 映射供界面按原题标题展示；`question_batch` 包含 `run_id`、轮次和完整问题/选项，供界面在聊天时间线上还原题卡；图片块含 `attachment_id` 和服务端补充的 `image_url`，不含图片字节。助手消息可含 `task_results` 数组。
 - `GET /api/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/image` 以 PNG/JPEG 返回消息内引用的上传图片；会话、消息或附件不属于当前用户时返回 404，OSS 读取故障返回 502。部署升级时依次执行 `backend/migrations/006_message_context.sql` 和 `backend/migrations/007_rename_message_context_to_content.sql`，再启动新版后端。
 
 ## listing生成智能体
