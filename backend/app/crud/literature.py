@@ -19,12 +19,12 @@ from agent.errors import ConversationAccessDeniedError
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
-from app.models.identity import UserIdentity
 from app.models.literature import (
     LiteratureChunk,
     LiteratureConversationDocument,
     LiteratureDocument,
 )
+from app.models.user import User
 from infra.snowflake import to_database_id
 
 
@@ -80,11 +80,11 @@ class PostgresLiteratureRepository:
         """按文献 ID 和可信主体读取文献，越权数据不返回。"""
         with self._database.session_factory() as session:
             row = session.execute(
-                select(LiteratureDocument, UserIdentity.external_principal)
-                .join(UserIdentity, UserIdentity.user_id == LiteratureDocument.owner_id)
+                select(LiteratureDocument, User.account.label("principal_id"))
+                .join(User, User.user_id == LiteratureDocument.owner_id)
                 .where(
                     LiteratureDocument.document_id == to_database_id(document_id),
-                    UserIdentity.external_principal == principal_id,
+                    User.account == principal_id,
                 )
             ).one_or_none()
         return _to_record(row[0], row[1]) if row else None
@@ -93,8 +93,8 @@ class PostgresLiteratureRepository:
         """读取 Worker 任务的文献及其所有者可信主体。"""
         with self._database.session_factory() as session:
             row = session.execute(
-                select(LiteratureDocument, UserIdentity.external_principal)
-                .join(UserIdentity, UserIdentity.user_id == LiteratureDocument.owner_id)
+                select(LiteratureDocument, User.account.label("principal_id"))
+                .join(User, User.user_id == LiteratureDocument.owner_id)
                 .where(LiteratureDocument.document_id == to_database_id(document_id))
             ).one_or_none()
         return _to_record(row[0], row[1]) if row else None
@@ -151,11 +151,11 @@ class PostgresLiteratureRepository:
         numeric_ids = [to_database_id(item) for item in document_ids]
         with self._database.session_factory() as session:
             rows = session.execute(
-                select(LiteratureDocument, UserIdentity.external_principal)
-                .join(UserIdentity, UserIdentity.user_id == LiteratureDocument.owner_id)
+                select(LiteratureDocument, User.account.label("principal_id"))
+                .join(User, User.user_id == LiteratureDocument.owner_id)
                 .where(
                     LiteratureDocument.document_id.in_(numeric_ids),
-                    UserIdentity.external_principal == principal_id,
+                    User.account == principal_id,
                 )
             ).all()
         records = [_to_record(row[0], row[1]) for row in rows]

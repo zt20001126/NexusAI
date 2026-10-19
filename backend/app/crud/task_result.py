@@ -9,9 +9,9 @@ from agents.database_ids import agent_code_from_database_id, agent_database_id
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
-from app.models.identity import UserIdentity
 from app.models.run import AgentRun
 from app.models.task_result import TaskResult
+from app.models.user import User
 from infra.snowflake import to_database_id
 
 
@@ -158,10 +158,10 @@ class PostgresTaskResultStore:
             if database_user_id is None:
                 return None
             row = session.execute(
-                select(TaskResult, UserIdentity.external_principal)
+                select(TaskResult, User.account.label("principal_id"))
                 .join(
-                    UserIdentity,
-                    UserIdentity.user_id == TaskResult.user_id,
+                    User,
+                    User.user_id == TaskResult.user_id,
                 )
                 .join(
                     Conversation,
@@ -175,7 +175,7 @@ class PostgresTaskResultStore:
             ).one_or_none()
         if row is None:
             return None
-        return self._to_record(row[0], row.external_principal)
+        return self._to_record(row[0], row.principal_id)
 
     def list_for_messages(
         self,
@@ -197,10 +197,10 @@ class PostgresTaskResultStore:
             if database_user_id is None:
                 return []
             rows = session.execute(
-                select(TaskResult, UserIdentity.external_principal)
+                select(TaskResult, User.account.label("principal_id"))
                 .join(
-                    UserIdentity,
-                    UserIdentity.user_id == TaskResult.user_id,
+                    User,
+                    User.user_id == TaskResult.user_id,
                 )
                 .where(
                     TaskResult.conversation_id == to_database_id(conversation_id),

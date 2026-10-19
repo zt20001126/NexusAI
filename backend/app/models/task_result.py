@@ -39,7 +39,7 @@ class TaskResult(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("user_identities.user_id"),
+        ForeignKey("users.user_id"),
         nullable=False,
         comment="任务所属用户的内部 ID",
     )

@@ -7,8 +7,8 @@ from agent.schemas.run import RunRecord, RunStatus
 from agents.database_ids import agent_code_from_database_id, agent_database_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
-from app.models.identity import UserIdentity
 from app.models.run import AgentRun
+from app.models.user import User
 from infra.snowflake import to_database_id
 
 
@@ -44,12 +44,12 @@ class PostgresRunStore:
     def get(self, run_id: str) -> RunRecord | None:
         """读取运行记录并转换为 Agent 层领域记录。"""
         statement = (
-            select(AgentRun, UserIdentity.external_principal)
+            select(AgentRun, User.account.label("principal_id"))
             .join(
                 Conversation,
                 Conversation.conversation_id == AgentRun.conversation_id,
             )
-            .join(UserIdentity, UserIdentity.user_id == Conversation.owner_id)
+            .join(User, User.user_id == Conversation.owner_id)
             .where(AgentRun.run_id == to_database_id(run_id))
         )
         with self._database.session_factory() as session:

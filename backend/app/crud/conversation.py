@@ -11,7 +11,7 @@ from agents.database_ids import agent_code_from_database_id, agent_database_id
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
-from app.models.identity import UserIdentity
+from app.models.user import User
 from infra.snowflake import to_database_id
 
 
@@ -51,9 +51,9 @@ class PostgresConversationStore:
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         """按会话标识读取所有者和智能体元数据。"""
         statement = (
-            select(UserIdentity.external_principal, Conversation.agent_id)
+            select(User.account.label("principal_id"), Conversation.agent_id)
             .select_from(Conversation)
-            .join(UserIdentity, UserIdentity.user_id == Conversation.owner_id)
+            .join(User, User.user_id == Conversation.owner_id)
             .where(Conversation.conversation_id == to_database_id(conversation_id))
         )
         with self._database.session_factory() as session:
@@ -61,7 +61,7 @@ class PostgresConversationStore:
         if row is None:
             return None
         return {
-            "principal_id": row.external_principal,
+            "principal_id": row.principal_id,
             "agent_id": agent_code_from_database_id(row.agent_id),
         }
 

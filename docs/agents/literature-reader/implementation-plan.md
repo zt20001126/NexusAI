@@ -110,7 +110,7 @@ Worker 将当前阶段和安全错误说明写入 literature_documents。只有 
 
 ## 4. 数据库表设计
 
-现有 conversations、messages、agent_runs、user_identities 和 LangGraph Checkpoint 继续保存会话、消息、运行与单用户主体映射。本功能新增以下三张业务表；不将 PDF 字节写入 PostgreSQL。
+现有 conversations、messages、agent_runs、users 和 LangGraph Checkpoint 继续保存会话、消息、运行与用户映射。本功能新增以下三张业务表；不将 PDF 字节写入 PostgreSQL。
 
 ### 4.1 literature_documents
 
@@ -119,7 +119,7 @@ Worker 将当前阶段和安全错误说明写入 literature_documents。只有 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | document_id | BIGINT 主键 | 雪花 ID，API 中以十进制字符串传递 |
-| owner_id | BIGINT 外键 | 关联 user_identities.user_id |
+| owner_id | BIGINT 外键 | 关联 users.user_id |
 | title | TEXT | 文献标题或用户可见名称 |
 | source_type | TEXT | 新建文献固定为 pdf_upload；兼容既有 pdf_url、web_url 记录 |
 | source_url | TEXT，可空 | 为读取既有链接导入记录保留；新接口不写入 |

@@ -29,7 +29,7 @@ class Conversation(Base):
     )
     owner_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("user_identities.user_id"),
+        ForeignKey("users.user_id"),
         nullable=False,
         comment="会话所有者的内部用户 ID",
     )
