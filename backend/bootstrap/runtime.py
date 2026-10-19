@@ -160,9 +160,6 @@ def build_lifespan(
                     resolved_model_provider.create_chat_model(),
                     task_result_store,
                     image_storage,
-                    event_store,
-                    agent_task_queue,
-                    run_store,
                 )
                 listing_runner = create_postgres_runner(
                     agent=LISTING_AGENT,
