@@ -90,7 +90,7 @@ class QuestionPayload(BaseModel):
     questions: list[Question] = Field(
         min_length=1,
         max_length=MAX_QUESTIONS_PER_BATCH,
-        description=f"当前批次的问题，最多 {MAX_QUESTIONS_PER_BATCH} 题",
+        description=f"当前轮的问题，最多 {MAX_QUESTIONS_PER_BATCH} 题",
     )
 
     @model_validator(mode="after")

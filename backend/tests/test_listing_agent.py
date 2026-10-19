@@ -10,8 +10,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agents.listing_agent.nodes import create_plan_node, create_vision_node
 from agents.listing_agent.schemas import (
+    AskListingQuestionsInput,
     ListingImageAnalysis,
     ListingPlan,
+    ListingQuestion,
     ListingResult,
 )
 from agents.listing_agent.tools.task_result import create_listing_task_result_tools
@@ -88,6 +90,57 @@ def test_listing_plan_rejects_unstable_ids_and_unsupported_question_types() -> N
         )
 
 
+def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
+    """Listing 只接受四选项单选或多选题，且不开放自定义输入。"""
+    base_question = {
+        "id": "material",
+        "title": "商品材质",
+        "prompt": "请选择商品材质。",
+        "type": "SingleChoice",
+        "options": ["不锈钢", "玻璃", "塑料", "不确定/暂不提供"],
+        "allow_custom_input": False,
+    }
+    single_choice = ListingQuestion.model_validate(base_question)
+    multiple_choice = ListingQuestion.model_validate(
+        {**base_question, "type": "MultiChoice"}
+    )
+    assert len(single_choice.options) == 4
+    assert multiple_choice.type == "MultiChoice"
+
+    invalid_questions = [
+        {**base_question, "type": "TextQuestion", "options": []},
+        {**base_question, "type": "Confirmation", "options": []},
+        {**base_question, "options": base_question["options"][:3]},
+        {**base_question, "options": [*base_question["options"], "陶瓷"]},
+        {**base_question, "allow_custom_input": True},
+    ]
+    for question in invalid_questions:
+        with pytest.raises(ValueError):
+            ListingPlan.model_validate({"questions": [question]})
+
+    with pytest.raises(ValueError):
+        AskListingQuestionsInput.model_validate(
+            {
+                "questions": [{**base_question, "type": "TextQuestion"}],
+                "task_result_id": "task-result-1",
+                "principal_id": "seller-1",
+                "conversation_id": "conversation-1",
+                "run_id": "run-1",
+                "original_request": "生成商品 Listing",
+                "attachment_ids": [],
+                "image_analysis": {
+                    "candidate_category": "水杯",
+                    "visible_features": [],
+                    "packaging_text": [],
+                    "visible_claims": [],
+                    "uncertain_observations": [],
+                },
+                "product_facts": {},
+                "confirmed_answers": {},
+            }
+        )
+
+
 def test_ask_listing_questions_persists_json_compatible_image_analysis() -> None:
     """追问工具将嵌套 Pydantic 图片分析对象转换为可持久化 JSON。"""
     task_result_store = MemoryTaskResultStore()
@@ -107,7 +160,9 @@ def test_ask_listing_questions_persists_json_compatible_image_analysis() -> None
                     "id": "brand",
                     "title": "品牌",
                     "prompt": "请确认商品品牌。",
-                    "allow_custom_input": True,
+                    "type": "SingleChoice",
+                    "options": ["自有品牌", "无品牌", "品牌信息待确认", "暂不提供"],
+                    "allow_custom_input": False,
                 }
             ],
             "task_result_id": "task-result-1",
@@ -183,16 +238,23 @@ async def test_plan_merges_answer_and_does_not_repeat_its_question_id() -> None:
                         {
                             "id": "capacity",
                             "title": "容量",
-                            "prompt": "请确认实际容量。",
-                            "type": "TextQuestion",
-                            "allow_custom_input": True,
+                            "prompt": "请选择商品标注的容量。",
+                            "type": "SingleChoice",
+                            "options": [
+                                "350 毫升",
+                                "500 毫升",
+                                "750 毫升",
+                                "不确定/暂不提供",
+                            ],
+                            "allow_custom_input": False,
                         },
                         {
                             "id": "material",
                             "title": "材质",
-                            "prompt": "请确认商品材质。",
-                            "type": "TextQuestion",
-                            "allow_custom_input": True,
+                            "prompt": "请选择商品主要材质。",
+                            "type": "SingleChoice",
+                            "options": ["不锈钢", "玻璃", "塑料", "不确定/暂不提供"],
+                            "allow_custom_input": False,
                         },
                     ],
                 },

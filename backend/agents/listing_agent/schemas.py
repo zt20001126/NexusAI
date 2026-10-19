@@ -5,11 +5,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agent.constants import MAX_REFERENCE_IMAGE_COUNT
+from agent.constants import MAX_QUESTION_OPTION_CHARS, MAX_REFERENCE_IMAGE_COUNT
 from agent.schemas.question import Question
 from agents.listing_agent.constants import (
     LISTING_SCHEMA_VERSION,
     LISTING_VERSION_COUNT,
+    LISTING_QUESTION_OPTION_COUNT,
     MAX_LISTING_ATTRIBUTES,
     MAX_LISTING_DESCRIPTION_CHARS,
     MAX_LISTING_KEYWORDS,
@@ -46,6 +47,29 @@ class ListingImageAnalysis(BaseModel):
     )
 
 
+class ListingQuestion(Question):
+    """Listing 只接受恰好四个选项且不提供自定义输入的选择题。"""
+
+    type: Literal["SingleChoice", "MultiChoice"] = Field(
+        default="SingleChoice",
+        description="只允许单选题或多选题",
+    )
+    options: list[
+        Annotated[
+            str,
+            Field(min_length=1, max_length=MAX_QUESTION_OPTION_CHARS),
+        ]
+    ] = Field(
+        min_length=LISTING_QUESTION_OPTION_COUNT,
+        max_length=LISTING_QUESTION_OPTION_COUNT,
+        description=f"必须提供 {LISTING_QUESTION_OPTION_COUNT} 个互不重复的选项",
+    )
+    allow_custom_input: Literal[False] = Field(
+        default=False,
+        description="不允许用户输入选项之外的内容",
+    )
+
+
 class ListingPlan(BaseModel):
     """模型根据图片和商家资料判断必要信息缺口。"""
 
@@ -55,11 +79,14 @@ class ListingPlan(BaseModel):
         default_factory=dict,
         max_length=MAX_LISTING_PRODUCT_FACTS,
     )
-    questions: list[Question] = Field(default_factory=list, max_length=MAX_LISTING_QUESTION_COUNT)
+    questions: list[ListingQuestion] = Field(
+        default_factory=list,
+        max_length=MAX_LISTING_QUESTION_COUNT,
+    )
 
     @model_validator(mode="after")
     def validate_question_ids(self) -> "ListingPlan":
-        """限制追问题型并保持稳定、唯一的问题标识。"""
+        """保持问题标识稳定且唯一。"""
         ids = [question.id for question in self.questions]
         if len(ids) != len(set(ids)):
             raise ValueError("追问问题标识不能重复")
@@ -68,14 +95,6 @@ class ListingPlan(BaseModel):
             for question_id in ids
         ):
             raise ValueError("追问问题标识必须使用 snake_case")
-        supported_question_types = {
-            "TextQuestion",
-            "SingleChoice",
-            "MultiChoice",
-            "Confirmation",
-        }
-        if any(question.type not in supported_question_types for question in self.questions):
-            raise ValueError("Listing 追问不支持该题型")
         return self
 
 
@@ -148,7 +167,7 @@ class AskListingQuestionsInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[Question] = Field(
+    questions: list[ListingQuestion] = Field(
         min_length=1,
         max_length=MAX_LISTING_QUESTION_COUNT,
     )

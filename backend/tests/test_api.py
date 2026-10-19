@@ -152,10 +152,15 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                             {
                                 "id": "capacity",
                                 "title": "商品容量",
-                                "prompt": "请确认水杯的实际容量。",
-                                "type": "TextQuestion",
-                                "allow_custom_input": True,
-                                "placeholder": "例如 500 毫升",
+                                "prompt": "请选择水杯标注的容量。",
+                                "type": "SingleChoice",
+                                "options": [
+                                    "350 毫升",
+                                    "500 毫升",
+                                    "750 毫升",
+                                    "不确定/暂不提供",
+                                ],
+                                "allow_custom_input": False,
                             }
                         ],
                     },

@@ -80,6 +80,33 @@ async def test_malformed_question_tool_result_fails_instead_of_waiting_forever()
     assert events[0].data["code"] == "INVALID_QUESTION_PAYLOAD"
 
 
+async def test_question_round_limit_rejects_a_fourth_round() -> None:
+    """单次运行已追问三轮时拒绝继续发布第四轮。"""
+    runner = _create_runtime()
+    record = RunRecord(
+        run_id="run",
+        conversation_id="conversation",
+        principal_id="developer-a",
+        status=RunStatus.RUNNING,
+        metadata={"question_round_count": 3},
+    )
+    message = ToolMessage(
+        content=(
+            '{"success":true,"data":{"questions":[{"id":"goal",'
+            '"title":"目标","prompt":"请说明目标。"}]}}'
+        ),
+        tool_call_id="tool-1",
+        name="ask_user_question",
+    )
+
+    events = [event async for event in runner._events_for_message(record, message)]
+
+    assert len(events) == 1
+    assert events[0].event_type == AgentEventType.RUN_FAILED
+    assert events[0].data["code"] == "QUESTION_ROUND_LIMIT"
+    assert record.metadata["question_round_count"] == 3
+
+
 async def test_resume_executes_tool_and_completes_once() -> None:
     """提交问题答案后，从相同运行恢复，执行工具并且只完成一次。"""
     runtime = _create_runtime()

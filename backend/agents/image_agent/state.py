@@ -23,4 +23,5 @@ class ImageAgentState(TypedDict, total=False):
     is_image_generation: bool
     image_prompt: str
     generation_options: dict[str, Any]
+    image_size_confirmed: bool
     user_visible_response: str

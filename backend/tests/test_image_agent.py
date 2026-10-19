@@ -11,6 +11,7 @@ from agent.constants import IMAGE_AGENT_ID
 from agent.errors import AttachmentAccessDeniedError
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
+from agents.image_agent.nodes.ask_node import ask_node
 from agents.image_agent.nodes.chat_node import create_chat_node
 from agents.image_agent.nodes.validation_node import validation_node
 from agents.image_agent.parameter_policy import (
@@ -327,6 +328,81 @@ def test_ask_answers_only_map_to_documented_options() -> None:
     resize_answer = next(iter(RESIZE_PIXEL_CHOICES))
     resized = apply_answers({}, {"resize_max_pixels": resize_answer})
     assert resized["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[resize_answer]["resize_max_pixels"]
+
+
+@pytest.mark.asyncio
+async def test_ask_node_splits_four_questions_and_preserves_prior_answers() -> None:
+    """图片参数超过每轮上限时分批询问，并在恢复后保留已确认值。"""
+    state = {
+        "original_request": "生成商品图，加水印，并提供 seed 以便复现和参考图缩放像素。",
+        "attachment_ids": ["attachment-1"],
+    }
+
+    first_turn = await ask_node(state)
+    first_call = first_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert [question["id"] for question in first_call["args"]["questions"]] == [
+        "image_size",
+        "footnote",
+        "seed",
+    ]
+    assert first_turn["image_size_confirmed"] is False
+
+    size_answer = next(iter(SIZE_CHOICES))
+    first_answers = {
+        "image_size": size_answer,
+        "footnote": "Nexus",
+        "seed": "42",
+    }
+    second_turn = await ask_node(
+        {
+            **state,
+            "generation_options": first_turn["generation_options"],
+            "image_size_confirmed": first_turn["image_size_confirmed"],
+            "resume_answers": first_answers,
+        }
+    )
+    second_call = second_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert [question["id"] for question in second_call["args"]["questions"]] == [
+        "resize_max_pixels",
+    ]
+    assert second_turn["image_size_confirmed"] is True
+    assert second_turn["generation_options"]["footnote"] == "Nexus"  # type: ignore[index]
+    assert second_turn["generation_options"]["seed"] == 42  # type: ignore[index]
+
+    resize_answer = next(iter(RESIZE_PIXEL_CHOICES))
+    third_turn = await ask_node(
+        {
+            **state,
+            "generation_options": second_turn["generation_options"],
+            "image_size_confirmed": second_turn["image_size_confirmed"],
+            "resume_answers": {"resize_max_pixels": resize_answer},
+        }
+    )
+    generated_call = third_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    assert generated_call["name"] == "generate_image"
+    assert generated_call["args"]["seed"] == 42
+    assert generated_call["args"]["footnote"] == "Nexus"
+    assert generated_call["args"]["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[
+        resize_answer
+    ]["resize_max_pixels"]
+
+
+@pytest.mark.asyncio
+async def test_validation_resets_size_confirmation_for_a_new_run() -> None:
+    """新生图运行不能继承同会话上一轮的尺寸确认状态。"""
+    result = await validation_node(
+        {
+            "run_id": "run-2",
+            "validated_run_id": "run-1",
+            "intent_validated": True,
+            "image_size_confirmed": True,
+            "generation_options": {"seed": 42},
+            "original_request": "生成另一张商品图",
+        }
+    )
+
+    assert result["image_size_confirmed"] is False
+    assert result["generation_options"] == {}
 
 
 def test_memory_result_and_attachment_stores_enforce_owner_and_single_binding() -> None:

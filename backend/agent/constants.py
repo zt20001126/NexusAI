@@ -21,9 +21,9 @@ MAX_REFERENCE_IMAGE_COUNT = 3
 MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024
 # 进入 TokenHub 请求前允许的参考图片总字节数。
 MAX_REFERENCE_IMAGE_TOTAL_BYTES = MAX_REFERENCE_IMAGE_COUNT * MAX_REFERENCE_IMAGE_BYTES
-# 单批结构化追问的题目数量上限，所有智能体共享此边界。
-MAX_QUESTIONS_PER_BATCH = 5
-# 同一次智能体运行最多向用户发出的问题批次数。
+# 单轮结构化追问的题目数量上限，所有智能体共享此边界。
+MAX_QUESTIONS_PER_BATCH = 3
+# 同一次智能体运行最多向用户发出问题的轮数。
 MAX_QUESTION_ROUNDS_PER_RUN = 3
 # 单个单选题或多选题允许配置的选项数；与历史接口边界保持兼容。
 MAX_QUESTION_OPTIONS = 100

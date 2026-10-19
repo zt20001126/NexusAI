@@ -28,4 +28,5 @@ async def validation_node(state: ImageAgentState) -> dict[str, object]:
         "is_image_generation": False,
         "image_prompt": "",
         "generation_options": {},
+        "image_size_confirmed": False,
     }

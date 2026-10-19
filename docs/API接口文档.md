@@ -146,7 +146,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-答案 key 必须与待回答问题 ID 集合完全匹配；每批最多 5 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多发起 3 批追问；达到上限后运行以 `QUESTION_ROUND_LIMIT` 失败结束，并提示用户在聊天框一次性补充余下信息，不会基于缺失信息生成结果。
+答案 key 必须与待回答问题 ID 集合完全匹配；每轮最多 3 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多追问 3 轮；达到上限后运行以 `QUESTION_ROUND_LIMIT` 失败结束，并提示用户在聊天框一次性补充余下信息，不会基于缺失信息生成结果。
 
 ### `POST /api/agents/{agent_id}/runs/{run_id}/cancel`
 
@@ -182,7 +182,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 | `message.completed` | `content` 完整助手消息 |
 | `tool.started` | `tool_name` |
 | `tool.completed` | `tool_name`、`success`、安全的工具结果 `data` |
-| `question.required` | `questions` 结构化数组（每批 1–5 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、题型、题干和适用时的选项 |
+| `question.required` | `questions` 结构化数组（每轮 1–3 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、题型、题干和适用时的选项 |
 | `task_result.updated` | 通用字段为 `task_result_id`、`agent_id`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
 | `run.completed` | 空对象 |
 | `run.cancelled` | 空对象 |
@@ -283,7 +283,7 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 
 listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通过多模态 Chat Completions 识别商品外观、可读包装文字和可见特征，并使用同一模型判断必要信息及生成文案。图片以 Base64 `image_url` 内容块传入，模型名称、鉴权、地址和超时均使用现有 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 仍用于 `image_agent` 的生图能力。
 
-Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件最多返回 5 道题；题目按重要性排序，回答后只追问仍缺少的信息。一次运行最多追问 3 批；达到上限后提示商家在聊天框补充其余信息，不会猜测缺失事实或生成结果。
+Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件最多返回 3 道题；题目按重要性排序，回答后只追问仍缺少的信息。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项，且不允许自定义输入。一次运行最多追问 3 轮；达到上限后提示商家在聊天框补充其余信息，不会猜测缺失事实或生成结果。
 
 成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
