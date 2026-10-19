@@ -11,7 +11,7 @@ def list_project_agents() -> str:
     """列出 NexusAI 已注册的智能体及其用途和图片输入能力。"""
     agents = [
         {
-            "agent_id": definition.agent_id,
+            "agent": definition.agent,
             "name": definition.name,
             "description": definition.description,
             "supports_image_upload": definition.supports_image_upload,

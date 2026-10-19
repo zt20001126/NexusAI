@@ -31,8 +31,8 @@ class AppSettings(BaseSettings):
     )
 
     app_env: str = "development"
-    # Snowflake worker ID 在同一套部署中的并发进程间必须唯一，1022/1023 为系统保留值。
-    snowflake_worker_id: int = Field(default=0, ge=0, le=1021)
+    # Snowflake worker ID 在同一套部署中的并发进程间必须唯一；1023 保留给历史迁移。
+    snowflake_worker_id: int = Field(default=0, ge=0, le=1022)
     deepseek_api_key: SecretStr = SecretStr("")
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"

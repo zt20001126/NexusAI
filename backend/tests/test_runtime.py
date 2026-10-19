@@ -13,7 +13,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.constants import BASE_CONVERSATION_AGENT_ID
+from agent.constants import BASE_CONVERSATION_AGENT
 from agent.errors import InvalidResumeAnswersError
 from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
@@ -143,14 +143,14 @@ async def test_resume_executes_tool_and_completes_once() -> None:
 async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
     """基础对话助手实时转发模型片段，并在完成事件中保留完整文本。"""
     assistant = create_basic_conversation_agent(
-        agent_id=BASE_CONVERSATION_AGENT_ID,
+        agent=BASE_CONVERSATION_AGENT,
         chat_model=_StreamingReplyModel(),
         checkpointer=MemorySaver(),
     )
     runtime = build_memory_runner(
         AppSettings(_env_file=None),
         graph=assistant.compiled_graph,
-        agent_id=BASE_CONVERSATION_AGENT_ID,
+        agent=BASE_CONVERSATION_AGENT,
         title_generator=_UnavailableTitleGenerator(),
     )
 

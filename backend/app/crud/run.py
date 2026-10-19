@@ -3,8 +3,8 @@
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
+from agent.enums import AgentType
 from agent.schemas.run import RunRecord, RunStatus
-from agents.database_ids import agent_code_from_database_id, agent_database_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
 from app.models.run import AgentRun
@@ -24,7 +24,6 @@ class PostgresRunStore:
         statement = insert(AgentRun).values(
             run_id=to_database_id(record.run_id),
             conversation_id=to_database_id(record.conversation_id),
-            agent_id=agent_database_id(record.agent_id),
             status=record.status.value,
             run_metadata=record.metadata,
         )
@@ -32,7 +31,6 @@ class PostgresRunStore:
             index_elements=[AgentRun.run_id],
             set_={
                 "conversation_id": statement.excluded.conversation_id,
-                "agent_id": statement.excluded.agent_id,
                 "status": statement.excluded.status,
                 "metadata": statement.excluded["metadata"],
                 "updated_at": func.now(),
@@ -44,7 +42,11 @@ class PostgresRunStore:
     def get(self, run_id: str) -> RunRecord | None:
         """读取运行记录并转换为 Agent 层领域记录。"""
         statement = (
-            select(AgentRun, User.account.label("principal_id"))
+            select(
+                AgentRun,
+                User.account.label("principal_id"),
+                Conversation.agent.label("agent"),
+            )
             .join(
                 Conversation,
                 Conversation.conversation_id == AgentRun.conversation_id,
@@ -57,12 +59,12 @@ class PostgresRunStore:
         if row is None:
             return None
 
-        run, principal_id = row
+        run, principal_id, agent = row
         return RunRecord(
             run_id=str(run.run_id),
             conversation_id=str(run.conversation_id),
             principal_id=principal_id,
             status=RunStatus(run.status),
             metadata=dict(run.run_metadata or {}),
-            agent_id=agent_code_from_database_id(run.agent_id),
+            agent=AgentType(agent),
         )

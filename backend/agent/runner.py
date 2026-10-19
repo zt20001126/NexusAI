@@ -10,11 +10,12 @@ from typing import Any
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
+from agent.enums import AgentType
 from agent.constants import (
-    BASE_CONVERSATION_AGENT_ID,
+    BASE_CONVERSATION_AGENT,
     CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
-    COMMON_AGENT_ID,
-    LISTING_AGENT_ID,
+    COMMON_AGENT,
+    LISTING_AGENT,
     MAX_QUESTION_ROUNDS_PER_RUN,
 )
 from agent.errors import (
@@ -67,8 +68,8 @@ logger = logging.getLogger(__name__)
 MESSAGE_DELTA_CHUNK_SIZE = 24
 # 仅列出安全的面向用户模型节点；任务型智能体在结果安全后分段呈现用户文本。
 STREAMING_RESPONSE_NODES_BY_AGENT = {
-    COMMON_AGENT_ID: frozenset({"agent", "result"}),
-    BASE_CONVERSATION_AGENT_ID: frozenset({"chat_node"}),
+    COMMON_AGENT: frozenset({"agent", "result"}),
+    BASE_CONVERSATION_AGENT: frozenset({"chat_node"}),
 }
 
 
@@ -110,7 +111,7 @@ class AgentRunner:
         max_tool_calls: int,
         max_output_chars: int,
         run_timeout_seconds: int,
-        agent_id: str = COMMON_AGENT_ID,
+        agent: AgentType = COMMON_AGENT,
         task_result_store: TaskResultStore | None = None,
         attachment_store: AttachmentStore | None = None,
         title_generator: ConversationTitleGenerator | None = None,
@@ -118,10 +119,10 @@ class AgentRunner:
     ) -> None:
         """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
-        self._agent_id = agent_id
+        self._agent = agent
         # 仅允许已确认面向用户的模型节点实时转发 token，避免暴露业务计划和结构化草稿。
         self._streaming_response_nodes = STREAMING_RESPONSE_NODES_BY_AGENT.get(
-            agent_id,
+            agent,
             frozenset(),
         )
         self._run_store = run_store
@@ -159,12 +160,12 @@ class AgentRunner:
         conversation = self._conversation_store.get(resolved_id)
         if conversation is not None and (
             conversation.get("principal_id") != principal_id
-            or conversation.get("agent_id", COMMON_AGENT_ID) != self._agent_id
+            or conversation.get("agent", COMMON_AGENT) != self._agent
         ):
             raise ConversationAccessDeniedError()
         self._conversation_store.save(
             resolved_id,
-            {"principal_id": principal_id, "agent_id": self._agent_id},
+            {"principal_id": principal_id, "agent": self._agent},
         )
         title_source_message = message if conversation is None else None
         task_result_id = self._id_generator.next_id_string()
@@ -178,7 +179,7 @@ class AgentRunner:
                 "attachment_ids": resolved_attachments,
                 "question_round_count": 0,
             },
-            agent_id=self._agent_id,
+            agent=self._agent,
         )
         self._run_store.save(record)
         user_content = text_content(message)
@@ -201,14 +202,14 @@ class AgentRunner:
             "messages": [HumanMessage(content=message)],
             "original_request": message,
             "resume_answers": {},
-            "agent_id": self._agent_id,
+            "agent": self._agent,
             "principal_id": principal_id,
             "conversation_id": resolved_id,
             "run_id": record.run_id,
             "task_result_id": task_result_id,
             "attachment_ids": resolved_attachments,
         })
-        if self._agent_id == LISTING_AGENT_ID:
+        if self._agent == LISTING_AGENT:
             graph_input["question_round_count"] = 0
         return self._stream_graph(
             record=record,
@@ -231,7 +232,7 @@ class AgentRunner:
             or record.status != RunStatus.WAITING
             or record.conversation_id != conversation_id
             or record.principal_id != principal_id
-            or record.agent_id != self._agent_id
+            or record.agent != self._agent
         ):
             raise RunNotResumableError()
         pending_question_ids = set(record.metadata.get("pending_question_ids", []))
@@ -275,14 +276,14 @@ class AgentRunner:
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
             "resume_answers": answers,
-            "agent_id": self._agent_id,
+            "agent": self._agent,
             "principal_id": principal_id,
             "conversation_id": conversation_id,
             "run_id": record.run_id,
             "task_result_id": record.metadata.get("task_result_id"),
             "attachment_ids": record.metadata.get("attachment_ids", []),
         }
-        if self._agent_id == LISTING_AGENT_ID:
+        if self._agent == LISTING_AGENT:
             question_round_count = record.metadata.get("question_round_count", 0)
             if (
                 not isinstance(question_round_count, int)
@@ -754,8 +755,8 @@ class AgentRunner:
     def _scope_key(record: RunRecord) -> str:
         """用可信主体隔离锁和 Checkpoint 内部键。"""
         checkpoint_agent_name = CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY.get(
-            record.agent_id,
-            record.agent_id,
+            record.agent,
+            record.agent,
         )
         return f"{record.principal_id}:{checkpoint_agent_name}:{record.conversation_id}"
 
@@ -767,7 +768,7 @@ def build_memory_runner(
     *,
     conversation_store: ConversationStore | None = None,
     message_store: MessageStore | None = None,
-    agent_id: str = COMMON_AGENT_ID,
+    agent: AgentType = COMMON_AGENT,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,
@@ -784,7 +785,7 @@ def build_memory_runner(
         event_sequence=MemoryEventSequence(),
         model_provider=model_provider,
         graph=graph,
-        agent_id=agent_id,
+        agent=agent,
         task_result_store=task_result_store or MemoryTaskResultStore(),
         attachment_store=attachment_store or MemoryAttachmentStore(),
         title_generator=title_generator,
@@ -803,13 +804,13 @@ def build_agent_runner(
     event_sequence: EventSequence,
     model_provider: ChatModelProvider | None = None,
     graph: Any | None = None,
-    agent_id: str = COMMON_AGENT_ID,
+    agent: AgentType = COMMON_AGENT,
     task_result_store: TaskResultStore | None = None,
     attachment_store: AttachmentStore | None = None,
     title_generator: ConversationTitleGenerator | None = None,
     id_generator: SnowflakeIdGenerator | None = None,
 ) -> AgentRunner:
-    """用注入的存储协议为一个 agent_id 组装运行器。"""
+    """用注入的存储协议为一个 agent 组装运行器。"""
     provider = model_provider or OpenAICompatibleProvider(settings)
     if graph is None:
         graph = build_agent_graph(checkpointer, provider.create_chat_model())
@@ -819,7 +820,7 @@ def build_agent_runner(
     )
     return AgentRunner(
         graph=graph,
-        agent_id=agent_id,
+        agent=agent,
         task_result_store=task_result_store,
         attachment_store=attachment_store,
         title_generator=resolved_title_generator,

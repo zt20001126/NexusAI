@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
+from agent.enums import AgentType
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class ConversationRecord:
     title: str | None
     created_at: datetime
     updated_at: datetime
-    agent_id: str = COMMON_AGENT_ID
+    agent: AgentType = COMMON_AGENT
 
 
 @dataclass(frozen=True)

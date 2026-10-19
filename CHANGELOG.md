@@ -32,6 +32,7 @@
 
 ### Changed
 
+- 将智能体标识统一为 `AgentType` 字符串枚举；会话表保存 `agent`，运行和任务结果从会话派生智能体类型，前后端接口不再使用 `agent_id`。
 - 精简 `task_results` 表，使用 `id`、`conversation_id`、`message_id`、`status`、`input`、`result` 和 `created_at`；结果归属与类型由会话推导。迁移会重建该表并清除已有任务结果。
 - 将 `user_identities` 迁移为 `users` 用户表，增加账号、密码哈希和角色字段，同时保留既有用户 ID、账号映射值和所有权外键。
 - 聊天时间线以题卡展示模型生成的追问及选项；待回答题卡可直接作答，历史消息保留只读题目卡片。

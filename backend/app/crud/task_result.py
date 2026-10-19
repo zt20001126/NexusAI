@@ -4,11 +4,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from agent.errors import ConversationAccessDeniedError
+from agent.enums import AgentType
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
-from agents.database_ids import agent_code_from_database_id, agent_database_id
-from agents.image_agent.constants import IMAGE_AGENT_ID, IMAGE_RESULT_TYPE
-from agents.listing_agent.constants import LISTING_AGENT_ID, LISTING_RESULT_TYPE
-from agents.research_agent.constants import RESEARCH_AGENT_ID, RESEARCH_RESULT_TYPE
+from agents.image_agent.constants import IMAGE_AGENT, IMAGE_RESULT_TYPE
+from agents.listing_agent.constants import LISTING_AGENT, LISTING_RESULT_TYPE
+from agents.research_agent.constants import RESEARCH_AGENT, RESEARCH_RESULT_TYPE
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
@@ -18,10 +18,10 @@ from app.models.user import User
 from infra.snowflake import to_database_id
 
 
-_RESULT_TYPE_BY_AGENT_ID = {
-    IMAGE_AGENT_ID: IMAGE_RESULT_TYPE,
-    LISTING_AGENT_ID: LISTING_RESULT_TYPE,
-    RESEARCH_AGENT_ID: RESEARCH_RESULT_TYPE,
+_RESULT_TYPE_BY_AGENT = {
+    IMAGE_AGENT: IMAGE_RESULT_TYPE,
+    LISTING_AGENT: LISTING_RESULT_TYPE,
+    RESEARCH_AGENT: RESEARCH_RESULT_TYPE,
 }
 
 
@@ -36,7 +36,6 @@ class PostgresTaskResultStore:
         """验证会话和运行归属后创建或更新任务结果。"""
         if record.run_id is None:
             raise ConversationAccessDeniedError()
-        database_agent_id = agent_database_id(record.agent_id)
         task_result_id = to_database_id(record.task_result_id)
         with self._database.session_factory.begin() as session:
             user_id = resolve_user_id(
@@ -58,9 +57,8 @@ class PostgresTaskResultStore:
                     Conversation.conversation_id
                     == to_database_id(record.conversation_id),
                     Conversation.owner_id == user_id,
-                    Conversation.agent_id == database_agent_id,
+                    Conversation.agent == record.agent.value,
                     AgentRun.run_id == to_database_id(record.run_id),
-                    AgentRun.agent_id == database_agent_id,
                 )
                 .limit(1)
             )
@@ -169,7 +167,7 @@ class PostgresTaskResultStore:
                 select(
                     TaskResult,
                     User.account.label("principal_id"),
-                    Conversation.agent_id.label("database_agent_id"),
+                    Conversation.agent.label("agent"),
                 )
                 .join(
                     Conversation,
@@ -186,7 +184,7 @@ class PostgresTaskResultStore:
         return self._to_record(
             row[0],
             row.principal_id,
-            row.database_agent_id,
+            row.agent,
         )
 
     def list_for_messages(
@@ -212,7 +210,7 @@ class PostgresTaskResultStore:
                 select(
                     TaskResult,
                     User.account.label("principal_id"),
-                    Conversation.agent_id.label("database_agent_id"),
+                    Conversation.agent.label("agent"),
                 )
                 .join(
                     Conversation,
@@ -227,21 +225,21 @@ class PostgresTaskResultStore:
                 .order_by(TaskResult.created_at)
             ).all()
         return [
-            self._to_record(task_result, principal_id, database_agent_id)
-            for task_result, principal_id, database_agent_id in rows
+            self._to_record(task_result, principal_id, agent)
+            for task_result, principal_id, agent in rows
         ]
 
     @staticmethod
     def _to_record(
         task_result: TaskResult,
         principal_id: str,
-        database_agent_id: int,
+        agent: str,
     ) -> TaskResultRecord:
         """将 ORM 实体与会话派生元数据转换成 Agent 领域记录。"""
-        agent_id = agent_code_from_database_id(database_agent_id)
+        resolved_agent = AgentType(agent)
         return TaskResultRecord(
             task_result_id=str(task_result.id),
-            agent_id=agent_id,
+            agent=resolved_agent,
             user_id=principal_id,
             conversation_id=str(task_result.conversation_id),
             run_id=None,
@@ -250,7 +248,7 @@ class PostgresTaskResultStore:
                 if task_result.message_id is not None
                 else None
             ),
-            result_type=_RESULT_TYPE_BY_AGENT_ID.get(agent_id, agent_id),
+            result_type=_RESULT_TYPE_BY_AGENT.get(resolved_agent, resolved_agent.value),
             generation_status=TaskResultStatus(task_result.status),
             input_data=dict(task_result.input or {}),
             result_data=dict(task_result.result or {}),

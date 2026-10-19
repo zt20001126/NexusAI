@@ -1,6 +1,6 @@
 """科研文献检索智能体使用的稳定标识和边界值。"""
 
-from agent.constants import RESEARCH_AGENT_ID
+from agent.constants import RESEARCH_AGENT
 
 RESEARCH_AGENT_NAME = "科研文献检索智能体"
 RESEARCH_AGENT_DESCRIPTION = "根据研究主题检索 OpenAlex 学术论文，并保存可追溯的结构化结果。"

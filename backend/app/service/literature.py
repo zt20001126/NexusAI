@@ -17,7 +17,7 @@ from agent.errors import (
 from agent.streaming.events import AgentEvent, AgentEventType
 from agents.literature_reader_agent.constants import (
     DOCUMENT_STATUS_FAILED,
-    LITERATURE_READER_AGENT_ID,
+    LITERATURE_READER_AGENT,
     LITERATURE_AGENT_MAX_DOCUMENTS,
     SOURCE_TYPE_PDF_UPLOAD,
 )

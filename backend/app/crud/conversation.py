@@ -5,9 +5,9 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
+from agent.enums import AgentType
 from agent.schemas.conversation import ConversationRecord
-from agents.database_ids import agent_code_from_database_id, agent_database_id
 from app.crud.identity import resolve_user_id
 from app.db.database import PostgresDatabase
 from app.models.conversation import Conversation
@@ -25,11 +25,13 @@ class PostgresConversationStore:
     def save(self, conversation_id: str, metadata: dict[str, Any]) -> None:
         """创建会话归属；冲突时不覆盖已有主体或智能体。"""
         owner_id = metadata.get("principal_id")
-        agent_id = metadata.get("agent_id", COMMON_AGENT_ID)
+        agent = metadata.get("agent", COMMON_AGENT)
         if not isinstance(owner_id, str) or not owner_id:
             raise ValueError("会话必须包含有效 owner_id")
-        if not isinstance(agent_id, str) or not agent_id:
-            raise ValueError("会话必须包含有效 agent_id")
+        try:
+            resolved_agent = AgentType(agent)
+        except (TypeError, ValueError):
+            raise ValueError("会话必须包含有效 agent")
 
         with self._database.session_factory.begin() as session:
             user_id = resolve_user_id(
@@ -43,7 +45,7 @@ class PostgresConversationStore:
                 .values(
                     conversation_id=to_database_id(conversation_id),
                     owner_id=user_id,
-                    agent_id=agent_database_id(agent_id),
+                    agent=resolved_agent.value,
                 )
                 .on_conflict_do_nothing(index_elements=[Conversation.conversation_id])
             )
@@ -51,7 +53,7 @@ class PostgresConversationStore:
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         """按会话标识读取所有者和智能体元数据。"""
         statement = (
-            select(User.account.label("principal_id"), Conversation.agent_id)
+            select(User.account.label("principal_id"), Conversation.agent)
             .select_from(Conversation)
             .join(User, User.user_id == Conversation.owner_id)
             .where(Conversation.conversation_id == to_database_id(conversation_id))
@@ -62,7 +64,7 @@ class PostgresConversationStore:
             return None
         return {
             "principal_id": row.principal_id,
-            "agent_id": agent_code_from_database_id(row.agent_id),
+            "agent": AgentType(row.agent),
         }
 
     def set_title_if_empty(self, conversation_id: str, title: str) -> None:
@@ -108,7 +110,7 @@ class PostgresConversationStore:
                 title=conversation.title,
                 created_at=conversation.created_at,
                 updated_at=conversation.updated_at,
-                agent_id=agent_code_from_database_id(conversation.agent_id),
+                agent=AgentType(conversation.agent),
             )
             for conversation in conversations
         ]

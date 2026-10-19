@@ -237,7 +237,7 @@ async def test_search_tool_merges_rounds_and_keeps_papers_out_of_tool_output() -
             "principal_id": "owner",
             "conversation_id": "456",
             "run_id": "789",
-            "agent_id": "research_agent",
+            "agent": "research_agent",
             "max_search_rounds": 2,
         }
     )
@@ -280,7 +280,7 @@ async def test_checkpoint_keeps_full_papers_only_in_task_result_store() -> None:
             "messages": [HumanMessage(content="检索图神经网络论文")],
             "original_request": "检索图神经网络论文",
             "research_options": {"limit": 1},
-            "agent_id": "research_agent",
+            "agent": "research_agent",
             "principal_id": "owner",
             "conversation_id": "456",
             "run_id": "789",
@@ -318,7 +318,7 @@ async def test_search_tool_persists_controlled_provider_failure_status() -> None
             "principal_id": "owner",
             "conversation_id": "457",
             "run_id": "790",
-            "agent_id": "research_agent",
+            "agent": "research_agent",
             "max_search_rounds": 1,
         }
     )

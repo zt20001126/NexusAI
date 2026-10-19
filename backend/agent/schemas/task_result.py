@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from agent.enums import AgentType
+
 
 class TaskResultStatus(StrEnum):
     """统一生成结果生命周期状态。"""
@@ -21,7 +23,7 @@ class TaskResultRecord:
     """一个智能体产出的业务结果；运行和身份字段只用于写入校验。"""
 
     task_result_id: str
-    agent_id: str
+    agent: AgentType
     user_id: str
     conversation_id: str
     run_id: str | None

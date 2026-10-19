@@ -1,18 +1,20 @@
-"""共享智能体标识与输入边界常量。"""
+"""共享智能体类型别名、Checkpoint 兼容项和输入边界常量。"""
 
-# 注册表、持久化和前端 API 共用的稳定智能体标识。
-COMMON_AGENT_ID = "common_agent"
-BASE_CONVERSATION_AGENT_ID = "basic_conversation_agent"
-IMAGE_AGENT_ID = "image_agent"
-LISTING_AGENT_ID = "listing_agent"
-RESEARCH_AGENT_ID = "research_agent"
-LABOR_LAW_AGENT_ID = "labor_law_agent"
-LITERATURE_READER_AGENT_ID = "literature_reader_agent"
+from agent.enums import AgentType
 
-# Checkpoint 线程 ID 已落库，保留旧代码片段以便继续读取已有会话状态。
-CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY: dict[str, str] = {
-    COMMON_AGENT_ID: "default",
-    IMAGE_AGENT_ID: "taobao_image",
+# 注册表、运行时和持久化共用的智能体类型。
+COMMON_AGENT = AgentType.COMMON
+BASE_CONVERSATION_AGENT = AgentType.BASIC_CONVERSATION
+IMAGE_AGENT = AgentType.IMAGE
+LISTING_AGENT = AgentType.LISTING
+RESEARCH_AGENT = AgentType.RESEARCH
+LABOR_LAW_AGENT = AgentType.LABOR_LAW
+LITERATURE_READER_AGENT = AgentType.LITERATURE_READER
+
+# Checkpoint 线程 ID 已落库，保留旧命名空间以便读取已有会话状态。
+CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY: dict[AgentType, str] = {
+    COMMON_AGENT: "default",
+    IMAGE_AGENT: "taobao_image",
 }
 
 # 单次生图允许附带的参考图片数量。
@@ -39,14 +41,15 @@ MAX_QUESTION_ANSWER_CHARS = 2_000
 MAX_QUESTION_SELECTION_CHARS = 500
 
 __all__ = [
-    "COMMON_AGENT_ID",
-    "BASE_CONVERSATION_AGENT_ID",
-    "IMAGE_AGENT_ID",
+    "AgentType",
+    "COMMON_AGENT",
+    "BASE_CONVERSATION_AGENT",
+    "IMAGE_AGENT",
     "CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY",
-    "LISTING_AGENT_ID",
-    "RESEARCH_AGENT_ID",
-    "LABOR_LAW_AGENT_ID",
-    "LITERATURE_READER_AGENT_ID",
+    "LISTING_AGENT",
+    "RESEARCH_AGENT",
+    "LABOR_LAW_AGENT",
+    "LITERATURE_READER_AGENT",
     "MAX_REFERENCE_IMAGE_BYTES",
     "MAX_REFERENCE_IMAGE_COUNT",
     "MAX_REFERENCE_IMAGE_TOTAL_BYTES",

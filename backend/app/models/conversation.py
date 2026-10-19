@@ -2,10 +2,24 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
+from agent.enums import AgentType
+
 from app.models.base import Base
+
+_AGENT_TYPE_SQL_VALUES = ", ".join(f"'{agent.value}'" for agent in AgentType)
 
 
 class Conversation(Base):
@@ -13,6 +27,10 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        CheckConstraint(
+            f"agent IN ({_AGENT_TYPE_SQL_VALUES})",
+            name="ck_conversations_agent_type",
+        ),
         Index(
             "idx_conversations_owner_updated",
             "owner_id",
@@ -33,8 +51,10 @@ class Conversation(Base):
         nullable=False,
         comment="会话所有者的内部用户 ID",
     )
-    agent_id: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, comment="会话所属智能体的稳定数据库 ID"
+    agent: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="会话所属智能体的字符串枚举值",
     )
     title: Mapped[str | None] = mapped_column(Text, comment="会话展示标题")
     created_at: Mapped[datetime] = mapped_column(

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Question, QuestionAnswer, QuestionOptionValue } from '../api/agent'
 import type { DisplayAttachment, DisplayMessage, DisplayQuestionBatch } from '../model/messages'
+import type { AgentType } from '../constants'
 import AgentAvatar from './AgentAvatar'
 import AgentInteractionCard from './AgentInteractionCard'
 import ListingResultCard from './ListingResultCard'
@@ -21,7 +22,7 @@ interface MessageListProps {
   messages: DisplayMessage[]
   loading: boolean
   conversationId: string | null
-  agentId: string
+  agent: AgentType
   pendingQuestion: PendingQuestionView | null
   questionDisabled: boolean
   onSubmitQuestion: (answers: Record<string, QuestionAnswer>) => void
@@ -32,7 +33,7 @@ function MessageList({
   messages,
   loading,
   conversationId,
-  agentId,
+  agent,
   pendingQuestion,
   questionDisabled,
   onSubmitQuestion,
@@ -108,7 +109,7 @@ function MessageList({
       <div className="message-scroll-area" ref={listRef} onScroll={handleScroll}>
       <div className="welcome-panel">
         <div className="welcome-orbit" aria-hidden="true">
-          <AgentAvatar agentId={agentId} />
+          <AgentAvatar agent={agent} />
         </div>
         <p className="eyebrow">NEXUSAI ASSISTANT</p>
         <h1>{conversationId ? '继续这段对话' : '你好，今天想一起完成什么？'}</h1>
@@ -134,7 +135,7 @@ function MessageList({
         <article className={`message-row ${message.role}`} key={messageKey}>
           {message.role === 'assistant' && (
             <div className="assistant-avatar" aria-hidden="true">
-              <AgentAvatar agentId={agentId} />
+              <AgentAvatar agent={agent} />
             </div>
           )}
           <div className="message-column">

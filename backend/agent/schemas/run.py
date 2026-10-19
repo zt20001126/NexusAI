@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
+from agent.enums import AgentType
 
 
 class RunStatus(StrEnum):
@@ -26,4 +27,4 @@ class RunRecord:
     principal_id: str
     status: RunStatus
     metadata: dict[str, Any] = field(default_factory=dict)
-    agent_id: str = COMMON_AGENT_ID
+    agent: AgentType = COMMON_AGENT

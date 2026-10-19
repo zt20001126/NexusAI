@@ -6,14 +6,15 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from agent.enums import AgentType
 from agent.constants import (
-    BASE_CONVERSATION_AGENT_ID,
-    COMMON_AGENT_ID,
-    IMAGE_AGENT_ID,
-    LISTING_AGENT_ID,
-    LABOR_LAW_AGENT_ID,
-    RESEARCH_AGENT_ID,
-    LITERATURE_READER_AGENT_ID,
+    BASE_CONVERSATION_AGENT,
+    COMMON_AGENT,
+    IMAGE_AGENT,
+    LISTING_AGENT,
+    LABOR_LAW_AGENT,
+    RESEARCH_AGENT,
+    LITERATURE_READER_AGENT,
 )
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
@@ -98,7 +99,7 @@ def build_lifespan(
                 task_result_store = PostgresTaskResultStore(database)
 
                 def create_postgres_runner(
-                    agent_id: str,
+                    agent: AgentType,
                     graph: Any | None = None,
                     attachment_store: Any | None = None,
                 ) -> AgentRunner:
@@ -113,21 +114,21 @@ def build_lifespan(
                         event_sequence=MemoryEventSequence(),
                         model_provider=model_provider,
                         graph=graph,
-                        agent_id=agent_id,
+                        agent=agent,
                         task_result_store=task_result_store,
                         attachment_store=attachment_store,
                         id_generator=id_generator,
                     )
 
-                runner = create_postgres_runner(COMMON_AGENT_ID)
+                runner = create_postgres_runner(COMMON_AGENT)
                 resolved_model_provider = model_provider or OpenAICompatibleProvider(settings)
                 basic_conversation_agent = create_basic_conversation_agent(
-                    agent_id=BASE_CONVERSATION_AGENT_ID,
+                    agent=BASE_CONVERSATION_AGENT,
                     chat_model=resolved_model_provider.create_chat_model(),
                     checkpointer=checkpointer,
                 )
                 basic_conversation_runner = create_postgres_runner(
-                    agent_id=BASE_CONVERSATION_AGENT_ID,
+                    agent=BASE_CONVERSATION_AGENT,
                     graph=basic_conversation_agent.compiled_graph,
                 )
                 image_model = resolved_model_provider.create_chat_model()
@@ -144,7 +145,7 @@ def build_lifespan(
                     image_storage,
                 )
                 image_runner = create_postgres_runner(
-                    agent_id=IMAGE_AGENT_ID,
+                    agent=IMAGE_AGENT,
                     graph=image_graph,
                     attachment_store=image_storage,
                 )
@@ -155,7 +156,7 @@ def build_lifespan(
                     image_storage,
                 )
                 listing_runner = create_postgres_runner(
-                    agent_id=LISTING_AGENT_ID,
+                    agent=LISTING_AGENT,
                     graph=listing_graph,
                     attachment_store=image_storage,
                 )
@@ -167,7 +168,7 @@ def build_lifespan(
                     settings.research_max_search_rounds,
                 )
                 research_runner = create_postgres_runner(
-                    agent_id=RESEARCH_AGENT_ID,
+                    agent=RESEARCH_AGENT,
                     graph=research_graph,
                 )
                 legal_knowledge_store = PostgresLegalKnowledgeStore(database)
@@ -185,7 +186,7 @@ def build_lifespan(
                     settings.legal_rag_max_context_chars,
                 )
                 labor_law_runner = create_postgres_runner(
-                    agent_id=LABOR_LAW_AGENT_ID,
+                    agent=LABOR_LAW_AGENT,
                     graph=labor_law_graph,
                 )
                 literature_repository = PostgresLiteratureRepository(database)
@@ -205,20 +206,20 @@ def build_lifespan(
                     literature_repository,
                 )
                 literature_runner = create_postgres_runner(
-                    agent_id=LITERATURE_READER_AGENT_ID,
+                    agent=LITERATURE_READER_AGENT,
                     graph=literature_graph,
                 )
                 _install_runtime_state(
                     app_instance,
                     settings,
                     {
-                        COMMON_AGENT_ID: runner,
-                        BASE_CONVERSATION_AGENT_ID: basic_conversation_runner,
-                        IMAGE_AGENT_ID: image_runner,
-                        LISTING_AGENT_ID: listing_runner,
-                        RESEARCH_AGENT_ID: research_runner,
-                        LABOR_LAW_AGENT_ID: labor_law_runner,
-                        LITERATURE_READER_AGENT_ID: literature_runner,
+                        COMMON_AGENT: runner,
+                        BASE_CONVERSATION_AGENT: basic_conversation_runner,
+                        IMAGE_AGENT: image_runner,
+                        LISTING_AGENT: listing_runner,
+                        RESEARCH_AGENT: research_runner,
+                        LABOR_LAW_AGENT: labor_law_runner,
+                        LITERATURE_READER_AGENT: literature_runner,
                     },
                     MemoryEventSequence(),
                     conversation_store,
@@ -231,7 +232,7 @@ def build_lifespan(
                     storage=literature_storage,
                     task_queue=CeleryLiteratureTaskQueue(),
                     chat_service=app_instance.state.agent_registry.get_service(
-                        LITERATURE_READER_AGENT_ID
+                        LITERATURE_READER_AGENT
                     ),
                     settings=settings,
                     id_generator=id_generator,
@@ -263,7 +264,7 @@ def build_lifespan(
 def _install_runtime_state(
     app_instance: FastAPI,
     settings: AppSettings,
-    runners: dict[str, Any],
+    runners: dict[AgentType, Any],
     event_sequence: Any,
     conversation_store: PostgresConversationStore,
     message_store: PostgresMessageStore,
@@ -273,19 +274,17 @@ def _install_runtime_state(
     """组装注册表、共享事件发布器和查询服务。"""
     publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
     services = {
-        agent_id: AgentApplicationService(runner, publisher)
-        for agent_id, runner in runners.items()
+        agent: AgentApplicationService(runner, publisher)
+        for agent, runner in runners.items()
     }
     registry = AgentRegistry(PROJECT_AGENT_DEFINITIONS, services)
     app_instance.state.settings = settings
     app_instance.state.agent_registry = registry
-    app_instance.state.agent_runner = runners[COMMON_AGENT_ID]
-    app_instance.state.agent_service = services[COMMON_AGENT_ID]
     app_instance.state.task_result_store = task_result_store
     task_result_service = TaskResultApplicationService(task_result_store)
     app_instance.state.task_result_service = task_result_service
     app_instance.state.research_service = ResearchApplicationService(
-        services[RESEARCH_AGENT_ID],
+        services[RESEARCH_AGENT],
         task_result_service,
     )
     app_instance.state.attachment_store = attachment_store

@@ -124,7 +124,7 @@ class ConversationApplicationService:
                 result_map.setdefault(result.message_id, []).append(
                     TaskResultSummary(
                         task_result_id=result.task_result_id,
-                        agent_id=result.agent_id,
+                        agent=result.agent,
                         result_type=result.result_type,
                         generation_status=result.generation_status.value,
                         image_url=(

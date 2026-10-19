@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from sqlalchemy import case, delete, func, literal, or_, select, update
 
-from agents.database_ids import agent_database_id
 from agents.literature_reader_agent.chunker import sample_evenly
 from agents.literature_reader_agent.constants import (
     DOCUMENT_STATUS_QUEUED,
     DOCUMENT_STATUS_READY,
-    LITERATURE_READER_AGENT_ID,
+    LITERATURE_READER_AGENT,
 )
 from agents.literature_reader_agent.schemas import (
     EmbeddedLiteratureChunk,
@@ -446,7 +445,7 @@ class PostgresLiteratureRepository:
                 select(Conversation.conversation_id).where(
                     Conversation.conversation_id == to_database_id(conversation_id),
                     Conversation.owner_id == owner_id,
-                    Conversation.agent_id == agent_database_id(LITERATURE_READER_AGENT_ID),
+                    Conversation.agent == LITERATURE_READER_AGENT.value,
                 )
             )
             if conversation is None:
@@ -477,7 +476,7 @@ class PostgresLiteratureRepository:
                 select(Conversation.conversation_id).where(
                     Conversation.conversation_id == to_database_id(conversation_id),
                     Conversation.owner_id == owner_id,
-                    Conversation.agent_id == agent_database_id(LITERATURE_READER_AGENT_ID),
+                    Conversation.agent == LITERATURE_READER_AGENT.value,
                 )
             )
             if conversation_id_value is None:
@@ -516,7 +515,7 @@ class PostgresLiteratureRepository:
                 select(Conversation).where(
                     Conversation.conversation_id == to_database_id(conversation_id),
                     Conversation.owner_id == owner_id,
-                    Conversation.agent_id == agent_database_id(LITERATURE_READER_AGENT_ID),
+                    Conversation.agent == LITERATURE_READER_AGENT.value,
                 )
             ) if owner_id is not None else None
             if conversation is None:

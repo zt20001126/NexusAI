@@ -3,14 +3,15 @@
 from collections.abc import Iterable
 from typing import Any
 
+from agent.enums import AgentType
 from agent.constants import (
-    BASE_CONVERSATION_AGENT_ID,
-    COMMON_AGENT_ID,
-    IMAGE_AGENT_ID,
-    LISTING_AGENT_ID,
-    LABOR_LAW_AGENT_ID,
-    RESEARCH_AGENT_ID,
-    LITERATURE_READER_AGENT_ID,
+    BASE_CONVERSATION_AGENT,
+    COMMON_AGENT,
+    IMAGE_AGENT,
+    LISTING_AGENT,
+    LABOR_LAW_AGENT,
+    RESEARCH_AGENT,
+    LITERATURE_READER_AGENT,
 )
 from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
@@ -38,43 +39,43 @@ BASE_CONVERSATION_AGENT_DESCRIPTION = "基于工程化智能体基座进行多�
 # 项目实际注册的智能体目录，供 API 和通用智能体共用，避免两处元数据不一致。
 PROJECT_AGENT_DEFINITIONS = (
     AgentDefinition(
-        agent_id=COMMON_AGENT_ID,
+        agent=COMMON_AGENT,
         name=COMMON_AGENT_NAME,
         description=COMMON_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
     AgentDefinition(
-        agent_id=BASE_CONVERSATION_AGENT_ID,
+        agent=BASE_CONVERSATION_AGENT,
         name=BASE_CONVERSATION_AGENT_NAME,
         description=BASE_CONVERSATION_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
     AgentDefinition(
-        agent_id=IMAGE_AGENT_ID,
+        agent=IMAGE_AGENT,
         name=IMAGE_AGENT_NAME,
         description=IMAGE_AGENT_DESCRIPTION,
         supports_image_upload=True,
     ),
     AgentDefinition(
-        agent_id=LISTING_AGENT_ID,
+        agent=LISTING_AGENT,
         name=LISTING_AGENT_NAME,
         description=LISTING_AGENT_DESCRIPTION,
         supports_image_upload=True,
     ),
     AgentDefinition(
-        agent_id=RESEARCH_AGENT_ID,
+        agent=RESEARCH_AGENT,
         name=RESEARCH_AGENT_NAME,
         description=RESEARCH_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
     AgentDefinition(
-        agent_id=LABOR_LAW_AGENT_ID,
+        agent=LABOR_LAW_AGENT,
         name=LABOR_LAW_AGENT_NAME,
         description=LABOR_LAW_AGENT_DESCRIPTION,
         supports_image_upload=False,
     ),
     AgentDefinition(
-        agent_id=LITERATURE_READER_AGENT_ID,
+        agent=LITERATURE_READER_AGENT,
         name=LITERATURE_READER_AGENT_NAME,
         description=LITERATURE_READER_AGENT_DESCRIPTION,
         supports_image_upload=False,
@@ -89,11 +90,11 @@ class AgentRegistry:
     def __init__(
         self,
         definitions: Iterable[AgentDefinition],
-        services: dict[str, Any],
+        services: dict[AgentType, Any],
     ) -> None:
         """初始化定义和服务，并拒绝不匹配的注册项。"""
         definition_list = list(definitions)
-        self._definitions = {item.agent_id: item for item in definition_list}
+        self._definitions = {item.agent: item for item in definition_list}
         self._services = dict(services)
         if (
             len(self._definitions) != len(definition_list)
@@ -105,16 +106,24 @@ class AgentRegistry:
         """返回按注册顺序排列的已启用智能体。"""
         return list(self._definitions.values())
 
-    def get_definition(self, agent_id: str) -> AgentDefinition:
+    def get_definition(self, agent: AgentType | str) -> AgentDefinition:
         """读取已注册的智能体定义。"""
-        definition = self._definitions.get(agent_id)
+        try:
+            resolved_agent = AgentType(agent)
+        except (TypeError, ValueError):
+            raise UnknownAgentError() from None
+        definition = self._definitions.get(resolved_agent)
         if definition is None:
             raise UnknownAgentError()
         return definition
 
-    def get_service(self, agent_id: str) -> Any:
+    def get_service(self, agent: AgentType | str) -> Any:
         """读取指定智能体的应用服务。"""
-        service = self._services.get(agent_id)
+        try:
+            resolved_agent = AgentType(agent)
+        except (TypeError, ValueError):
+            raise UnknownAgentError() from None
+        service = self._services.get(resolved_agent)
         if service is None:
             raise UnknownAgentError()
         return service

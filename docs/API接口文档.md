@@ -6,7 +6,7 @@
 
 API 使用服务端认证上下文中的可信主体标识，不接受请求体中的 `user_id`。开发环境在没有认证中间件时使用 `local-development`；其他环境缺少身份时返回 HTTP 401。会话、附件和任务结果均按可信主体校验。
 
-会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。`agent_id` 是注册表使用的稳定业务代码：`common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 或 `literature_reader_agent`。旧代码 `default` 和 `taobao_image` 不再用于当前 API；数据库中已存储的数值智能体 ID 保持不变。
+会话、运行、消息、任务结果、附件和文献标识由后端生成雪花 ID，并以十进制字符串返回；请求中的这些 ID 也必须是纯数字字符串。前端应继续按字符串处理，避免 JavaScript 数值精度损失。智能体使用 `AgentType` 字符串枚举，当前值为 `common_agent`、`basic_conversation_agent`、`image_agent`、`listing_agent`、`research_agent`、`labor_law_agent` 和 `literature_reader_agent`。会话列表和任务结果响应中的 `agent` 字段返回对应枚举值。
 
 Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "message": "..."}`；未知智能体返回 HTTP 404。上传内容错误由 HTTP 400、413 或 415 表示。
 
@@ -61,49 +61,49 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
   "success": true,
   "data": [
     {
-      "agent_id": "common_agent",
+      "agent": "common_agent",
       "name": "通用智能体",
       "description": "处理常见对话、需求梳理和信息问答",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "basic_conversation_agent",
+      "agent": "basic_conversation_agent",
       "name": "基础对话助手",
       "description": "基于工程化智能体基座进行多轮自然对话",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "image_agent",
+      "agent": "image_agent",
       "name": "图片智能体",
       "description": "为淘宝商家生成商品主图和详情页图片",
       "supports_image_upload": true,
       "supports_document_upload": false
     },
     {
-      "agent_id": "listing_agent",
+      "agent": "listing_agent",
       "name": "listing生成智能体",
       "description": "识别商品图片和包装文字，核实必要信息后生成 3 版淘宝商品 Listing。",
       "supports_image_upload": true,
       "supports_document_upload": false
     },
     {
-      "agent_id": "research_agent",
+      "agent": "research_agent",
       "name": "科研文献检索智能体",
       "description": "根据研究主题检索 OpenAlex 学术论文，并保存可追溯的结构化结果。",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "labor_law_agent",
+      "agent": "labor_law_agent",
       "name": "劳动法律问答",
       "description": "检索中国大陆全国性劳动法律法规，回答时展示具体条文和官方来源。",
       "supports_image_upload": false,
       "supports_document_upload": false
     },
     {
-      "agent_id": "literature_reader_agent",
+      "agent": "literature_reader_agent",
       "name": "文献解读助手",
       "description": "基于用户选择的中英文文献回答、总结、梳理方法并比较结论。",
       "supports_image_upload": false,
@@ -113,11 +113,11 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-### `POST /api/agents/{agent_id}/chat`
+### `POST /api/agents/{agent}/chat`
 
 执行非流式对话，返回该次运行的完整事件数组。
 
-### `POST /api/agents/{agent_id}/chat/stream`
+### `POST /api/agents/{agent}/chat/stream`
 
 以 `text/event-stream` 返回同一事件协议。请求 JSON：
 
@@ -129,11 +129,11 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 }
 ```
 
-`message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent_id`，不能在其他智能体路由下继续使用。
+`message` 长度为 1–20,000 个字符。`conversation_id` 可省略或传 `null`，此时运行时创建会话。`attachment_ids` 可省略；最多 3 个不重复的上传标识。只有声明支持图片上传的智能体能接收附件。会话创建后绑定所属主体和 `agent`，不能在其他智能体路由下继续使用。
 
 通过各智能体的 SSE 聊天入口请求时，文本回复均使用 `message.delta` 增量事件和 `message.completed` 完成事件。通用智能体与基础对话助手会转发面向用户模型节点的生成片段；图片、Listing、科研检索、劳动法律和文献解读等工作流会在任务结果或证据校验完成后，分段发送安全的最终文本。结构化追问和任务结果仍分别通过 `question.required`、`task_result.updated` 事件返回。
 
-### `POST /api/agents/{agent_id}/runs/{run_id}/resume`
+### `POST /api/agents/{agent}/runs/{run_id}/resume`
 
 使用追问事件返回的会话和运行标识恢复原运行。
 
@@ -148,13 +148,9 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 
 答案 key 必须与待回答问题 ID 集合完全匹配；共享追问协议每轮最多 3 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多追问 3 轮；共享 Runner 会以 `QUESTION_ROUND_LIMIT` 拦截意外的超限问题批次。Listing 智能体每轮只问一道最高优先级问题，第三轮答案提交后直接按已确认和可见事实生成，省略未知属性。
 
-### `POST /api/agents/{agent_id}/runs/{run_id}/cancel`
+### `POST /api/agents/{agent}/runs/{run_id}/cancel`
 
 请求取消当前主体拥有且仍在运行的任务。成功响应包含 `run_id` 和 `cancel_requested`。
-
-## 兼容路由
-
-原有 `/api/agent/chat`、`/api/agent/chat/stream`、`/api/agent/runs/{run_id}/resume` 和 `/api/agent/runs/{run_id}/cancel` 保留，固定路由到 `common_agent`（通用智能体）。新前端和新增业务使用 `/api/agents/{agent_id}/...`。
 
 ## SSE 事件
 
@@ -183,7 +179,7 @@ Agent 领域错误使用 HTTP 409 和 `{"success": false, "code": "...", "messag
 | `tool.started` | `tool_name` |
 | `tool.completed` | `tool_name`、`success`、安全的工具结果 `data` |
 | `question.required` | `questions` 结构化数组（每轮 1–3 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、标题、题型和适用时的选项；通用题目可附 `prompt` |
-| `task_result.updated` | 通用字段为 `task_result_id`、`agent_id`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
+| `task_result.updated` | 通用字段为 `task_result_id`、`agent`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
 | `run.completed` | 空对象 |
 | `run.cancelled` | 空对象 |
 | `run.failed` | 稳定错误 `code` 与用户可读 `message` |
@@ -219,11 +215,11 @@ Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`；每个
 
 读取 Listing 或科研文献检索任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是允许公开的结果类型时统一返回 HTTP 404。
 
-成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回输入快照、图片字节、OSS 内部对象键或模型凭据。
+成功响应的 data 包含 task_result_id、agent、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回输入快照、图片字节、OSS 内部对象键或模型凭据。
 
 ## 上传参考图片
 
-### `POST /api/uploads/images?agent_id=image_agent&file_name=product.png`
+### `POST /api/uploads/images?agent=image_agent&file_name=product.png`
 
 请求体是图片原始字节（不是 multipart 或 JSON）；请求头 `Content-Type` 不作为文件类型依据。服务端按文件签名识别 PNG/JPEG，单张最多 5 MiB。最多可在同一聊天请求中提交 3 个附件 ID。
 
@@ -259,7 +255,7 @@ Content-Type: image/png
 
 ## 文献解读助手
 
-文献助手使用独立 API；通用 `/api/agents/{agent_id}/chat` 路由会拒绝该智能体，确保每次问答都绑定用户选择的文献。文献元数据和处理状态存入 PostgreSQL，PDF 原件放入私有 OSS，正文分块和向量保存在 PostgreSQL + pgvector。PDF 解析、切分和向量化由 Celery Worker 异步执行，Redis 为 Broker。
+文献助手使用独立 API；通用 `/api/agents/{agent}/chat` 路由会拒绝该智能体，确保每次问答都绑定用户选择的文献。文献元数据和处理状态存入 PostgreSQL，PDF 原件放入私有 OSS，正文分块和向量保存在 PostgreSQL + pgvector。PDF 解析、切分和向量化由 Celery Worker 异步执行，Redis 为 Broker。
 
 ### `POST /api/v1/literature/documents`
 
@@ -281,7 +277,7 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 
 ## 会话历史
 
-- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
+- `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
 - `GET /api/conversations/{conversation_id}/messages?limit=50&before_message_id=...` 返回按 `(created_at, message_id)` 时间正序排列的消息。`content.blocks` 可包含文字块、图片块、结构化问题答案块和 `question_batch` 模型追问题块；问题答案块包含答案映射 `answers`，可附带 `question_titles` 映射供界面按原题标题展示；`question_batch` 包含 `run_id`、轮次和完整问题/选项，供界面在聊天时间线上还原题卡；图片块含 `attachment_id` 和服务端补充的 `image_url`，不含图片字节。助手消息可含 `task_results` 数组。
 - `GET /api/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/image` 以 PNG/JPEG 返回消息内引用的上传图片；会话、消息或附件不属于当前用户时返回 404，OSS 读取故障返回 502。部署升级时依次执行 `backend/migrations/006_message_context.sql` 和 `backend/migrations/007_rename_message_context_to_content.sql`，再启动新版后端。
 

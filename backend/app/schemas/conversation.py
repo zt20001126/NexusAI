@@ -5,7 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.constants import COMMON_AGENT_ID
+from agent.constants import COMMON_AGENT
+from agent.enums import AgentType
 
 
 class ConversationItem(BaseModel):
@@ -20,14 +21,14 @@ class ConversationItem(BaseModel):
     title: str | None = Field(description="会话标题")
     created_at: datetime = Field(description="会话创建时间")
     updated_at: datetime = Field(description="会话最近更新时间")
-    agent_id: str = Field(default=COMMON_AGENT_ID, description="所属智能体标识")
+    agent: AgentType = Field(default=COMMON_AGENT, description="所属智能体类型")
 
 
 class TaskResultSummary(BaseModel):
     """附加到消息历史的任务结果元数据，不包含二进制图片内容。"""
 
     task_result_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$", description="任务结果雪花 ID")
-    agent_id: str
+    agent: AgentType = Field(description="生成结果所属智能体类型")
     result_type: str
     generation_status: str
     image_url: str | None = None

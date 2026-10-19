@@ -1,6 +1,6 @@
 """图片智能体使用的稳定业务常量。"""
 
-from agent.constants import IMAGE_AGENT_ID, MAX_REFERENCE_IMAGE_COUNT
+from agent.constants import IMAGE_AGENT, MAX_REFERENCE_IMAGE_COUNT
 
 IMAGE_AGENT_NAME = "图片智能体"
 IMAGE_AGENT_DESCRIPTION = "为淘宝商家生成商品主图和详情页图片"
@@ -18,7 +18,7 @@ __all__ = [
     "DEFAULT_REFERENCE_RESIZE_MAX_PIXELS",
     "IMAGE_AGENT_DESCRIPTION",
     "IMAGE_AGENT_NAME",
-    "IMAGE_AGENT_ID",
+    "IMAGE_AGENT",
     "IMAGE_REQUEST_MAX_LENGTH",
     "IMAGE_PROMPT_MAX_LENGTH",
     "IMAGE_RESULT_TYPE",

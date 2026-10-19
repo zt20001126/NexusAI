@@ -35,9 +35,6 @@ class AgentRun(Base):
         nullable=False,
         comment="运行所属会话 ID",
     )
-    agent_id: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, comment="运行所属智能体的稳定数据库 ID"
-    )
     status: Mapped[str] = mapped_column(Text, nullable=False, comment="运行生命周期状态")
     run_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata",

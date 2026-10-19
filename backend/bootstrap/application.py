@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.exceptions.handlers import register_exception_handlers
-from app.router.agent import router as agent_router
 from app.router.agents import router as agents_router
 from app.router.conversation import router as conversation_router
 from app.router.health import router as health_router
@@ -30,7 +29,6 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan or build_lifespan(resolved_settings, model_provider),
     )
-    app.include_router(agent_router)
     app.include_router(agents_router)
     app.include_router(conversation_router)
     app.include_router(research_router)

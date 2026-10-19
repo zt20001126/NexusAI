@@ -209,8 +209,7 @@ Worker 将当前阶段和安全错误说明写入 literature_documents。只有 
 
 | 路径 | 修改内容 |
 |---|---|
-| backend/agent/constants.py | 注册稳定 agent_id 和输入边界常量 |
-| backend/agents/database_ids.py | 为新智能体分配下一个稳定静态雪花 ID |
+| backend/agent/enums.py | 注册文献解读助手的 AgentType 字符串枚举值 |
 | backend/agents/definition.py、backend/agents/registry.py | 注册文献解读助手及文档能力描述 |
 | backend/bootstrap/runtime.py | 装配文献仓储、Embedding、检索服务、图和 Agent Runner |
 | backend/bootstrap/application.py | 注册文献 API Router |

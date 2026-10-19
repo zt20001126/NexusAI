@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agent.enums import AgentType
 from agents.research_agent.constants import (
     RESEARCH_MAX_ABSTRACT_CHARS,
     RESEARCH_MAX_ALTERNATE_QUERIES,
@@ -204,7 +205,7 @@ class ResearchSearchToolInput(BaseModel):
     principal_id: str = Field(min_length=1, max_length=256, description="可信用户主体标识")
     conversation_id: str = Field(min_length=1, max_length=64, description="会话标识")
     run_id: str = Field(min_length=1, max_length=64, description="运行标识")
-    agent_id: str = Field(min_length=1, max_length=64, description="注册的智能体标识")
+    agent: AgentType = Field(description="注册的智能体类型")
     max_search_rounds: int = Field(
         ge=1,
         le=RESEARCH_MAX_SEARCH_ROUNDS,

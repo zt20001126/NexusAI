@@ -6,7 +6,7 @@ from agent.persistence.interfaces import TaskResultStore
 from agent.schemas.task_result import TaskResultRecord, TaskResultStatus
 from agent.schemas.tool_result import ToolResult
 from agents.listing_agent.constants import (
-    LISTING_AGENT_ID,
+    LISTING_AGENT,
     LISTING_RESULT_TYPE,
     LISTING_SAVE_TOOL_NAME,
     LISTING_VERSION_COUNT,
@@ -38,7 +38,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
         task_result_store.save(
             TaskResultRecord(
                 task_result_id=task_result_id,
-                agent_id=LISTING_AGENT_ID,
+                agent=LISTING_AGENT,
                 user_id=principal_id,
                 conversation_id=conversation_id,
                 run_id=run_id,
@@ -60,7 +60,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
                 "questions": questions,
                 "task_result": {
                     "task_result_id": task_result_id,
-                    "agent_id": LISTING_AGENT_ID,
+                    "agent": LISTING_AGENT,
                     "result_type": LISTING_RESULT_TYPE,
                     "generation_status": TaskResultStatus.AWAITING_INPUT.value,
                 },
@@ -97,7 +97,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
         task_result_store.save(
             TaskResultRecord(
                 task_result_id=task_result_id,
-                agent_id=LISTING_AGENT_ID,
+                agent=LISTING_AGENT,
                 user_id=principal_id,
                 conversation_id=conversation_id,
                 run_id=run_id,
@@ -118,7 +118,7 @@ def create_listing_task_result_tools(task_result_store: TaskResultStore):
                 "summary": f"已生成并保存 {LISTING_VERSION_COUNT} 个 Listing 版本。",
                 "task_result": {
                     "task_result_id": task_result_id,
-                    "agent_id": LISTING_AGENT_ID,
+                    "agent": LISTING_AGENT,
                     "result_type": LISTING_RESULT_TYPE,
                     "generation_status": TaskResultStatus.SUCCEEDED.value,
                 },

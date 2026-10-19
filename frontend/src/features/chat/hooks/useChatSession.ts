@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question, QuestionAnswer } from '../api/agent'
+import { AgentType } from '../constants'
 import {
-  COMMON_AGENT_ID,
-  LITERATURE_READER_AGENT_ID,
+  COMMON_AGENT,
+  LITERATURE_READER_AGENT,
   MAX_QUESTION_ROUNDS_PER_RUN,
 } from '../constants'
 import {
@@ -35,7 +36,7 @@ export function useChatSession() {
   const [agents, setAgents] = useState<AgentDefinition[]>([])
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
-  const [activeAgentId, setActiveAgentId] = useState(COMMON_AGENT_ID)
+  const [activeAgent, setActiveAgent] = useState(COMMON_AGENT)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMessage[]>([])
@@ -52,24 +53,24 @@ export function useChatSession() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const activeConversationRef = useRef<string | null>(null)
   const activeRunRef = useRef<string | null>(null)
-  const activeAgentRef = useRef(COMMON_AGENT_ID)
+  const activeAgentRef = useRef(COMMON_AGENT)
 
   const selectConversation = useCallback((conversationId: string | null) => {
     activeConversationRef.current = conversationId
     setActiveConversationId(conversationId)
     const conversation = conversations.find((item) => item.conversation_id === conversationId)
     if (conversation) {
-      activeAgentRef.current = conversation.agent_id
-      setActiveAgentId(conversation.agent_id)
+      activeAgentRef.current = conversation.agent
+      setActiveAgent(conversation.agent)
     }
     setPendingQuestion(null)
     setError(null)
     setOlderCursor(null)
   }, [conversations])
 
-  const selectAgent = useCallback((agentId: string) => {
-    activeAgentRef.current = agentId
-    setActiveAgentId(agentId)
+  const selectAgent = useCallback((agent: AgentType) => {
+    activeAgentRef.current = agent
+    setActiveAgent(agent)
     activeConversationRef.current = null
     setActiveConversationId(null)
     setMessages([])
@@ -132,8 +133,8 @@ export function useChatSession() {
         setConversationHasMore(page.has_more)
         if (page.items[0]) {
           activeConversationRef.current = page.items[0].conversation_id
-          activeAgentRef.current = page.items[0].agent_id
-          setActiveAgentId(page.items[0].agent_id)
+          activeAgentRef.current = page.items[0].agent
+          setActiveAgent(page.items[0].agent)
           setActiveConversationId(page.items[0].conversation_id)
         }
       })
@@ -289,7 +290,7 @@ export function useChatSession() {
           })),
         },
       ])
-      if (activeAgentRef.current === LITERATURE_READER_AGENT_ID) {
+      if (activeAgentRef.current === LITERATURE_READER_AGENT) {
         await streamLiteratureChat(
           {
             message: trimmedMessage,
@@ -396,7 +397,7 @@ export function useChatSession() {
     agentsLoading,
     agentsError,
     loadAgents,
-    activeAgentId,
+    activeAgent,
     conversations,
     activeConversation,
     activeConversationId,
@@ -424,14 +425,14 @@ export function useChatSession() {
   }
 }
 
-function readTaskResult(data: Record<string, unknown>, agentId: string): TaskResultSummary | null {
+function readTaskResult(data: Record<string, unknown>, agent: AgentType): TaskResultSummary | null {
   const taskResultId = readString(data.task_result_id)
   const status = readString(data.generation_status)
   const allowedStatuses = ['pending', 'awaiting_input', 'running', 'succeeded', 'failed', 'cancelled']
   if (!taskResultId || !allowedStatuses.includes(status)) return null
   return {
     task_result_id: taskResultId,
-    agent_id: readString(data.agent_id) || agentId,
+    agent: readAgent(data.agent, agent),
     result_type: readString(data.result_type) || 'image',
     generation_status: status as TaskResultSummary['generation_status'],
     image_url: readNullableString(data.image_url),
@@ -441,6 +442,10 @@ function readTaskResult(data: Record<string, unknown>, agentId: string): TaskRes
     error_code: readNullableString(data.error_code),
     error_message: readNullableString(data.error_message),
   }
+}
+
+function readAgent(value: unknown, fallback: AgentType): AgentType {
+  return Object.values(AgentType).find((agent) => agent === value) ?? fallback
 }
 
 function upsertAssistantResult(

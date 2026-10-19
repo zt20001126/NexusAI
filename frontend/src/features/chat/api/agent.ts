@@ -1,7 +1,7 @@
 /** Agent 对话、追问恢复和运行取消 API。 */
 
 import { requestBinary, requestJson, streamEvents } from '../../../shared/api/http'
-import { COMMON_AGENT_ID } from '../constants'
+import { COMMON_AGENT, type AgentType } from '../constants'
 
 export interface AgentEvent {
   event_id: string
@@ -20,7 +20,7 @@ export interface ChatRequest {
 }
 
 export interface AgentDefinition {
-  agent_id: string
+  agent: AgentType
   name: string
   description: string
   supports_image_upload: boolean
@@ -45,7 +45,7 @@ export interface ListingOutputVersion {
 
 export interface ListingTaskResult {
   task_result_id: string
-  agent_id: string
+  agent: AgentType
   result_type: 'listing'
   generation_status: string
   result_data: {
@@ -84,9 +84,9 @@ export type Question = QuestionBase & (
 export async function streamChat(
   payload: ChatRequest,
   onEvent: (event: AgentEvent) => void,
-  agentId = COMMON_AGENT_ID,
+  agent: AgentType = COMMON_AGENT,
 ): Promise<void> {
-  await streamEvents(`/api/agents/${encodeURIComponent(agentId)}/chat/stream`, payload, onEvent)
+  await streamEvents(`/api/agents/${encodeURIComponent(agent)}/chat/stream`, payload, onEvent)
 }
 
 export async function resumeAgentRun(
@@ -94,17 +94,17 @@ export async function resumeAgentRun(
   conversationId: string,
   answers: Record<string, QuestionAnswer>,
   onEvent: (event: AgentEvent) => void,
-  agentId = COMMON_AGENT_ID,
+  agent: AgentType = COMMON_AGENT,
 ): Promise<void> {
   await streamEvents(
-    `/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/resume`,
+    `/api/agents/${encodeURIComponent(agent)}/runs/${encodeURIComponent(runId)}/resume`,
     { conversation_id: conversationId, answers },
     onEvent,
   )
 }
 
-export function cancelAgentRun(runId: string, agentId = COMMON_AGENT_ID): Promise<{ run_id: string; cancel_requested: boolean }> {
-  return requestJson(`/api/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/cancel`, {
+export function cancelAgentRun(runId: string, agent: AgentType = COMMON_AGENT): Promise<{ run_id: string; cancel_requested: boolean }> {
+  return requestJson(`/api/agents/${encodeURIComponent(agent)}/runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST',
   })
 }
@@ -117,7 +117,7 @@ export function getListingTaskResult(taskResultId: string): Promise<ListingTaskR
   return requestJson('/api/task-results/' + encodeURIComponent(taskResultId))
 }
 
-export function uploadReferenceImage(file: File, agentId: string): Promise<UploadedImage> {
-  const query = new URLSearchParams({ agent_id: agentId, file_name: file.name })
+export function uploadReferenceImage(file: File, agent: AgentType): Promise<UploadedImage> {
+  const query = new URLSearchParams({ agent: agent, file_name: file.name })
   return requestBinary(`/api/uploads/images?${query.toString()}`, file, file.name)
 }

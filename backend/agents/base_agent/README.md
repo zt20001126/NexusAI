@@ -30,7 +30,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from agents.base_agent import create_basic_conversation_agent
 
 assistant = create_basic_conversation_agent(
-    agent_id="basic_conversation_agent",
+    agent="basic_conversation_agent",
     chat_model=chat_model,
     checkpointer=MemorySaver(),
 )
@@ -43,7 +43,7 @@ response = await assistant.ainvoke("你好，请介绍一下你自己。", runna
 ```python
 agent = BaseAgent(
     config=BaseAgentConfig(
-        agent_id="example_agent",
+        agent="example_agent",
         system_prompt="在这里传入该业务智能体的系统提示词。",
     ),
     chat_model=chat_model,  # 由应用的模型 Provider 创建后注入
@@ -54,7 +54,7 @@ runnable_config = {"configurable": {"thread_id": "user-id:example_agent:conversa
 response = await agent.ainvoke("用户消息", runnable_config=runnable_config)
 ```
 
-返回值是 `AgentResponse`，只包含稳定的 `agent_id` 和 `answer`，不会把工具调用、Checkpoint 状态或内部异常暴露给业务调用方。外层平台若需要直接接入 LangGraph，可使用 `compiled_graph`。
+返回值是 `AgentResponse`，只包含稳定的 `agent` 和 `answer`，不会把工具调用、Checkpoint 状态或内部异常暴露给业务调用方。外层平台若需要直接接入 LangGraph，可使用 `compiled_graph`。
 
 ## 新增工具
 

@@ -1,6 +1,6 @@
 """listing生成智能体的稳定标识和展示信息。"""
 
-from agent.constants import LISTING_AGENT_ID
+from agent.constants import LISTING_AGENT
 
 LISTING_AGENT_NAME = "listing生成智能体"
 LISTING_AGENT_DESCRIPTION = (

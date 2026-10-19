@@ -2,18 +2,19 @@
 
 import { requestJson } from '../../../shared/api/http'
 import type { Question } from './agent'
+import type { AgentType } from '../constants'
 
 export interface Conversation {
   conversation_id: string
   title: string | null
   created_at: string
   updated_at: string
-  agent_id: string
+  agent: AgentType
 }
 
 export interface TaskResultSummary {
   task_result_id: string
-  agent_id: string
+  agent: AgentType
   result_type: string
   generation_status: 'pending' | 'awaiting_input' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   image_url: string | null

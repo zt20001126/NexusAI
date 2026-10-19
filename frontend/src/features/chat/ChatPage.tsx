@@ -6,12 +6,13 @@ import ConversationSidebar from './components/ConversationSidebar'
 import LiteratureLibraryPanel from './components/LiteratureLibraryPanel'
 import MessageList from './components/MessageList'
 import {
-  COMMON_AGENT_ID,
-  LITERATURE_READER_AGENT_ID,
-  LISTING_AGENT_ID,
+  COMMON_AGENT,
+  LITERATURE_READER_AGENT,
+  LISTING_AGENT,
   MAX_REFERENCE_IMAGE_BYTES,
   MAX_REFERENCE_IMAGES,
 } from './constants'
+import type { AgentType } from './constants'
 import { useChatSession } from './hooks/useChatSession'
 
 const DinoRunPage = lazy(() => import('../dino-run/DinoRunPage'))
@@ -49,12 +50,12 @@ function ChatPage() {
     setMainView('game')
   }
 
-  function selectAgent(agentId: string) {
+  function selectAgent(agent: AgentType) {
     setDraft('')
     setPendingImages([])
     setSelectedDocumentIds([])
     setAttachmentError(null)
-    chat.selectAgent(agentId)
+    chat.selectAgent(agent)
     setNewConversationReady(true)
     setAgentSelectionOpen(false)
     setMainView('workspace')
@@ -68,20 +69,20 @@ function ChatPage() {
     message.role === 'assistant'
     && (message.content.trim().length > 0 || (message.taskResults?.length ?? 0) > 0),
   )?.id ?? null
-  const activeAgentName = chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.name
+  const activeAgentName = chat.agents.find((agent) => agent.agent === chat.activeAgent)?.name
     || (chat.agentsLoading ? '智能体加载中' : '智能体不可用')
 
   async function handleSend() {
     const message = draft.trim()
-      || (chat.activeAgentId === LISTING_AGENT_ID && pendingImages.length > 0
+      || (chat.activeAgent === LISTING_AGENT && pendingImages.length > 0
         ? '请根据已上传的商品图片生成淘宝 Listing。'
         : '')
     if (!message || chat.sending) return
-    if (chat.activeAgentId === LISTING_AGENT_ID && pendingImages.length === 0) {
+    if (chat.activeAgent === LISTING_AGENT && pendingImages.length === 0) {
       setAttachmentError('Listing 生成需要至少上传一张商品图片。')
       return
     }
-    if (chat.activeAgentId === LITERATURE_READER_AGENT_ID && selectedDocumentIds.length === 0) {
+    if (chat.activeAgent === LITERATURE_READER_AGENT && selectedDocumentIds.length === 0) {
       setAttachmentError('请先选择至少一篇已就绪文献。')
       return
     }
@@ -179,7 +180,7 @@ function ChatPage() {
           </header>
 
           <div className="chat-content">
-            {chat.activeAgentId === LITERATURE_READER_AGENT_ID && (
+            {chat.activeAgent === LITERATURE_READER_AGENT && (
               <LiteratureLibraryPanel
                 conversationId={chat.activeConversationId}
                 assistantResponseId={latestAssistantResponseId}
@@ -197,7 +198,7 @@ function ChatPage() {
               messages={chat.messages}
               loading={chat.historyLoading}
               conversationId={chat.activeConversationId}
-              agentId={chat.activeAgentId || COMMON_AGENT_ID}
+              agent={chat.activeAgent || COMMON_AGENT}
               pendingQuestion={chat.pendingQuestion}
               questionDisabled={chat.sending}
               onSubmitQuestion={(answers) => { void chat.resumeRun(answers) }}
@@ -215,7 +216,7 @@ function ChatPage() {
             onSend={() => { void handleSend() }}
             onCancel={() => { void chat.cancelRun() }}
             canCancel={chat.canCancel}
-            supportsImageUpload={chat.agents.find((agent) => agent.agent_id === chat.activeAgentId)?.supports_image_upload ?? false}
+            supportsImageUpload={chat.agents.find((agent) => agent.agent === chat.activeAgent)?.supports_image_upload ?? false}
             attachments={pendingImages}
             onAddAttachments={addAttachments}
             onRemoveAttachment={(index) => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}

@@ -5,6 +5,7 @@ from typing import Annotated, Any, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+from agent.enums import AgentType
 
 class ListingAgentState(TypedDict, total=False):
     """分开保存用户输入、视觉观察、确认答案和生成结果。"""
@@ -13,7 +14,7 @@ class ListingAgentState(TypedDict, total=False):
     original_request: str
     resume_answers: dict[str, Any]
     confirmed_answers: dict[str, Any]
-    agent_id: str
+    agent: AgentType
     principal_id: str
     conversation_id: str
     run_id: str

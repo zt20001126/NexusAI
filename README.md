@@ -49,7 +49,7 @@ flowchart LR
     Worker --> OSS
 ```
 
-前端通过 HTTP 和 SSE 访问 FastAPI。后端由 Router、Service、CRUD 处理应用请求，注册中心将 `agent_id` 路由到对应智能体；各智能体复用 Runner、Checkpoint、会话和事件协议。文献导入由 Redis 队列交给 Celery Worker，解析后的文本与向量写入 PostgreSQL/pgvector，原始文件保存在 OSS。
+前端通过 HTTP 和 SSE 访问 FastAPI。后端由 Router、Service、CRUD 处理应用请求，注册中心按 `AgentType` 字符串枚举路由到对应智能体；会话保存使用的 `agent`，各智能体复用 Runner、Checkpoint、会话和事件协议。文献导入由 Redis 队列交给 Celery Worker，解析后的文本与向量写入 PostgreSQL/pgvector，原始文件保存在 OSS。
 
 ## 本地启动
 
