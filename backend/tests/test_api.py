@@ -292,6 +292,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             conversation_store,
             message_store,
             task_result_store,
+            attachment_store,
         )
         yield
 
@@ -539,10 +540,39 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
             for message in history
             for item in message["task_results"]
         )
+        user_message = next(item for item in history if item["role"] == "user")
+        image_block = next(
+            block for block in user_message["content"]["blocks"]
+            if block["type"] == "image"
+        )
+        assert image_block == {
+            "type": "image",
+            "attachment_id": attachment_id,
+            "image_url": (
+                f"/api/conversations/{conversation_id}/messages/"
+                f"{user_message['message_id']}/attachments/{attachment_id}/image"
+            ),
+        }
+        uploaded_image_response = client.get(image_block["image_url"])
+        wrong_message_response = client.get(
+            f"/api/conversations/{conversation_id}/messages/"
+            f"{next(item['message_id'] for item in history if item['role'] == 'assistant')}"
+            f"/attachments/{attachment_id}/image"
+        )
+        other_upload = client.post(
+            "/api/uploads/images",
+            params={"agent_id": IMAGE_AGENT_ID, "file_name": "other.png"},
+            content=TEST_PNG,
+        )
+        wrong_attachment_response = client.get(
+            f"/api/conversations/{conversation_id}/messages/{user_message['message_id']}"
+            f"/attachments/{other_upload.json()['data']['attachment_id']}/image"
+        )
         image_response = client.get(result["image_url"])
 
         client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
         unauthorized = client.get(result["image_url"])
+        unauthorized_upload = client.get(image_block["image_url"])
 
     assert upload.status_code == 200
     assert upload.json()["data"]["mime_type"] == "image/png"
@@ -555,7 +585,13 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/png"
     assert image_response.content == TEST_PNG
+    assert uploaded_image_response.status_code == 200
+    assert uploaded_image_response.headers["content-type"] == "image/png"
+    assert uploaded_image_response.content == TEST_PNG
+    assert wrong_message_response.status_code == 404
+    assert wrong_attachment_response.status_code == 404
     assert unauthorized.status_code == 404
+    assert unauthorized_upload.status_code == 404
 
 
 def test_image_upload_rejects_unrecognized_file_content() -> None:
@@ -690,7 +726,7 @@ def test_resume_endpoint_completes_paused_run() -> None:
 
 
 def test_conversation_and_message_history_endpoints_support_paging() -> None:
-    """会话列表和消息历史 API 返回新建对话，并可按序号读取更早消息。"""
+    """会话列表和消息历史 API 返回新建对话，并可按消息 ID 读取更早消息。"""
     with _client() as client:
         paused_response = client.post(
             "/api/agent/chat",
@@ -724,7 +760,7 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
             f"/api/conversations/{conversation_id}/messages",
             params={
                 "limit": 2,
-                "before_sequence": latest_page["next_before_sequence"],
+                "before_message_id": latest_page["next_before_message_id"],
             },
         )
 
@@ -735,12 +771,13 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
 
     assert latest_page_response.status_code == 200
     assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
-    assert "构建售后工单智能体" in latest_page["items"][0]["content"]
-    assert latest_page["next_before_sequence"] == 3
+    assert latest_page["items"][0]["content"]["blocks"][1] == {
+        "type": "question_answers", "answers": {"goal": "构建售后工单智能体"}
+    }
+    assert latest_page["next_before_message_id"] == latest_page["items"][0]["message_id"]
 
     earlier_page = earlier_page_response.json()["data"]
     assert earlier_page_response.status_code == 200
-    assert [item["sequence"] for item in earlier_page["items"]] == [1, 2]
     assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
 
 

@@ -220,6 +220,10 @@ a { color: inherit; text-decoration: none; }
 .message-bubble { color: var(--text-primary); font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
 .message-bubble.user { padding: 11px 15px; border: 1px solid var(--border-subtle); border-radius: 15px 4px 15px 15px; background: var(--surface-hover); }
 .message-bubble.user { white-space: pre-wrap; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-attachments a { display: block; overflow: hidden; border-radius: 8px; border: 1px solid var(--border-subtle); }
+.message-attachments a:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; }
+.message-attachments img { display: block; width: 112px; height: 112px; object-fit: cover; }
 .message-bubble.assistant { padding: 11px 15px; border: 1px solid var(--border-subtle); border-radius: 4px 15px 15px 15px; background: var(--surface-white); white-space: normal; }
 .message-markdown > :first-child { margin-top: 0; }
 .message-markdown > :last-child { margin-bottom: 0; }

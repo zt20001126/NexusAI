@@ -25,15 +25,17 @@ class MessageStore(Protocol):
     def save(
         self,
         conversation_id: str,
-        run_id: str,
         role: str,
-        content: str,
+        content: dict[str, Any],
     ) -> str: ...
+    def get_for_conversation(
+        self, conversation_id: str, message_id: str
+    ) -> MessageRecord | None: ...
     def list_by_conversation(
         self,
         conversation_id: str,
         limit: int,
-        before_sequence: int | None,
+        before_message_id: str | None,
     ) -> list[MessageRecord]: ...
 
 
@@ -115,3 +117,4 @@ class AttachmentStore(Protocol):
         mime_type: str,
     ) -> StoredImageObject: ...
     def read_result(self, object_key: str, user_id: str) -> tuple[bytes, str]: ...
+    def read_reference(self, attachment_id: str, user_id: str) -> tuple[bytes, str]: ...

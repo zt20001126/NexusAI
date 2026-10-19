@@ -1,6 +1,8 @@
 """提供会话消息写入和倒序分页读取的 ORM 操作。"""
 
-from sqlalchemy import func, select, update
+from typing import Any
+
+from sqlalchemy import func, select, tuple_, update
 
 from agent.schemas.conversation import MessageRecord
 from app.db.database import PostgresDatabase
@@ -10,7 +12,7 @@ from infra.snowflake import to_database_id
 
 
 class PostgresMessageStore:
-    """消息存储适配器，负责会话消息顺序和内容持久化。"""
+    """消息存储适配器，负责 JSON 内容持久化和时间游标分页。"""
 
     def __init__(self, database: PostgresDatabase) -> None:
         """注入共享数据库会话工厂和消息 ID 生成器。"""
@@ -19,11 +21,10 @@ class PostgresMessageStore:
     def save(
         self,
         conversation_id: str,
-        run_id: str,
         role: str,
-        content: str,
+        content: dict[str, Any],
     ) -> str:
-        """锁定会话、分配消息顺序并写入消息及更新时间。"""
+        """锁定会话后写入消息及更新时间。"""
         message_id = self._database.id_generator.next_id_string()
         database_conversation_id = to_database_id(conversation_id)
         with self._database.session_factory.begin() as session:
@@ -35,17 +36,10 @@ class PostgresMessageStore:
             if conversation_exists is None:
                 raise ValueError("保存消息前必须先创建会话")
 
-            sequence = session.scalar(
-                select(func.coalesce(func.max(Message.sequence), 0) + 1).where(
-                    Message.conversation_id == database_conversation_id
-                )
-            )
             session.add(
                 Message(
                     message_id=to_database_id(message_id),
                     conversation_id=database_conversation_id,
-                    run_id=to_database_id(run_id),
-                    sequence=sequence,
                     role=role,
                     content=content,
                 )
@@ -57,31 +51,58 @@ class PostgresMessageStore:
             )
         return message_id
 
+    def get_for_conversation(
+        self, conversation_id: str, message_id: str
+    ) -> MessageRecord | None:
+        """按会话和消息 ID 读取一条消息，不绕过上层所有权校验。"""
+        with self._database.session_factory() as session:
+            message = session.scalar(
+                select(Message).where(
+                    Message.conversation_id == to_database_id(conversation_id),
+                    Message.message_id == to_database_id(message_id),
+                )
+            )
+            return self._to_record(message) if message is not None else None
+
     def list_by_conversation(
         self,
         conversation_id: str,
         limit: int,
-        before_sequence: int | None,
+        before_message_id: str | None,
     ) -> list[MessageRecord]:
         """读取会话中最新的一页消息，并按新到旧顺序返回。"""
-        statement = select(Message).where(
-            Message.conversation_id == to_database_id(conversation_id)
-        )
-        if before_sequence is not None:
-            statement = statement.where(Message.sequence < before_sequence)
-        statement = statement.order_by(Message.sequence.desc()).limit(limit)
+        database_conversation_id = to_database_id(conversation_id)
         with self._database.session_factory() as session:
+            statement = select(Message).where(
+                Message.conversation_id == database_conversation_id
+            )
+            if before_message_id is not None:
+                anchor = session.scalar(
+                    select(Message).where(
+                        Message.conversation_id == database_conversation_id,
+                        Message.message_id == to_database_id(before_message_id),
+                    )
+                )
+                if anchor is None:
+                    return []
+                statement = statement.where(
+                    tuple_(Message.created_at, Message.message_id)
+                    < (anchor.created_at, anchor.message_id)
+                )
+            statement = statement.order_by(
+                Message.created_at.desc(), Message.message_id.desc()
+            ).limit(limit)
             messages = session.scalars(statement).all()
 
-        return [
-            MessageRecord(
-                message_id=str(message.message_id),
-                conversation_id=str(message.conversation_id),
-                run_id=str(message.run_id) if message.run_id is not None else None,
-                sequence=message.sequence,
-                role=message.role,
-                content=message.content,
-                created_at=message.created_at,
-            )
-            for message in messages
-        ]
+        return [self._to_record(message) for message in messages]
+
+    @staticmethod
+    def _to_record(message: Message) -> MessageRecord:
+        """将 ORM 行转换为不含图片字节的领域记录。"""
+        return MessageRecord(
+            message_id=str(message.message_id),
+            conversation_id=str(message.conversation_id),
+            role=message.role,
+            content=dict(message.content or {"blocks": []}),
+            created_at=message.created_at,
+        )

@@ -241,7 +241,7 @@ Content-Type: image/png
 }
 ```
 
-附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到本次运行。数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input_data` 中。
+附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到用户消息。`messages.content` 的图片块保存附件 ID，数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input_data` 中。
 
 ## 读取生成图片
 
@@ -276,7 +276,8 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 ## 会话历史
 
 - `GET /api/conversations?limit=50&offset=0` 返回会话列表，其中每项有 `agent_id` 和会话标题。新会话的标题由首条用户消息生成；模型命名不可用时，服务端回退为首条消息摘要。
-- `GET /api/conversations/{conversation_id}/messages?limit=50&before_sequence=...` 返回按时间正序排列的消息。助手消息可含 `task_results` 数组，提供生成状态、稳定图片路径和错误摘要，不含图片二进制内容。
+- `GET /api/conversations/{conversation_id}/messages?limit=50&before_message_id=...` 返回按 `(created_at, message_id)` 时间正序排列的消息。`content.blocks` 可包含文字块、图片块及结构化问题答案块；图片块含 `attachment_id` 和服务端补充的 `image_url`，不含图片字节。助手消息可含 `task_results` 数组。
+- `GET /api/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/image` 以 PNG/JPEG 返回消息内引用的上传图片；会话、消息或附件不属于当前用户时返回 404，OSS 读取故障返回 502。部署升级时依次执行 `backend/migrations/006_message_context.sql` 和 `backend/migrations/007_rename_message_context_to_content.sql`，再启动新版后端。
 
 ## listing生成智能体
 

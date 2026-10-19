@@ -187,6 +187,13 @@ class AliyunOSSImageStorage:
             raise AttachmentAccessDeniedError()
         return self._read_object(object_key, owner_hash, self._result_max_bytes)
 
+    def read_reference(self, attachment_id: str, user_id: str) -> tuple[bytes, str]:
+        """按主体从永久参考图前缀读取已发送图片。"""
+        self._validate_attachment_id(attachment_id)
+        owner_hash = _owner_hash(user_id)
+        object_key = self._key("references", owner_hash, attachment_id)
+        return self._read_object(object_key, owner_hash, self._upload_max_bytes)
+
     def _load_reference(
         self,
         owner_hash: str,

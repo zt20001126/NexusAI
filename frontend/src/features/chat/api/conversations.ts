@@ -34,10 +34,14 @@ export interface ConversationPage {
 export interface ConversationMessage {
   message_id: string
   conversation_id: string
-  run_id: string | null
-  sequence: number
   role: 'user' | 'assistant'
-  content: string
+  content: {
+    blocks: Array<
+      | { type: 'text'; text: string }
+      | { type: 'image'; attachment_id: string; image_url: string }
+      | { type: 'question_answers'; answers: Record<string, unknown> }
+    >
+  }
   created_at: string
   task_results: TaskResultSummary[]
 }
@@ -45,8 +49,8 @@ export interface ConversationMessage {
 export interface MessagePage {
   items: ConversationMessage[]
   limit: number
-  before_sequence: number | null
-  next_before_sequence: number | null
+  before_message_id: string | null
+  next_before_message_id: string | null
 }
 
 export function getConversations(limit = 50, offset = 0): Promise<ConversationPage> {
@@ -57,10 +61,10 @@ export function getConversations(limit = 50, offset = 0): Promise<ConversationPa
 export function getConversationMessages(
   conversationId: string,
   limit = 50,
-  beforeSequence?: number,
+  beforeMessageId?: string,
 ): Promise<MessagePage> {
   const query = new URLSearchParams({ limit: String(limit) })
-  if (beforeSequence !== undefined) query.set('before_sequence', String(beforeSequence))
+  if (beforeMessageId !== undefined) query.set('before_message_id', beforeMessageId)
   return requestJson(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
   )

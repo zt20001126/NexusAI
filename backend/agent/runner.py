@@ -51,6 +51,7 @@ from agent.title import (
     fallback_conversation_title,
 )
 from agent.schemas.run import RunRecord, RunStatus
+from agent.schemas.conversation import text_content
 from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.question import QuestionPayload
 from agent.schemas.tool_result import ToolResult
@@ -179,7 +180,12 @@ class AgentRunner:
             agent_id=self._agent_id,
         )
         self._run_store.save(record)
-        message_id = self._message_store.save(resolved_id, record.run_id, "user", message)
+        user_content = text_content(message)
+        user_content["blocks"].extend(
+            {"type": "image", "attachment_id": attachment_id}
+            for attachment_id in resolved_attachments
+        )
+        message_id = self._message_store.save(resolved_id, "user", user_content)
         if resolved_attachments:
             if self._attachment_store is None:
                 raise ValueError("当前智能体不支持图片附件")
@@ -245,9 +251,13 @@ class AgentRunner:
         )
         self._message_store.save(
             conversation_id,
-            record.run_id,
             "user",
-            answer_text,
+            {
+                "blocks": [
+                    {"type": "text", "text": answer_text},
+                    {"type": "question_answers", "answers": answers},
+                ]
+            },
         )
         graph_input = {
             "messages": [HumanMessage(content=json.dumps(answers, ensure_ascii=False))],
@@ -556,9 +566,8 @@ class AgentRunner:
             if isinstance(message.content, str) and message.content:
                 message_id = self._message_store.save(
                     record.conversation_id,
-                    record.run_id,
                     "assistant",
-                    message.content,
+                    text_content(message.content),
                 )
                 task_result_id = record.metadata.get("task_result_id")
                 if isinstance(task_result_id, str) and self._task_result_store is not None:
@@ -628,12 +637,11 @@ class AgentRunner:
             ]
             question_message_id = self._message_store.save(
                 record.conversation_id,
-                record.run_id,
                 "assistant",
-                "\n".join(
+                text_content("\n".join(
                     f"{question.title}\n{question.prompt}"
                     for question in questions.questions
-                ),
+                )),
             )
             task_result = payload.get("data", {}).get("task_result")
             if (

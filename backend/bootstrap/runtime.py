@@ -293,4 +293,5 @@ def _install_runtime_state(
         conversation_store,
         message_store,
         task_result_store,
+        attachment_store,
     )

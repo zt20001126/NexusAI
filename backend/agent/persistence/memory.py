@@ -97,9 +97,8 @@ class MemoryMessageStore:
     def save(
         self,
         conversation_id: str,
-        run_id: str,
         role: str,
-        content: str,
+        content: dict[str, Any],
     ) -> str:
         """按写入顺序保存测试消息。"""
         message_id = get_snowflake_generator().next_id_string()
@@ -107,8 +106,6 @@ class MemoryMessageStore:
             {
                 "message_id": message_id,
                 "conversation_id": conversation_id,
-                "run_id": run_id,
-                "sequence": len(self.messages[conversation_id]) + 1,
                 "role": role,
                 "content": content,
                 "created_at": datetime.now(timezone.utc),
@@ -116,23 +113,40 @@ class MemoryMessageStore:
         )
         return message_id
 
+    def get_for_conversation(
+        self, conversation_id: str, message_id: str
+    ) -> MessageRecord | None:
+        """在测试存储中按会话定位指定消息。"""
+        for item in self.messages.get(conversation_id, []):
+            if item["message_id"] == message_id:
+                return MessageRecord(**item)
+        return None
+
     def list_by_conversation(
         self,
         conversation_id: str,
         limit: int,
-        before_sequence: int | None,
+        before_message_id: str | None,
     ) -> list[MessageRecord]:
         """从最新消息向前读取一页，并按新到旧顺序返回。"""
         messages = self.messages.get(conversation_id, [])
+        anchor = next(
+            (item for item in messages if item["message_id"] == before_message_id),
+            None,
+        ) if before_message_id is not None else None
+        if before_message_id is not None and anchor is None:
+            return []
         eligible = [
-            item
-            for item in messages
-            if before_sequence is None or item["sequence"] < before_sequence
+            item for item in messages
+            if anchor is None or
+            (item["created_at"], int(item["message_id"]))
+            < (anchor["created_at"], int(anchor["message_id"]))
         ]
-        return [
-            MessageRecord(**item)
-            for item in reversed(eligible[-limit:])
-        ]
+        eligible.sort(
+            key=lambda item: (item["created_at"], int(item["message_id"])),
+            reverse=True,
+        )
+        return [MessageRecord(**item) for item in eligible[:limit]]
 
 
 class MemoryRunStore:
@@ -376,6 +390,13 @@ class MemoryAttachmentStore:
             raise AttachmentAccessDeniedError()
         mime_type, image_data = result
         return image_data, mime_type
+
+    def read_reference(self, attachment_id: str, user_id: str) -> tuple[bytes, str]:
+        """读取已绑定且属于当前用户的测试参考图。"""
+        record = self.records.get(attachment_id)
+        if record is None or record.user_id != user_id or record.status != "attached":
+            raise AttachmentAccessDeniedError()
+        return record.image_data, record.mime_type
 
 
 class DisabledTaskDispatcher:

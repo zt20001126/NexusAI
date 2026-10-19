@@ -48,7 +48,7 @@ export function useChatSession() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('随时可以开始')
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
-  const [olderCursor, setOlderCursor] = useState<number | null>(null)
+  const [olderCursor, setOlderCursor] = useState<string | null>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const activeConversationRef = useRef<string | null>(null)
   const activeRunRef = useRef<string | null>(null)
@@ -114,7 +114,7 @@ export function useChatSession() {
     const page = await getConversationMessages(conversationId)
     if (activeConversationRef.current !== conversationId) return
     setMessages(page.items.map(toDisplayMessage))
-    setOlderCursor(page.next_before_sequence)
+    setOlderCursor(page.next_before_message_id)
   }, [])
 
   useEffect(() => {
@@ -160,7 +160,7 @@ export function useChatSession() {
       .then((page) => {
         if (!current) return
         setMessages(page.items.map(toDisplayMessage))
-        setOlderCursor(page.next_before_sequence)
+        setOlderCursor(page.next_before_message_id)
       })
       .catch((requestError: unknown) => {
         if (current) setError(getErrorMessage(requestError))
@@ -278,7 +278,16 @@ export function useChatSession() {
       )
       setMessages((current) => [
         ...current,
-        { id: `local-${Date.now()}`, role: 'user', content: trimmedMessage },
+        {
+          id: `local-${Date.now()}`,
+          role: 'user',
+          content: trimmedMessage,
+          attachments: uploadedImages.map((item, index) => ({
+            attachment_id: item.attachment_id,
+            image_url: '',
+            previewFile: imageFiles[index],
+          })),
+        },
       ])
       if (activeAgentRef.current === LITERATURE_READER_AGENT_ID) {
         await streamLiteratureChat(
@@ -356,7 +365,7 @@ export function useChatSession() {
       const page = await getConversationMessages(conversationId, 50, olderCursor)
       if (activeConversationRef.current !== conversationId) return
       setMessages((current) => [...page.items.map(toDisplayMessage), ...current])
-      setOlderCursor(page.next_before_sequence)
+      setOlderCursor(page.next_before_message_id)
     } catch (requestError) {
       setError(getErrorMessage(requestError))
     } finally {

@@ -1,7 +1,8 @@
 """会话列表和消息历史查询的业务编排。"""
 
-from agent.errors import ConversationAccessDeniedError
-from agent.persistence.interfaces import ConversationStore, MessageStore, TaskResultStore
+from agent.errors import AttachmentAccessDeniedError, ConversationAccessDeniedError
+from agent.persistence.interfaces import AttachmentStore, ConversationStore, MessageStore, TaskResultStore
+from agent.schemas.conversation import image_ids_from_content
 from app.schemas.conversation import (
     ConversationItem,
     ConversationListData,
@@ -19,11 +20,35 @@ class ConversationApplicationService:
         conversation_store: ConversationStore,
         message_store: MessageStore,
         task_result_store: TaskResultStore | None = None,
+        attachment_store: AttachmentStore | None = None,
     ) -> None:
         """注入会话及消息持久化协议。"""
         self._conversation_store = conversation_store
         self._message_store = message_store
         self._task_result_store = task_result_store
+        self._attachment_store = attachment_store
+
+    def read_message_attachment(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        attachment_id: str,
+        principal_id: str,
+    ) -> tuple[bytes, str]:
+        """在读取私有图片前校验会话所有者和消息附件关联。"""
+        conversation = self._conversation_store.get(conversation_id)
+        if conversation is None or conversation.get("principal_id") != principal_id:
+            raise ConversationAccessDeniedError()
+        message = self._message_store.get_for_conversation(conversation_id, message_id)
+        if (
+            message is None
+            or message.role != "user"
+            or attachment_id not in image_ids_from_content(message.content)
+            or self._attachment_store is None
+        ):
+            raise AttachmentAccessDeniedError()
+        return self._attachment_store.read_reference(attachment_id, principal_id)
 
     def list_conversations(
         self,
@@ -58,7 +83,7 @@ class ConversationApplicationService:
         conversation_id: str,
         principal_id: str,
         limit: int,
-        before_sequence: int | None,
+        before_message_id: str | None,
     ) -> ConversationMessageListData:
         """校验会话归属后读取较新的消息页，并按时间正序返回。
 
@@ -73,11 +98,11 @@ class ConversationApplicationService:
         records = self._message_store.list_by_conversation(
             conversation_id,
             limit + 1,
-            before_sequence,
+            before_message_id,
         )
         has_more = len(records) > limit
         page = records[:limit]
-        next_before_sequence = page[-1].sequence if has_more and page else None
+        next_before_message_id = page[-1].message_id if has_more and page else None
         result_map: dict[str, list[TaskResultSummary]] = {}
         message_ids = [record.message_id for record in page]
         if self._task_result_store is not None and message_ids:
@@ -114,13 +139,39 @@ class ConversationApplicationService:
                 )
         items = [
             ConversationMessageItem.model_validate(record).model_copy(
-                update={"task_results": result_map.get(record.message_id, [])}
+                update={
+                    "task_results": result_map.get(record.message_id, []),
+                    "content": self._content_with_image_urls(record.content, conversation_id, record.message_id),
+                }
             )
             for record in reversed(page)
         ]
         return ConversationMessageListData(
             items=items,
             limit=limit,
-            before_sequence=before_sequence,
-            next_before_sequence=next_before_sequence,
+            before_message_id=before_message_id,
+            next_before_message_id=next_before_message_id,
         )
+
+    @staticmethod
+    def _content_with_image_urls(
+        content: dict, conversation_id: str, message_id: str
+    ) -> dict:
+        """仅为图片块补充受授权保护的应用路径，不修改持久化 JSON。"""
+        blocks = content.get("blocks", [])
+        if not isinstance(blocks, list):
+            return content
+        enriched = []
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "image":
+                attachment_id = block.get("attachment_id")
+                if isinstance(attachment_id, str):
+                    block = {
+                        **block,
+                        "image_url": (
+                            f"/api/conversations/{conversation_id}/messages/"
+                            f"{message_id}/attachments/{attachment_id}/image"
+                        ),
+                    }
+            enriched.append(block)
+        return {**content, "blocks": enriched}

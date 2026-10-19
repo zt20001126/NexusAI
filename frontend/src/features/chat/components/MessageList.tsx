@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { DisplayMessage } from '../model/messages'
+import type { DisplayAttachment, DisplayMessage } from '../model/messages'
 import AgentAvatar from './AgentAvatar'
 import ListingResultCard from './ListingResultCard'
 import ResearchResultCard from './ResearchResultCard'
@@ -105,9 +105,16 @@ function MessageList({ messages, loading, conversationId, agentId }: MessageList
                     </div>
                   )
                   : <span>{message.content}</span>
-                : message.taskResults?.length
+                : message.taskResults?.length || message.attachments?.length
                   ? null
                   : <span className="typing-dots">正在思考…</span>}
+              {message.role === 'user' && (message.attachments?.length ?? 0) > 0 && (
+                <div className="message-attachments" aria-label="已发送图片">
+                  {message.attachments?.map((attachment) => (
+                    <MessageImage key={attachment.attachment_id} attachment={attachment} />
+                  ))}
+                </div>
+              )}
               {message.taskResults?.map((result) => (
                 <div className="task-result-card" key={result.task_result_id}>
                   {result.result_type === 'listing' ? (
@@ -137,6 +144,25 @@ function MessageList({ messages, loading, conversationId, agentId }: MessageList
       ))}
     </div>
     </div>
+  )
+}
+
+function MessageImage({ attachment }: { attachment: DisplayAttachment }) {
+  const [previewUrl, setPreviewUrl] = useState('')
+
+  useEffect(() => {
+    if (!attachment.previewFile) return
+    const url = URL.createObjectURL(attachment.previewFile)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [attachment.previewFile])
+
+  const imageUrl = attachment.image_url || previewUrl
+  if (!imageUrl) return null
+  return (
+    <a href={imageUrl} target="_blank" rel="noreferrer" aria-label="查看上传的图片">
+      <img src={imageUrl} alt="用户上传的图片" loading="lazy" />
+    </a>
   )
 }
 
