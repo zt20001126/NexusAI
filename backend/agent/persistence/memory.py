@@ -211,7 +211,6 @@ class MemoryTaskResultStore:
                 "created_at": record.created_at or (
                     existing.created_at if existing is not None else datetime.now(timezone.utc)
                 ),
-                "updated_at": datetime.now(timezone.utc),
             }
         )
 
@@ -230,7 +229,6 @@ class MemoryTaskResultStore:
         self.records[task_result_id] = replace(
             record,
             generation_status=status,
-            updated_at=datetime.now(timezone.utc),
         )
         return True
 
@@ -243,7 +241,6 @@ class MemoryTaskResultStore:
             self.records[task_result_id] = replace(
                 record,
                 message_id=message_id,
-                updated_at=datetime.now(timezone.utc),
             )
 
     def get_owned(self, task_result_id: str, user_id: str) -> TaskResultRecord | None:

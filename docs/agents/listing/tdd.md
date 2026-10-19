@@ -14,7 +14,7 @@
 | 图片识别 | 复用现有 DeepSeek ChatModel Provider，通过多模态 Chat Completions 传入 Base64 图片 |
 | 文案规划与生成 | 复用同一个 DeepSeek ChatModel Provider 调用 |
 | 编排 | 独立 LangGraph 图；统一追问、恢复、取消和事件协议 |
-| 持久化 | task_results.result_type=listing；完整 JSON 写入 result_data |
+| 持久化 | 结果类型由会话智能体标识推导；完整 JSON 写入 `task_results.result` |
 | 图片 | 经 AttachmentStore 按用户和会话读取；图片字节不写入 Checkpoint 或 PostgreSQL |
 | 前端 | 复用图片上传、结构化追问和历史消息；新增三个版本切换展示 |
 
@@ -58,7 +58,7 @@
 
 ## 5. 成功结果 Schema
 
-result_data 使用以下结构，版本固定为 1、2、3：
+`task_results.result` 使用以下结构，版本固定为 1、2、3；结果读取 API 仍以 `result_data` 返回：
 
     {
       "schema_version": "1.0",
@@ -90,9 +90,9 @@ result_data 使用以下结构，版本固定为 1、2、3：
 - POST /api/uploads/images?agent_id=listing_agent：沿用共享 PNG/JPEG 上传接口；单张上限 5 MiB，一次最多 3 张。
 - POST /api/agents/listing_agent/chat/stream：缺少附件时返回 HTTP 422；要求图片与文本或默认提示一起提交。
 - POST /api/agents/listing_agent/runs/{run_id}/resume：所有待答 ID 必须提交且答案不能留空。
-- GET /api/task-results/{task_result_id}：按可信主体读取 Listing result_data；不存在、非所有者或非 Listing 类型均返回 404。
+- GET /api/task-results/{task_result_id}：按可信主体读取 Listing `result_data`；不存在、非所有者或非 Listing 智能体结果均返回 404。
 
-任务结果详情 DTO 不返回 input_data、附件字节、对象存储内部键或模型凭据。
+任务结果详情 DTO 不返回输入 JSON、附件字节、对象存储内部键或模型凭据。
 
 ## 7. 模型边界和失败处理
 

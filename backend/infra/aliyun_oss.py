@@ -95,7 +95,7 @@ class AliyunOSSImageStorage:
         conversation_id: str,
         message_id: str,
     ) -> None:
-        """确认附件归属；附件关联随运行输入写入 task_results.input_data。"""
+        """确认附件归属；附件关联随任务输入写入 task_results.input。"""
         del conversation_id, message_id
         self.validate_staged(attachment_ids, user_id)
         owner_hash = _owner_hash(user_id)

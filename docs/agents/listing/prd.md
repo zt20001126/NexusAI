@@ -55,7 +55,7 @@
 - 关键词：文本列表。
 - 商品属性：属性名称到属性值的 JSON 对象；只填写明确已知的属性。
 
-每次固定生成 3 个版本。成功结果完整保存在 task_results.result_data：
+每次固定生成 3 个版本。成功结果完整保存在 task_results.result：
 
     {
       "schema_version": "1.0",
@@ -104,7 +104,7 @@
 4. 如有必要信息缺口，智能体只提出当前最重要的一道问题；每次运行最多提问 3 轮。
 5. 商家回答后，智能体合并答案并检查仍未解决的必要字段；只对最高优先级的未解决问题继续追问，不重复已确认问题。
 6. 第三轮答案提交后停止追问，基于已确认及图片直接可见的信息生成多个版本；未知属性省略，不猜测缺失事实。
-7. 智能体将完整 JSON 写入 task_results.result_data，前端展示版本并允许商家选择。
+7. 智能体将完整 JSON 写入 task_results.result，前端展示版本并允许商家选择。
 
 ## 6. 功能需求
 
@@ -147,9 +147,9 @@
 
 ### 6.5 结果保存、读取与展示
 
-- 使用统一 task_results 表，result_type 为 listing；不创建专门的 Listing 输出表。
-- generation_status 沿用 pending、awaiting_input、running、succeeded、failed、cancelled。
-- succeeded 时将完整 JSON 写入 result_data；输入文本、答案、附件元数据及识别快照按需写入 input_data，不把图片二进制写入 PostgreSQL。
+- 使用统一 task_results 表；结果类型由会话智能体标识推导，不创建专门的 Listing 输出表。
+- `status` 使用 pending、awaiting_input、running、succeeded、failed、cancelled。
+- succeeded 时将完整 JSON 写入 `result`；输入文本、答案、附件元数据及识别快照按需写入 `input`，不把图片二进制写入 PostgreSQL。
 - 使用任务结果所有者校验保护完整 JSON 读取接口。
 - 前端按版本卡片展示标题、卖点、详情描述、关键词和属性，支持商家查看并选择版本。
 - SSE 事件只发送任务结果标识、类型和状态等摘要；完整内容由授权结果读取接口获取。
@@ -179,7 +179,7 @@
 - 提示词要求必要核实的事实未经商家回答时，不得写入标题、卖点、描述或属性。
 - 提交答案后可恢复原运行，已回答内容不重复提问。
 - 成功结果是有效 JSON，所有版本均含五类约定字段。
-- 完整 JSON 持久化到统一 task_results.result_data，并通过用户所有权校验的接口读取。
+- 完整 JSON 持久化到统一 task_results.result，并通过会话所有权校验的接口读取。
 - 未授权用户不能读取其他用户的任务结果或图片附件。
 - Provider 超时、格式错误或数据库失败时返回安全、稳定的错误状态，不泄露密钥和上游原始响应。
 

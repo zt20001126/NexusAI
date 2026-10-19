@@ -71,7 +71,7 @@ def test_save_uses_returning_instead_of_unreliable_rowcount() -> None:
 
     statement = session.execute.call_args.args[0]
     compiled = str(statement.compile(dialect=postgresql.dialect()))
-    assert "RETURNING task_results.task_result_id" in compiled
+    assert "RETURNING task_results.id" in compiled
     result.scalar_one_or_none.assert_called_once_with()
 
 
@@ -102,7 +102,7 @@ def test_set_status_uses_returning_for_success_result() -> None:
     assert updated is True
     statement = session.execute.call_args.args[0]
     compiled = str(statement.compile(dialect=postgresql.dialect()))
-    assert "RETURNING task_results.task_result_id" in compiled
+    assert "RETURNING task_results.id" in compiled
 
 
 def test_set_status_returns_false_when_returning_has_no_row() -> None:

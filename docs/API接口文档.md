@@ -219,7 +219,7 @@ Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`；每个
 
 读取 Listing 或科研文献检索任务的完整 JSON 结果。接口按可信主体执行任务结果所有者校验；结果不存在、属于其他主体或不是允许公开的结果类型时统一返回 HTTP 404。
 
-成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回 input_data、图片字节、OSS 内部对象键或模型凭据。
+成功响应的 data 包含 task_result_id、agent_id、result_type、generation_status 和 result_data。Listing 结果包含商品事实、图片识别结果及 3 个版本；Research 结果的 result_type 为 research_search，result_data 含检索状态、筛选条件、数量和标准化论文列表。接口不返回输入快照、图片字节、OSS 内部对象键或模型凭据。
 
 ## 上传参考图片
 
@@ -247,13 +247,13 @@ Content-Type: image/png
 }
 ```
 
-附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到用户消息。`messages.content` 的图片块保存附件 ID，数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input_data` 中。
+附件暂存在阿里云私有 OSS；发送聊天请求时按当前主体校验并绑定到用户消息。`messages.content` 的图片块保存附件 ID，数据库不创建附件表，也不保存参考图字节。对象键和引用图片元数据可随任务输入保存在 `task_results.input` 中。
 
 ## 读取生成图片
 
 ### `GET /api/task-results/{task_result_id}/image`
 
-成功时以 `image/png` 或 `image/jpeg` 返回阿里云 OSS 中的图片字节。只有结果所有者可以读取；不存在、未完成或其他用户的结果均返回 HTTP 404。结果地址是稳定应用路径，TokenHub 临时链接会在服务端立即下载并转存。数据库 `task_results.result_data` 保存对象键、MIME、大小和图像尺寸，不保存图片字节。
+成功时以 `image/png` 或 `image/jpeg` 返回阿里云 OSS 中的图片字节。只有结果所有者可以读取；不存在、未完成或其他用户的结果均返回 HTTP 404。结果地址是稳定应用路径，TokenHub 临时链接会在服务端立即下载并转存。数据库 `task_results.result` 保存对象键、MIME、大小和图像尺寸，不保存图片字节。
 
 使用图片上传或读取接口时，后端必须配置 `ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`、`ALIYUN_OSS_ENDPOINT` 和 `ALIYUN_OSS_BUCKET`。未配置时图片上传返回 HTTP 503；OSS 操作失败返回受控 HTTP 502。Bucket 必须保持私有，前端不直接访问 OSS。
 
@@ -291,7 +291,7 @@ listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通
 
 Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件只返回当前最高优先级的一道题；回答后再评估是否需要追问。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项对象，每项包含 `label` 和 `description`，答案以 `label` 提交；不允许自定义输入。完整题目内容放在 `title`，不返回 `prompt`。一次运行最多追问 3 轮；第三轮答案提交后直接生成，并省略无法确认的属性，不将其猜测为事实。
 
-成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 task_results.result_data。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
+成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 `task_results.result`。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
 ## 图片智能体参数
 
@@ -351,6 +351,6 @@ message 必填且长度为 2–20,000；limit 范围为 1–50。session_id 可�
 }
 ~~~
 
-status 为 success、partial、no_results 或 failed。有效查询无匹配论文时仍返回 HTTP 200 和 no_results；已取得部分可用结果时返回 partial。论文完整字段保存在 task_results.result_data，Checkpoint 和 SSE 工具事件只携带任务 ID、业务状态和数量摘要。OpenAlex API Key 可选，通过 OPENALEX_API_KEY 配置；超时、有限重试和最多 3 轮查询由 OPENALEX_TIMEOUT_SECONDS、OPENALEX_MAX_RETRIES、OPENALEX_RETRY_DELAY_SECONDS 和 RESEARCH_MAX_SEARCH_ROUNDS 控制。
+status 为 success、partial、no_results 或 failed。有效查询无匹配论文时仍返回 HTTP 200 和 no_results；已取得部分可用结果时返回 partial。论文完整字段保存在 `task_results.result`，Checkpoint 和 SSE 工具事件只携带任务 ID、业务状态和数量摘要。OpenAlex API Key 可选，通过 OPENALEX_API_KEY 配置；超时、有限重试和最多 3 轮查询由 OPENALEX_TIMEOUT_SECONDS、OPENALEX_MAX_RETRIES、OPENALEX_RETRY_DELAY_SECONDS 和 RESEARCH_MAX_SEARCH_ROUNDS 控制。
 
 GET /api/task-results/{task_result_id} 按所有者读取该结果的完整论文 JSON；越权、未知和未公开的结果类型统一返回 HTTP 404。

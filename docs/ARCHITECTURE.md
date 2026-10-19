@@ -79,7 +79,7 @@ flowchart LR
 
 ### listing生成智能体
 
-listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result_data`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
+listing生成智能体位于 `backend/agents/listing_agent/`，稳定标识为 `listing_agent`。其图复用已配置的 DeepSeek ChatModel，以多模态消息识别图片中的外观、包装文字和可见特征，再规划必要问题；问题全部非空回答后才生成恰好 3 个版本，并写入共享 `task_results.result`。图片字节经 AttachmentStore 授权读取，不进入 PostgreSQL JSON 或 Checkpoint。
 
 完整结果通过 TaskResultApplicationService 按主体校验后返回；前端结果卡片通过结果 ID 读取 JSON 并展示版本。识图、信息规划和文案生成共用 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 与 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 继续用于图片智能体的生图能力。
 
@@ -93,7 +93,7 @@ MCP 接入属于工具能力时放在智能体 Tools 或独立集成模块；RAG
 
 科研文献检索位于 backend/agents/research_agent/，稳定标识为 research_agent。图节点调用现有 ChatModel 解析检索词和约束，再由异步 HTTPX OpenAlex Client 查询 Works API。论文字段只从 OpenAlex 响应映射，摘要由其倒排索引重建；作者、DOI、年份、语言和引用量均由标准化器校验、过滤和去重。
 
-单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 task_results.result_data；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用任务所有者校验，前端按 research_search 展示论文卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。
+单次检索至多执行配置允许的 3 轮等义查询。年份和语言等明确条件在所有轮次保持不变。完整论文数组只写入共享 `task_results.result`；LangGraph Checkpoint、SSE 工具消息和助手回复只保留检索计划、任务状态和数量摘要。结果详情 Service 沿用会话所有者校验，前端按会话智能体标识展示科研结果卡片。专用 REST Router 调用相同的 Agent Service，不复制检索执行或持久化逻辑。
 
 ### 劳动法律问答智能体
 
