@@ -33,6 +33,7 @@
 
 ### Changed
 
+- 为仍使用旧任务结果和智能体 ID 字段的数据库增加数据保留升级迁移；迁移前校验所有权、会话、运行和消息关联。
 - 将智能体标识统一为 `AgentType` 字符串枚举；会话表保存 `agent`，运行和任务结果从会话派生智能体类型，前后端接口不再使用 `agent_id`。
 - 精简 `task_results` 表，使用 `id`、`conversation_id`、`message_id`、`status`、`input`、`result` 和 `created_at`；结果归属与类型由会话推导。迁移会重建该表并清除已有任务结果。
 - 将 `user_identities` 迁移为 `users` 用户表，增加账号、密码哈希和角色字段，同时保留既有用户 ID、账号映射值和所有权外键。
