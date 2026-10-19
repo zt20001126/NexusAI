@@ -209,7 +209,8 @@ function ChatPage() {
 
           <Composer
             value={draft}
-            disabled={chat.sending || Boolean(chat.pendingQuestion) || agentSelectionOpen || (!chat.activeConversationId && !newConversationReady)}
+            disabled={Boolean(chat.pendingQuestion) || agentSelectionOpen || (!chat.activeConversationId && !newConversationReady)}
+            sending={chat.sending}
             onChange={setDraft}
             onSend={() => { void handleSend() }}
             onCancel={() => { void chat.cancelRun() }}
