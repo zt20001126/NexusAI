@@ -629,6 +629,9 @@ class AgentRunner:
             question_round = question_round_count + 1
             record.metadata["question_round_count"] = question_round
             question_data = questions.model_dump(mode="json")
+            for question_data_item in question_data["questions"]:
+                if question_data_item.get("prompt") is None:
+                    question_data_item.pop("prompt", None)
             question_data["question_round"] = question_round
             question_data["max_question_rounds"] = MAX_QUESTION_ROUNDS_PER_RUN
             record.metadata["pending_questions"] = question_data["questions"]
@@ -639,7 +642,11 @@ class AgentRunner:
                 record.conversation_id,
                 "assistant",
                 text_content("\n".join(
-                    f"{question.title}\n{question.prompt}"
+                    "\n".join(
+                        text
+                        for text in (question.title, question.prompt)
+                        if text
+                    )
                     for question in questions.questions
                 )),
             )

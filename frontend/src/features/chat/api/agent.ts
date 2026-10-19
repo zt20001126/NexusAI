@@ -59,7 +59,7 @@ export interface ListingTaskResult {
 interface QuestionBase {
   id: string
   title: string
-  prompt: string
+  prompt?: string
   allow_custom_input: boolean
 }
 

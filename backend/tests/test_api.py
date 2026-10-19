@@ -151,8 +151,7 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
                         "questions": [
                             {
                                 "id": "capacity",
-                                "title": "商品容量",
-                                "prompt": "请选择水杯标注的容量。",
+                                "title": "请选择水杯标注的容量。",
                                 "type": "SingleChoice",
                                 "options": [
                                     "350 毫升",
@@ -647,6 +646,7 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
             event for event in first_events if event["event_type"] == "task_result.updated"
         )
         question_id = question_event["data"]["questions"][0]["id"]
+        assert "prompt" not in question_event["data"]["questions"][0]
         blank_resume = client.post(
             f"/api/agents/{LISTING_AGENT_ID}/runs/{question_event['run_id']}/resume",
             json={

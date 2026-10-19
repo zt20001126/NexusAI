@@ -6,7 +6,6 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent.constants import MAX_QUESTION_OPTION_CHARS, MAX_REFERENCE_IMAGE_COUNT
-from agent.schemas.question import Question
 from agents.listing_agent.constants import (
     LISTING_SCHEMA_VERSION,
     LISTING_VERSION_COUNT,
@@ -47,8 +46,22 @@ class ListingImageAnalysis(BaseModel):
     )
 
 
-class ListingQuestion(Question):
-    """Listing 只接受恰好四个选项且不提供自定义输入的选择题。"""
+class ListingQuestion(BaseModel):
+    """Listing 只接受标题明确、恰好四个选项的选择题。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]{0,63}$",
+        description="稳定且唯一的 snake_case 问题标识",
+    )
+    title: str = Field(
+        min_length=1,
+        max_length=100,
+        description="完整、清晰的问题内容",
+    )
 
     type: Literal["SingleChoice", "MultiChoice"] = Field(
         default="SingleChoice",
@@ -68,6 +81,28 @@ class ListingQuestion(Question):
         default=False,
         description="不允许用户输入选项之外的内容",
     )
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        """标题去除两端空白并保持为单行文本。"""
+        normalized = value.strip()
+        if not normalized or "\n" in normalized or "\r" in normalized:
+            raise ValueError("问题标题必须是非空单行文本")
+        return normalized
+
+    @field_validator("options")
+    @classmethod
+    def normalize_options(cls, options: list[str]) -> list[str]:
+        """选项去除两端空白并拒绝空项、多行和重复项。"""
+        normalized = [option.strip() for option in options]
+        if any(not option for option in normalized):
+            raise ValueError("问题选项不能为空")
+        if any("\n" in option or "\r" in option for option in normalized):
+            raise ValueError("每个问题选项必须使用单行纯文本")
+        if len({option.casefold() for option in normalized}) != len(normalized):
+            raise ValueError("问题选项不能重复")
+        return normalized
 
 
 class ListingPlan(BaseModel):

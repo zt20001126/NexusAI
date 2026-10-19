@@ -26,7 +26,12 @@ class Question(BaseModel):
         description="稳定且唯一的 snake_case 问题标识",
     )
     title: str = Field(min_length=1, max_length=100, description="简短的问题标题")
-    prompt: str = Field(min_length=1, max_length=500, description="清晰、单一的提问内容")
+    prompt: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+        description="可选的补充提问内容；题目也可只使用标题",
+    )
     allow_custom_input: bool = Field(
         default=False,
         description="单选题或多选题是否提供其他自定义输入",
@@ -46,8 +51,10 @@ class Question(BaseModel):
 
     @field_validator("title", "prompt")
     @classmethod
-    def normalize_required_text(cls, value: str) -> str:
+    def normalize_required_text(cls, value: str | None) -> str | None:
         """去除字段两端空白，拒绝空内容和多行排版。"""
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("问题标题和题干不能为空")

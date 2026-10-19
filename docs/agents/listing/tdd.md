@@ -49,8 +49,8 @@
 ## 4. 必填问题规则
 
 - 每轮追问最多 3 项，当前轮通过一个 question.required 事件整体返回；单次运行最多追问 3 轮。
-- Listing 问题只接受 SingleChoice 或 MultiChoice，每题恰好 4 个互异选项且 `allow_custom_input=false`；规划 Schema 和追问工具 Schema 均校验此边界。
-- 提示词要求问题对应真实必要信息、按重要性排序，选项贴合类目且互斥清晰；无法确认的事实提供未知选项，不得要求自由输入或把未知答案当作事实。
+- Listing 问题只接受 SingleChoice 或 MultiChoice，每题恰好 4 个互异选项且 `allow_custom_input=false`；规划 Schema 和追问工具 Schema 均校验此边界。题目正文直接放在 `title`，不使用 `prompt`。
+- 提示词要求标题本身是清晰完整的问题，对应真实必要信息并按重要性排序；选项贴合类目且互斥清晰。无法确认的事实提供未知选项，不得要求自由输入或把未知答案当作事实。
 - 前端卡片显示轮数、题号、题型和必答状态，并要求提交当前批次所有问题；ResumeRequest 和 Runner 校验答案边界，Runner 还按题型校验答案 ID、选项和答案类型。
 - 达到 3 轮上限后运行以 `QUESTION_ROUND_LIMIT` 失败结束，提示用户在聊天框补充剩余信息，不猜测缺失事实或生成结果。
 - 商家可明确回答“不清楚”等内容；这属于答案，不应被文案生成器改写成已知事实。
