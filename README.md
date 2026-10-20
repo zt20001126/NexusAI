@@ -11,11 +11,12 @@ NexusAI 是一个多智能体对话应用。用户在同一聊天界面中选择
 | 智能体 | 能力 |
 |---|---|
 | `common_agent` | 日常交流、常见问题和项目智能体介绍 |
+| `basic_conversation_agent` | 基于通用智能体基座进行多轮对话和结构化提问 |
 | `image_agent` | 生成淘宝商品主图和详情页图片 |
 | `listing_agent` | 识别商品信息、补充必要信息并生成 3 版商品 Listing |
 | `research_agent` | 搜索 OpenAlex 学术论文并保存结构化结果 |
 | `labor_law_agent` | 检索中国大陆全国性劳动法规并提供条文依据 |
-| `literature_reader_agent` | 导入 PDF 或公开网页，基于所选文献进行问答、总结和比较 |
+| `literature_reader_agent` | 导入 PDF，基于所选文献进行问答、总结和比较 |
 
 ## 技术栈
 
@@ -89,7 +90,7 @@ flowchart LR
 
 前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
-使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库结构.md)。
+使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库文档.md)。
 
 ### 使用 Docker 启动后端和 Worker
 
@@ -107,8 +108,9 @@ docker compose --env-file backend/.env -f backend/compose.yaml up -d --build --r
 
 ## 文档
 
+- [项目知识地图](docs/项目知识地图.md)：项目模块、智能体、依赖和按任务检索入口。
 - [后端架构](docs/架构说明.md)：模块职责、依赖方向和扩展方式。
-- [API 接口](docs/接口说明.md)：路由、请求响应、SSE 和错误说明。
-- [数据库结构](docs/数据库结构.md)：表、迁移和持久化说明。
+- [API 接口](docs/接口文档.md)：路由、请求响应、SSE 和错误说明。
+- [数据库结构](docs/数据库文档.md)：表、迁移和持久化说明。
 - [开发约定](AGENTS.md)：代码变更与验证规则。
 - [变更日志](CHANGELOG.md)：面向使用者的项目变化。

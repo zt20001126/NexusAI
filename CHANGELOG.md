@@ -8,6 +8,7 @@
 
 ### Added
 
+- 新增项目知识地图，集中说明模块与智能体入口、核心依赖关系、按任务检索方式和文档维护触发条件，并从 AGENTS.md 与 README 提供导航。
 - 将 Agent SSE 统一为 `start`、`message`、`status`、`end`、`heartbeat` 五类事件；业务消息使用稳定消息/内容块 ID，追问以 `end(waiting)` 结束阶段，Redis 使用独立 v2 流键。
 - 智能体消息改由独立 Celery Worker 在后台执行；聊天 SSE 支持按 `conversation_id`、`run_id` 和事件游标重连，切换会话只关闭监听，生成继续运行。
 - 聊天消息的 `content` JSON 字段保存文字、上传图片引用和追问答案；用户上传图片显示在对应消息中，历史记录按创建时间浏览。
