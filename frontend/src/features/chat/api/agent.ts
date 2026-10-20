@@ -4,28 +4,68 @@ import { requestBinary, requestJson, streamEvents } from '../../../shared/api/ht
 import type { StreamEventOptions } from '../../../shared/api/http'
 import { COMMON_AGENT, normalizeAgentType, type AgentType } from '../constants'
 
-export interface AgentEvent {
-  event_id: string
-  event_type: AgentEventType
-  conversation_id: string
-  run_id: string
-  sequence: number
-  timestamp: string
-  data: Record<string, unknown>
+export type RunTerminalStatus = 'completed' | 'waiting' | 'cancelled' | 'failed'
+export type ToolStatus = 'started' | 'completed'
+
+export interface PublicMessageBlock {
+  id: string
+  type: 'text' | 'image' | 'question' | 'task_result'
+  text?: string
+  image_url?: string | null
+  attachment_id?: string
+  task_result_id?: string
+  agent?: AgentType
+  result_type?: string
+  generation_status?: string
+  question_round?: number
+  max_question_rounds?: number
+  questions?: Question[]
+  answers?: Record<string, QuestionAnswer>
+  question_titles?: Record<string, string>
+  [key: string]: unknown
 }
 
-export type AgentEventType =
-  | 'heartbeat'
-  | 'run.started'
-  | 'run.terminal'
-  | 'message.delta'
-  | 'message.completed'
-  | 'tool.status'
-  | 'question.required'
-  | 'task_result.updated'
+export interface MessageDeltaData {
+  operation: 'delta'
+  message_id: string
+  block_id: string
+  offset: number
+  text: string
+}
 
-export type RunTerminalStatus = 'completed' | 'cancelled' | 'failed'
-export type ToolStatus = 'started' | 'completed'
+export interface MessageSnapshotData {
+  operation: 'snapshot'
+  message_id: string
+  content: { blocks: PublicMessageBlock[] }
+}
+
+export interface AgentEventEnvelope {
+  event_id: string
+  timestamp: string
+}
+
+export type AgentEvent = AgentEventEnvelope & (
+  | { event_type: 'heartbeat' | 'start'; data: Record<string, never> }
+  | { event_type: 'message'; data: MessageDeltaData | MessageSnapshotData }
+  | {
+      event_type: 'status'
+      data: {
+        status: ToolStatus
+        tool_name: string
+        tool_call_id?: string
+        success?: boolean
+      }
+    }
+  | {
+      event_type: 'end'
+      data: {
+        status: RunTerminalStatus
+        error?: { code: string; message: string }
+      }
+    }
+)
+
+export type AgentEventType = AgentEvent['event_type']
 
 export interface ChatRequest {
   message: string

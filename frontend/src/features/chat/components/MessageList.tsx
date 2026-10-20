@@ -205,8 +205,8 @@ function MessageList({
                     </dl>
                   </section>
                 )}
-                {message.role === 'user' && (message.attachments?.length ?? 0) > 0 && (
-                  <div className="message-attachments" aria-label="已发送图片">
+                {(message.attachments?.length ?? 0) > 0 && (
+                  <div className="message-attachments" aria-label="消息图片">
                     {message.attachments?.map((attachment) => (
                       <MessageImage key={attachment.attachment_id} attachment={attachment} />
                     ))}

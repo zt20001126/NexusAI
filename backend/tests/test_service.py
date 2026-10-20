@@ -13,16 +13,16 @@ from agent.streaming.publisher import EventPublisher
 async def _slow_event_source() -> AsyncIterator[AgentEvent]:
     """在两个业务事件间制造短暂无输出窗口。"""
     yield AgentEvent(
-        event_id="conversation:1",
-        event_type=AgentEventType.RUN_STARTED,
+        event_id="1-0",
+        event_type=AgentEventType.START,
         conversation_id="conversation",
         run_id="run",
         sequence=1,
     )
     await asyncio.sleep(0.03)
     yield AgentEvent(
-        event_id="conversation:3",
-        event_type=AgentEventType.RUN_TERMINAL,
+        event_id="2-0",
+        event_type=AgentEventType.END,
         conversation_id="conversation",
         run_id="run",
         sequence=3,
@@ -47,7 +47,13 @@ async def test_service_emits_protocol_heartbeat_while_graph_is_quiet() -> None:
         for event in events
         if event.event_type == AgentEventType.HEARTBEAT
     )
-    assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+    business_events = [event for event in events if event.event_type != AgentEventType.HEARTBEAT]
+    assert [event.event_id for event in business_events] == ["1-0", "2-0"]
+    assert all(
+        event.event_id == "1-0" and event.sequence == 1
+        for event in events
+        if event.event_type == AgentEventType.HEARTBEAT
+    )
 
 
 def test_message_history_uses_id_to_break_created_at_ties() -> None:

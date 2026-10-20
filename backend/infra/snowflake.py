@@ -69,9 +69,15 @@ class SnowflakeIdGenerator:
         return timestamp
 
 
-@lru_cache(maxsize=32)
 def get_snowflake_generator(worker_id: int = 0) -> SnowflakeIdGenerator:
     """复用同一 worker 的线程安全生成器，避免同进程内序号冲突。"""
+    # lru_cache 会把 get_snowflake_generator() 和 get_snowflake_generator(0)
+    # 当成不同键；归一化后统一从内部缓存获取，避免同 worker 重复分配 ID。
+    return _cached_snowflake_generator(worker_id)
+
+
+@lru_cache(maxsize=32)
+def _cached_snowflake_generator(worker_id: int) -> SnowflakeIdGenerator:
     return SnowflakeIdGenerator(worker_id)
 
 

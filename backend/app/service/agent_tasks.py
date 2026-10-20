@@ -5,15 +5,17 @@ import logging
 
 from fastapi import FastAPI
 
+from agent.constants import MAX_QUESTION_ROUNDS_PER_RUN
 from agent.schemas.run import RunStatus
 from agent.streaming.events import (
     AgentEvent,
     AgentEventType,
     RunTerminalStatus,
     get_run_terminal_status,
-    is_run_terminal_event_type,
 )
 from app.crud.run import PostgresRunStore
+from app.crud.message import PostgresMessageStore
+from app.crud.task_result import PostgresTaskResultStore
 from app.db.database import PostgresDatabase
 from bootstrap.runtime import build_lifespan
 from infra.agent_event_store import RedisAgentEventStore
@@ -48,6 +50,109 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
             record = run_store.get(run_id)
             if record is None:
                 return
+            if record.status == RunStatus.WAITING:
+                if get_run_terminal_status(
+                    event_store.last_event(record.conversation_id, record.run_id)
+                ) == RunTerminalStatus.WAITING:
+                    return
+                message_store = PostgresMessageStore(database)
+                messages = message_store.list_by_conversation(record.conversation_id, 100, None)
+                question_message = next(
+                    (
+                        message
+                        for message in messages
+                        if message.role == "assistant"
+                        and any(
+                            isinstance(block, dict)
+                            and block.get("type") == "question"
+                            and block.get("run_id") == record.run_id
+                            for block in message.content.get("blocks", [])
+                        )
+                    ),
+                    None,
+                )
+                if question_message is None:
+                    questions = record.metadata.get("pending_questions")
+                    if not isinstance(questions, list) or not questions:
+                        return
+                    message_id = id_generator.next_id_string()
+                    question_round = record.metadata.get("question_round_count", 1)
+                    blocks = [
+                        {
+                            "id": id_generator.next_id_string(),
+                            "type": "text",
+                            "text": "\n".join(
+                                item.get("title", "")
+                                for item in questions
+                                if isinstance(item, dict)
+                            ),
+                        },
+                        {
+                            "id": id_generator.next_id_string(),
+                            "type": "question",
+                            "run_id": record.run_id,
+                            "question_round": question_round,
+                            "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                            "questions": questions,
+                        },
+                    ]
+                    content = {"blocks": blocks}
+                    message_store.save(
+                        record.conversation_id,
+                        "assistant",
+                        content,
+                        message_id=message_id,
+                    )
+                    if record.metadata.get("task_result_id"):
+                        PostgresTaskResultStore(database).link_message(
+                            str(record.metadata["task_result_id"]),
+                            message_id,
+                            record.principal_id,
+                        )
+                    question_message = message_store.get_for_conversation(
+                        record.conversation_id, message_id
+                    )
+                if question_message is None:
+                    return
+                last_event = event_store.last_event(record.conversation_id, record.run_id)
+                if not (
+                    last_event is not None
+                    and last_event.event_type == AgentEventType.MESSAGE
+                    and last_event.data.get("operation") == "snapshot"
+                    and last_event.data.get("message_id") == question_message.message_id
+                ):
+                    await asyncio.to_thread(
+                        event_store.append,
+                        AgentEvent(
+                            event_id="",
+                            event_type=AgentEventType.MESSAGE,
+                            conversation_id=record.conversation_id,
+                            run_id=record.run_id,
+                            sequence=0,
+                            data={
+                                "operation": "snapshot",
+                                "message_id": question_message.message_id,
+                                "content": question_message.content,
+                            },
+                        ),
+                    )
+                last_event = event_store.last_event(record.conversation_id, record.run_id)
+                if (
+                    last_event is None
+                    or get_run_terminal_status(last_event) != RunTerminalStatus.WAITING
+                ):
+                    await asyncio.to_thread(
+                        event_store.append,
+                        AgentEvent(
+                            event_id="",
+                            event_type=AgentEventType.END,
+                            conversation_id=record.conversation_id,
+                            run_id=record.run_id,
+                            sequence=0,
+                            data={"status": RunTerminalStatus.WAITING.value},
+                        ),
+                    )
+                return
             terminal_status_by_run_status = {
                 RunStatus.COMPLETED: RunTerminalStatus.COMPLETED,
                 RunStatus.CANCELLED: RunTerminalStatus.CANCELLED,
@@ -59,8 +164,10 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
             )
             if record.status in terminal_status_by_run_status:
                 terminal_status = terminal_status_by_run_status[record.status]
-                if last_event is not None and is_run_terminal_event_type(
-                    last_event.event_type
+                if (
+                    last_event is not None
+                    and last_event.event_type == AgentEventType.END
+                    and get_run_terminal_status(last_event) == terminal_status
                 ):
                     return
                 event_data = {"status": terminal_status.value}
@@ -80,7 +187,8 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
                 if record.metadata.get("action") != "resume":
                     if (
                         last_event is not None
-                        and last_event.event_type == AgentEventType.QUESTION_REQUIRED
+                        and last_event.event_type == AgentEventType.END
+                        and get_run_terminal_status(last_event) == RunTerminalStatus.WAITING
                     ):
                         record.status = RunStatus.WAITING
                         run_store.save(record)
@@ -106,15 +214,27 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
                     "message": "智能体暂时无法启动，请稍后重新提交",
                 }
             else:
-                # waiting 需要问题数据才能继续交互，不能合成空的 question.required。
+                # waiting 需要问题数据才能继续交互，不能合成空的题卡快照。
                 return
             event = AgentEvent(
                 event_id="",
-                event_type=AgentEventType.RUN_TERMINAL,
+                event_type=AgentEventType.END,
                 conversation_id=record.conversation_id,
                 run_id=record.run_id,
                 sequence=1,
-                data=event_data,
+                data={
+                    "status": event_data["status"],
+                    **(
+                        {
+                            "error": {
+                                "code": event_data["code"],
+                                "message": event_data["message"],
+                            }
+                        }
+                        if event_data["status"] == RunTerminalStatus.FAILED.value
+                        else {}
+                    ),
+                },
             )
             await asyncio.to_thread(event_store.append, event)
             if record.status in {RunStatus.QUEUED, RunStatus.RUNNING}:

@@ -285,9 +285,9 @@ class LiteratureApplicationService:
         )
 
         async def persist_new_conversation_scope() -> AsyncIterator[AgentEvent]:
-            """在 RUN_STARTED 对外发送前保存新会话的文献选择。"""
+            """在 start 事件对外发送前保存新会话的文献选择。"""
             async for event in events:
-                if is_new_conversation and event.event_type == AgentEventType.RUN_STARTED:
+                if is_new_conversation and event.event_type == AgentEventType.START:
                     await asyncio.to_thread(
                         self._repository.set_conversation_documents,
                         event.conversation_id,

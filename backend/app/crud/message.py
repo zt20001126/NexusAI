@@ -23,9 +23,10 @@ class PostgresMessageStore:
         conversation_id: str,
         role: str,
         content: dict[str, Any],
+        message_id: str | None = None,
     ) -> str:
         """锁定会话后写入消息及更新时间。"""
-        message_id = self._database.id_generator.next_id_string()
+        message_id = message_id or self._database.id_generator.next_id_string()
         database_conversation_id = to_database_id(conversation_id)
         with self._database.session_factory.begin() as session:
             conversation_exists = session.scalar(
@@ -50,6 +51,24 @@ class PostgresMessageStore:
                 .values(updated_at=func.now())
             )
         return message_id
+
+    def update_content(
+        self, conversation_id: str, message_id: str, content: dict[str, Any]
+    ) -> None:
+        """按会话和角色替换助手消息完整内容。"""
+        statement = (
+            update(Message)
+            .where(
+                Message.conversation_id == to_database_id(conversation_id),
+                Message.message_id == to_database_id(message_id),
+                Message.role == "assistant",
+            )
+            .values(content=content)
+        )
+        with self._database.session_factory.begin() as session:
+            result = session.execute(statement)
+            if result.rowcount != 1:
+                raise ValueError("待更新的助手消息不存在")
 
     def get_for_conversation(
         self, conversation_id: str, message_id: str

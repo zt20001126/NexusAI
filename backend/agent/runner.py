@@ -278,8 +278,13 @@ class AgentRunner:
                 return existing
             raise AgentRunPreparationPendingError() from None
         user_content = text_content(message)
+        user_content["blocks"][0]["id"] = self._id_generator.next_id_string()
         user_content["blocks"].extend(
-            {"type": "image", "attachment_id": attachment_id}
+            {
+                "id": self._id_generator.next_id_string(),
+                "type": "image",
+                "attachment_id": attachment_id,
+            }
             for attachment_id in resolved_attachments
         )
         message_id = self._message_store.save(resolved_id, "user", user_content)
@@ -395,6 +400,19 @@ class AgentRunner:
                 )
 
             async for event in events:
+                if (
+                    event.event_type == AgentEventType.END
+                    and event.data.get("status") == RunTerminalStatus.WAITING.value
+                ):
+                    # 先收尾图生成器并释放 run 锁，再把 waiting 发送给客户端。
+                    # 用户收到题卡后可立即恢复，不会和上一阶段争抢同一把锁。
+                    await events.aclose()
+                    self._run_store.save(record)
+                    if lock_acquired:
+                        await self._run_lock.release(run_lock_key)
+                        lock_acquired = False
+                    yield event
+                    return
                 yield event
         finally:
             if lock_acquired:
@@ -515,9 +533,18 @@ class AgentRunner:
             "user",
             {
                 "blocks": [
-                    {"type": "text", "text": answer_text},
                     {
-                        "type": "question_answers",
+                        "id": self._id_generator.next_id_string(),
+                        "type": "text",
+                        "text": answer_text,
+                    },
+                    {
+                        "id": self._id_generator.next_id_string(),
+                        "type": "question",
+                        "run_id": record.run_id,
+                        "question_round": record.metadata.get("question_round_count", 1),
+                        "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                        "questions": questions.model_dump(mode="json", exclude_none=True)["questions"],
                         "answers": answers,
                         **({"question_titles": question_titles} if question_titles else {}),
                     },
@@ -585,6 +612,11 @@ class AgentRunner:
         tool_call_count = 0
         output_char_count = 0
         streamed_text_by_node: dict[str, str] = {}
+        assistant_message: dict[str, Any] = {
+            "message_id": None,
+            "blocks": [],
+            "text_block_id": None,
+        }
         cancel_event = self._cancel_events.setdefault(record.run_id, asyncio.Event())
         record.status = RunStatus.RUNNING
         self._run_store.save(record)
@@ -602,7 +634,7 @@ class AgentRunner:
                 title_task = asyncio.create_task(
                     self._title_generator.generate_title(title_source_message)
                 )
-            yield self._event(record, AgentEventType.RUN_STARTED)
+            yield self._event(record, AgentEventType.START)
             config = {
                 "configurable": {"thread_id": scope_key},
                 "recursion_limit": self._max_steps,
@@ -638,11 +670,8 @@ class AgentRunner:
                                     },
                                 )
                                 return
-                            yield self._event(
-                                record,
-                                AgentEventType.MESSAGE_DELTA,
-                                {"content": content},
-                            )
+                            delta = self._append_assistant_text(record, assistant_message, content)
+                            yield delta
                             streamed_text_by_node[node_name] = (
                                 streamed_text_by_node.get(node_name, "") + content
                             )
@@ -651,39 +680,40 @@ class AgentRunner:
                         if not isinstance(node_update, dict):
                             continue
                         for message in node_update.get("messages", []):
-                            async for event in self._events_for_message(record, message):
+                            if (
+                                isinstance(message, AIMessage)
+                                and isinstance(message.content, str)
+                                and message.content
+                            ):
+                                completed_content = message.content
+                                streamed_content = streamed_text_by_node.pop(node_name, "")
+                                missing_content = (
+                                    completed_content[len(streamed_content):]
+                                    if completed_content.startswith(streamed_content)
+                                    else completed_content
+                                )
+                                if missing_content:
+                                    output_char_count += len(missing_content)
+                                    if output_char_count > self._max_output_chars:
+                                        record.status = RunStatus.FAILED
+                                        yield self._terminal_event(
+                                            record,
+                                            RunTerminalStatus.FAILED,
+                                            {
+                                                "code": "AGENT_OUTPUT_LIMIT",
+                                                "message": "智能体输出超过允许长度",
+                                            },
+                                        )
+                                        return
+                                    for text_chunk in _text_chunks(missing_content):
+                                        yield self._append_assistant_text(
+                                            record, assistant_message, text_chunk
+                                        )
+                            async for event in self._events_for_message(
+                                record, message, assistant_message, config
+                            ):
                                 if (
-                                    event.event_type == AgentEventType.MESSAGE_COMPLETED
-                                    and isinstance(event.data.get("content"), str)
-                                ):
-                                    completed_content = event.data["content"]
-                                    streamed_content = streamed_text_by_node.pop(node_name, "")
-                                    if completed_content.startswith(streamed_content):
-                                        missing_content = completed_content[len(streamed_content):]
-                                    else:
-                                        missing_content = completed_content
-                                    if missing_content:
-                                        output_char_count += len(missing_content)
-                                        if output_char_count > self._max_output_chars:
-                                            record.status = RunStatus.FAILED
-                                            yield self._terminal_event(
-                                                record,
-                                                RunTerminalStatus.FAILED,
-                                                {
-                                                    "code": "AGENT_OUTPUT_LIMIT",
-                                                    "message": "智能体输出超过允许长度",
-                                                },
-                                            )
-                                            return
-                                        # 特殊智能体的回复可能要等任务或证据校验完成；仅拆分最终安全文本。
-                                        for text_chunk in _text_chunks(missing_content):
-                                            yield self._event(
-                                                record,
-                                                AgentEventType.MESSAGE_DELTA,
-                                                {"content": text_chunk},
-                                            )
-                                if (
-                                    event.event_type == AgentEventType.TOOL_STATUS
+                                    event.event_type == AgentEventType.STATUS
                                     and event.data.get("status") == ToolStatus.STARTED.value
                                 ):
                                     tool_call_count += 1
@@ -698,8 +728,16 @@ class AgentRunner:
                                             },
                                         )
                                         return
-                                if event.event_type == AgentEventType.QUESTION_REQUIRED:
+                                if (
+                                    isinstance(message, ToolMessage)
+                                    and message.name in PAUSE_TOOL_NAMES
+                                ):
                                     waiting_for_answer = True
+                                if (
+                                    event.event_type == AgentEventType.END
+                                    and event.data.get("status") == RunTerminalStatus.FAILED.value
+                                ):
+                                    record.status = RunStatus.FAILED
                                 yield event
                                 if (
                                     get_run_terminal_status(event)
@@ -709,6 +747,8 @@ class AgentRunner:
                                     return
             if waiting_for_answer:
                 record.status = RunStatus.WAITING
+                self._run_store.save(record)
+                yield self._terminal_event(record, RunTerminalStatus.WAITING)
             else:
                 record.status = RunStatus.COMPLETED
                 yield self._terminal_event(record, RunTerminalStatus.COMPLETED)
@@ -884,10 +924,140 @@ class AgentRunner:
             with suppress(Exception):
                 await stream.aclose()
 
+    def _ensure_assistant_message(
+        self, record: RunRecord, state: dict[str, Any]
+    ) -> str:
+        message_id = state.get("message_id")
+        if isinstance(message_id, str):
+            return message_id
+        message_id = self._id_generator.next_id_string()
+        self._message_store.save(
+            record.conversation_id,
+            "assistant",
+            {"blocks": []},
+            message_id=message_id,
+        )
+        state["message_id"] = message_id
+        return message_id
+
+    def _append_assistant_text(
+        self, record: RunRecord, state: dict[str, Any], text: str
+    ) -> AgentEvent:
+        message_id = self._ensure_assistant_message(record, state)
+        block_id = state.get("text_block_id")
+        block = next((item for item in state["blocks"] if item.get("id") == block_id), None)
+        if block is None:
+            block_id = self._id_generator.next_id_string()
+            block = {"id": block_id, "type": "text", "text": ""}
+            state["blocks"].append(block)
+            state["text_block_id"] = block_id
+        offset = len(block["text"])
+        block["text"] += text
+        self._message_store.update_content(
+            record.conversation_id, message_id, {"blocks": state["blocks"]}
+        )
+        return self._event(
+            record,
+            AgentEventType.MESSAGE,
+            {
+                "operation": "delta",
+                "message_id": message_id,
+                "block_id": block_id,
+                "offset": offset,
+                "text": text,
+            },
+        )
+
+    def _set_assistant_text(
+        self, record: RunRecord, state: dict[str, Any], text: str
+    ) -> None:
+        self._ensure_assistant_message(record, state)
+        block_id = state.get("text_block_id")
+        block = next((item for item in state["blocks"] if item.get("id") == block_id), None)
+        if block is None:
+            block_id = self._id_generator.next_id_string()
+            block = {"id": block_id, "type": "text", "text": text}
+            state["blocks"].append(block)
+            state["text_block_id"] = block_id
+        else:
+            block["text"] = text
+        self._message_store.update_content(
+            record.conversation_id, state["message_id"], {"blocks": state["blocks"]}
+        )
+
+    def _assistant_snapshot(
+        self, record: RunRecord, state: dict[str, Any]
+    ) -> AgentEvent:
+        return self._event(
+            record,
+            AgentEventType.MESSAGE,
+            {
+                "operation": "snapshot",
+                "message_id": self._ensure_assistant_message(record, state),
+                "content": {"blocks": state["blocks"]},
+            },
+        )
+
+    def _add_task_result(
+        self, record: RunRecord, state: dict[str, Any], result: dict[str, Any]
+    ) -> AgentEvent:
+        task_result_id = result.get("task_result_id")
+        if not isinstance(task_result_id, str) or not task_result_id:
+            raise ValueError("task result requires task_result_id")
+        existing_result = (
+            self._task_result_store.get_owned(task_result_id, record.principal_id)
+            if self._task_result_store is not None
+            else None
+        )
+        message_id = (
+            existing_result.message_id
+            if existing_result is not None and existing_result.message_id
+            else self._ensure_assistant_message(record, state)
+        )
+        if message_id == state.get("message_id"):
+            blocks = state["blocks"]
+        else:
+            existing_message = self._message_store.get_for_conversation(
+                record.conversation_id, message_id
+            )
+            blocks = (
+                list(existing_message.content.get("blocks", []))
+                if existing_message is not None
+                else []
+            )
+        block_id = f"task-{task_result_id}"
+        block = {"id": block_id, "type": "task_result", **result}
+        for index, item in enumerate(blocks):
+            if item.get("id") == block_id:
+                blocks[index] = block
+                break
+        else:
+            blocks.append(block)
+        self._message_store.update_content(
+            record.conversation_id, message_id, {"blocks": blocks}
+        )
+        if self._task_result_store is not None and (
+            existing_result is None or existing_result.message_id is None
+        ):
+            self._task_result_store.link_message(task_result_id, message_id, record.principal_id)
+        return self._event(
+            record,
+            AgentEventType.MESSAGE,
+            {
+                "operation": "snapshot",
+                "message_id": message_id,
+                "content": {"blocks": blocks},
+            },
+        )
+
     async def _events_for_message(
-        self, record: RunRecord, message: Any
+        self,
+        record: RunRecord,
+        message: Any,
+        assistant_state: dict[str, Any],
+        graph_config: dict[str, Any],
     ) -> AsyncIterator[AgentEvent]:
-        """把 LangChain 消息转换为受控工具、追问或文本事件。"""
+        """把 LangChain 消息转换为消息快照、工具状态或追问题卡。"""
         if isinstance(message, AIMessage):
             for tool_call in message.tool_calls:
                 tool_data: dict[str, Any] = {
@@ -897,29 +1067,17 @@ class AgentRunner:
                 tool_call_id = tool_call.get("id")
                 if isinstance(tool_call_id, str):
                     tool_data["tool_call_id"] = tool_call_id
-                yield self._event(
-                    record,
-                    AgentEventType.TOOL_STATUS,
-                    tool_data,
-                )
+                yield self._event(record, AgentEventType.STATUS, tool_data)
             if isinstance(message.content, str) and message.content:
-                message_id = self._message_store.save(
-                    record.conversation_id,
-                    "assistant",
-                    text_content(message.content),
-                )
+                self._set_assistant_text(record, assistant_state, message.content)
                 task_result_id = record.metadata.get("task_result_id")
                 if isinstance(task_result_id, str) and self._task_result_store is not None:
-                    self._task_result_store.link_message(
+                    self._link_task_result_if_unlinked(
                         task_result_id,
-                        message_id,
+                        assistant_state["message_id"],
                         record.principal_id,
                     )
-                yield self._event(
-                    record,
-                    AgentEventType.MESSAGE_COMPLETED,
-                    {"content": message.content},
-                )
+                yield self._assistant_snapshot(record, assistant_state)
             return
         if not isinstance(message, ToolMessage):
             return
@@ -929,10 +1087,7 @@ class AgentRunner:
                 yield self._terminal_event(
                     record,
                     RunTerminalStatus.FAILED,
-                    {
-                        "code": "QUESTION_TOOL_FAILED",
-                        "message": "生成追问信息失败",
-                    },
+                    {"code": "QUESTION_TOOL_FAILED", "message": "生成追问信息失败"},
                 )
                 return
             try:
@@ -942,17 +1097,11 @@ class AgentRunner:
                 yield self._terminal_event(
                     record,
                     RunTerminalStatus.FAILED,
-                    {
-                        "code": "INVALID_QUESTION_PAYLOAD",
-                        "message": "追问信息格式不正确",
-                    },
+                    {"code": "INVALID_QUESTION_PAYLOAD", "message": "追问信息格式不正确"},
                 )
                 return
             question_round_count = record.metadata.get("question_round_count", 0)
-            if (
-                not isinstance(question_round_count, int)
-                or isinstance(question_round_count, bool)
-            ):
+            if not isinstance(question_round_count, int) or isinstance(question_round_count, bool):
                 question_round_count = 0
             if question_round_count >= MAX_QUESTION_ROUNDS_PER_RUN:
                 record.status = RunStatus.FAILED
@@ -969,77 +1118,95 @@ class AgentRunner:
                     },
                 )
                 return
+            # 此更新事件在 LangGraph 完成节点 checkpoint 后产生；再次读取 checkpoint
+            # 可确认题卡发出前恢复点已经可读。
+            checkpoint = await self._graph.aget_state(graph_config)
+            if checkpoint is None:
+                yield self._terminal_event(
+                    record,
+                    RunTerminalStatus.FAILED,
+                    {"code": "CHECKPOINT_UNAVAILABLE", "message": "追问状态暂时无法保存"},
+                )
+                return
             question_round = question_round_count + 1
-            record.metadata["question_round_count"] = question_round
             question_data = questions.model_dump(mode="json", exclude_none=True)
             question_data["question_round"] = question_round
             question_data["max_question_rounds"] = MAX_QUESTION_ROUNDS_PER_RUN
-            record.metadata["pending_questions"] = question_data["questions"]
-            record.metadata["pending_question_ids"] = [
-                question.id for question in questions.questions
-            ]
-            question_message_id = self._message_store.save(
-                record.conversation_id,
-                "assistant",
+            record.metadata.update({
+                "question_round_count": question_round,
+                "pending_questions": question_data["questions"],
+                "pending_question_ids": [question.id for question in questions.questions],
+            })
+            record.status = RunStatus.WAITING
+            self._run_store.save(record)
+
+            message_id = self._id_generator.next_id_string()
+            blocks: list[dict[str, Any]] = [
                 {
-                    "blocks": [
-                        {
-                            "type": "text",
-                            "text": "\n".join(
-                                question.title for question in questions.questions
-                            ),
-                        },
-                        {
-                            "type": "question_batch",
-                            "run_id": record.run_id,
-                            "question_round": question_round,
-                            "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
-                            "questions": question_data["questions"],
-                        },
-                    ]
+                    "id": self._id_generator.next_id_string(),
+                    "type": "text",
+                    "text": "\n".join(question.title for question in questions.questions),
                 },
-            )
+                {
+                    "id": self._id_generator.next_id_string(),
+                    "type": "question",
+                    "run_id": record.run_id,
+                    "question_round": question_round,
+                    "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                    "questions": question_data["questions"],
+                },
+            ]
             task_result = payload.get("data", {}).get("task_result")
+            if isinstance(task_result, dict):
+                task_result_id = task_result.get("task_result_id")
+                if isinstance(task_result_id, str):
+                    blocks.append({"id": f"task-{task_result_id}", "type": "task_result", **task_result})
+            content = {"blocks": blocks}
+            self._message_store.save(
+                record.conversation_id, "assistant", content, message_id=message_id
+            )
             if (
                 isinstance(task_result, dict)
                 and isinstance(task_result.get("task_result_id"), str)
                 and self._task_result_store is not None
             ):
+                # 追问状态的卡片属于当前题卡，即使准备阶段曾关联到临时助手回复。
                 self._task_result_store.link_message(
-                    task_result["task_result_id"],
-                    question_message_id,
-                    record.principal_id,
+                    task_result["task_result_id"], message_id, record.principal_id
                 )
             yield self._event(
                 record,
-                AgentEventType.QUESTION_REQUIRED,
-                question_data,
+                AgentEventType.MESSAGE,
+                {"operation": "snapshot", "message_id": message_id, "content": content},
             )
-            if isinstance(task_result, dict):
-                yield self._event(
-                    record,
-                    AgentEventType.TASK_RESULT_UPDATED,
-                    task_result,
-                )
             return
+
         yield self._event(
             record,
-            AgentEventType.TOOL_STATUS,
+            AgentEventType.STATUS,
             {
                 "tool_name": message.name or "unknown",
                 "tool_call_id": message.tool_call_id,
                 "status": ToolStatus.COMPLETED.value,
                 "success": bool(payload.get("success", False)),
-                "data": payload.get("data", {}),
             },
         )
         task_result = payload.get("data", {}).get("task_result")
         if isinstance(task_result, dict):
-            yield self._event(
-                record,
-                AgentEventType.TASK_RESULT_UPDATED,
-                task_result,
-            )
+            yield self._add_task_result(record, assistant_state, task_result)
+
+    def _link_task_result_if_unlinked(
+        self,
+        task_result_id: str,
+        message_id: str,
+        principal_id: str,
+    ) -> None:
+        """首次确定任务卡归属，恢复阶段始终保留原问题消息关联。"""
+        if self._task_result_store is None:
+            return
+        result = self._task_result_store.get_owned(task_result_id, principal_id)
+        if result is not None and result.message_id is None:
+            self._task_result_store.link_message(task_result_id, message_id, principal_id)
 
     @staticmethod
     def _safe_tool_payload(content: Any) -> dict[str, Any]:
@@ -1059,13 +1226,12 @@ class AgentRunner:
         data: dict[str, Any] | None = None,
     ) -> AgentEvent:
         """生成内部有序事件；发布器会在实际交付前重分配游标。"""
-        sequence = self._event_sequence.next(record.conversation_id)
         return AgentEvent(
-            event_id=f"{record.conversation_id}:{sequence}",
+            event_id="",
             event_type=event_type,
             conversation_id=record.conversation_id,
             run_id=record.run_id,
-            sequence=sequence,
+            sequence=0,
             data=data or {},
         )
 
@@ -1076,9 +1242,14 @@ class AgentRunner:
         data: dict[str, Any] | None = None,
     ) -> AgentEvent:
         """创建统一运行终态事件，并保留错误等补充载荷。"""
-        payload = dict(data or {})
-        payload["status"] = status.value
-        return self._event(record, AgentEventType.RUN_TERMINAL, payload)
+        source = dict(data or {})
+        payload: dict[str, Any] = {"status": status.value}
+        if status == RunTerminalStatus.FAILED:
+            payload["error"] = {
+                "code": source.get("code", "AGENT_RUN_FAILED"),
+                "message": source.get("message", "智能体运行失败，请稍后重试"),
+            }
+        return self._event(record, AgentEventType.END, payload)
 
     @staticmethod
     def _scope_key(record: RunRecord) -> str:

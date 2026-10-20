@@ -65,7 +65,7 @@ async def chat(
         principal_id=principal_id,
         attachment_ids=payload.attachment_ids,
     )
-    return _success([event.model_dump(mode="json") for event in events])
+    return _success([event.public_event().model_dump(mode="json") for event in events])
 
 
 @router.post("/api/agents/{agent}/chat/stream")
@@ -146,7 +146,7 @@ async def resume_run(
 ) -> EventSourceResponse:
     """向指定智能体提交结构化答案并恢复原运行。"""
     service = request.app.state.agent_registry.get_service(agent)
-    record, events = service.submit_resume(
+    record, events, event_cursor = service.submit_resume(
         conversation_id=payload.conversation_id,
         run_id=run_id,
         answers=payload.answers,
@@ -160,6 +160,7 @@ async def resume_run(
         headers={
             "X-Conversation-ID": record.conversation_id,
             "X-Run-ID": record.run_id,
+            "X-Event-Cursor": event_cursor,
             "Cache-Control": "no-cache",
         },
     )

@@ -10,8 +10,9 @@ async def encode_sse_events(
 ) -> AsyncIterator[dict[str, str]]:
     """编码命名事件、恢复游标和 JSON 数据，不透传 LangGraph 内部事件。"""
     async for event in events:
+        public_event = event.public_event()
         yield {
-            "event": event.event_type.value,
-            "id": event.event_id,
-            "data": event.model_dump_json(),
+            "event": public_event.event_type.value,
+            "id": public_event.event_id,
+            "data": public_event.model_dump_json(),
         }

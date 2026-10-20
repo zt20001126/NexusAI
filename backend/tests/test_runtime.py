@@ -51,14 +51,23 @@ async def test_chat_uses_natural_language_for_general_clarification() -> None:
     )
 
     event_types = [event.event_type for event in events]
-    assert AgentEventType.RUN_STARTED in event_types
-    assert AgentEventType.QUESTION_REQUIRED not in event_types
-    terminal = next(event for event in events if event.event_type == AgentEventType.RUN_TERMINAL)
+    assert AgentEventType.START in event_types
+    assert not any(
+        event.event_type == AgentEventType.MESSAGE
+        and any(
+            block.get("type") == "question"
+            for block in event.data.get("content", {}).get("blocks", [])
+        )
+        for event in events
+    )
+    terminal = next(event for event in events if event.event_type == AgentEventType.END)
     assert terminal.data["status"] == RunTerminalStatus.COMPLETED.value
     completed = next(
-        event for event in events if event.event_type == AgentEventType.MESSAGE_COMPLETED
+        event for event in events
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "snapshot"
     )
-    assert completed.data["content"] == "你希望整理哪类开发目标？"
+    assert completed.data["content"]["blocks"][0]["text"] == "你希望整理哪类开发目标？"
 
 
 async def test_malformed_question_tool_result_fails_instead_of_waiting_forever() -> None:
@@ -76,11 +85,18 @@ async def test_malformed_question_tool_result_fails_instead_of_waiting_forever()
         name="ask_listing_questions",
     )
 
-    events = [event async for event in runner._events_for_message(record, message)]
+    events = [
+        event async for event in runner._events_for_message(
+            record,
+            message,
+            {"message_id": None, "blocks": [], "text_block_id": None},
+            {},
+        )
+    ]
 
-    assert events[0].event_type == AgentEventType.RUN_TERMINAL
+    assert events[0].event_type == AgentEventType.END
     assert events[0].data["status"] == RunTerminalStatus.FAILED.value
-    assert events[0].data["code"] == "INVALID_QUESTION_PAYLOAD"
+    assert events[0].data["error"]["code"] == "INVALID_QUESTION_PAYLOAD"
 
 
 async def test_question_round_limit_rejects_a_fourth_round() -> None:
@@ -107,12 +123,19 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
         name="ask_listing_questions",
     )
 
-    events = [event async for event in runner._events_for_message(record, message)]
+    events = [
+        event async for event in runner._events_for_message(
+            record,
+            message,
+            {"message_id": None, "blocks": [], "text_block_id": None},
+            {},
+        )
+    ]
 
     assert len(events) == 1
-    assert events[0].event_type == AgentEventType.RUN_TERMINAL
+    assert events[0].event_type == AgentEventType.END
     assert events[0].data["status"] == RunTerminalStatus.FAILED.value
-    assert events[0].data["code"] == "QUESTION_ROUND_LIMIT"
+    assert events[0].data["error"]["code"] == "QUESTION_ROUND_LIMIT"
     assert record.metadata["question_round_count"] == 3
 
 
@@ -133,23 +156,32 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
     events = await _collect_events(runtime.stream_chat(message="请回答"))
 
     deltas = [
-        event.data["content"]
+        event.data["text"]
         for event in events
-        if event.event_type == AgentEventType.MESSAGE_DELTA
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "delta"
     ]
     completed = next(
         event
         for event in events
-        if event.event_type == AgentEventType.MESSAGE_COMPLETED
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "snapshot"
     )
-    assert deltas == ["你好", "，世界"]
-    assert "".join(deltas) == completed.data["content"] == "你好，世界"
-    first_delta_index = next(
-        index
-        for index, event in enumerate(events)
-        if event.event_type == AgentEventType.MESSAGE_DELTA
-    )
-    assert first_delta_index < events.index(completed)
+    final_text = completed.data["content"]["blocks"][0]["text"]
+    assert deltas
+    assert "".join(deltas) == final_text == "你好，世界"
+    delta_events = [
+        event for event in events
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "delta"
+    ]
+    assert all(event.data["message_id"] == completed.data["message_id"] for event in delta_events)
+    assert all(event.data["block_id"] == completed.data["content"]["blocks"][0]["id"] for event in delta_events)
+    assert events.index(delta_events[-1]) < events.index(completed)
+    expected_offset = 0
+    for event in delta_events:
+        assert event.data["offset"] == expected_offset
+        expected_offset += len(event.data["text"])
 
 
 async def test_completed_messages_are_sent_as_multiple_deltas() -> None:
@@ -164,17 +196,27 @@ async def test_completed_messages_are_sent_as_multiple_deltas() -> None:
     events = await _collect_events(runtime.stream_chat(message="开始任务"))
 
     deltas = [
-        event.data["content"]
+        event.data["text"]
         for event in events
-        if event.event_type == AgentEventType.MESSAGE_DELTA
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "delta"
     ]
     completed = next(
         event
         for event in events
-        if event.event_type == AgentEventType.MESSAGE_COMPLETED
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "snapshot"
     )
+    final_text = completed.data["content"]["blocks"][0]["text"]
     assert len(deltas) > 1
-    assert "".join(deltas) == completed.data["content"] == reply
+    assert "".join(deltas) == final_text == reply
+    assert [event.data["offset"] for event in events if (
+        event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "delta"
+    )] == [
+        sum(len(text) for text in deltas[:index])
+        for index in range(len(deltas))
+    ]
 
 
 class _SlowState(TypedDict):
@@ -216,8 +258,10 @@ async def test_runtime_stops_graph_after_configured_timeout() -> None:
     )
     assert failed.data == {
         "status": RunTerminalStatus.FAILED.value,
-        "code": "AGENT_RUN_TIMEOUT",
-        "message": "智能体运行超时，请稍后重试",
+        "error": {
+            "code": "AGENT_RUN_TIMEOUT",
+            "message": "智能体运行超时，请稍后重试",
+        },
     }
 
 
@@ -243,7 +287,7 @@ async def test_cancel_interrupts_long_running_node_without_waiting_for_update() 
 
     assert loop.time() - cancel_started_at < 0.5
     assert [event.event_type for event in remaining_events] == [
-        AgentEventType.RUN_TERMINAL
+        AgentEventType.END
     ]
     assert remaining_events[0].data["status"] == RunTerminalStatus.CANCELLED.value
 
@@ -269,9 +313,9 @@ async def test_second_run_on_same_conversation_fails_without_orphan_record() -> 
         )
     )
 
-    assert second_events[-1].event_type == AgentEventType.RUN_TERMINAL
+    assert second_events[-1].event_type == AgentEventType.END
     assert second_events[-1].data["status"] == RunTerminalStatus.FAILED.value
-    assert second_events[-1].data["code"] == "RUN_BUSY"
+    assert second_events[-1].data["error"]["code"] == "RUN_BUSY"
     runtime.cancel(
         run_id=first_started.run_id,
         principal_id="developer-a",

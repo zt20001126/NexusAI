@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from agent.streaming.events import RunTerminalStatus, get_run_terminal_status
+from agent.streaming.events import AgentEventType, RunTerminalStatus, get_run_terminal_status
 from app.schemas.research import ResearchRequest, ResearchResponse
 from app.service.agent import AgentApplicationService
 from app.service.task_result import TaskResultApplicationService
@@ -47,15 +47,16 @@ class ResearchApplicationService:
         )
         if conversation_id is None:
             raise RuntimeError("Research Agent 未返回会话标识")
-        task_result_id = next(
-            (
-                event.data.get("task_result_id")
-                for event in events
-                if event.event_type == AgentEventType.TASK_RESULT_UPDATED
-                and isinstance(event.data.get("task_result_id"), str)
-            ),
-            None,
-        )
+        task_result_id = next((
+            block.get("task_result_id")
+            for event in events
+            if event.event_type == AgentEventType.MESSAGE
+            and event.data.get("operation") == "snapshot"
+            for block in event.data.get("content", {}).get("blocks", [])
+            if isinstance(block, dict)
+            and block.get("type") == "task_result"
+            and isinstance(block.get("task_result_id"), str)
+        ), None)
         if task_result_id is not None:
             detail = self._task_result_service.get_research_result(
                 task_result_id=task_result_id,
@@ -74,10 +75,11 @@ class ResearchApplicationService:
 
         failure_message = next(
             (
-                event.data.get("message")
+                event.data["error"]["message"]
                 for event in events
                 if get_run_terminal_status(event) == RunTerminalStatus.FAILED
-                and isinstance(event.data.get("message"), str)
+                and isinstance(event.data.get("error"), dict)
+                and isinstance(event.data["error"].get("message"), str)
             ),
             "科研文献检索未能完成，请稍后重试。",
         )

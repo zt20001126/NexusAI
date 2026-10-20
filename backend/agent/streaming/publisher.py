@@ -46,18 +46,15 @@ class EventPublisher:
                     if pending.done():
                         continue
                     if last_event is not None:
-                        delivered = await self._deliver(
-                            AgentEvent(
-                                event_id=last_event.event_id,
-                                event_type=AgentEventType.HEARTBEAT,
-                                conversation_id=last_event.conversation_id,
-                                run_id=last_event.run_id,
-                                sequence=last_event.sequence,
-                                timestamp=datetime.now(timezone.utc),
-                                data={},
-                            )
+                        yield AgentEvent(
+                            event_id=last_event.event_id,
+                            event_type=AgentEventType.HEARTBEAT,
+                            conversation_id=last_event.conversation_id,
+                            run_id=last_event.run_id,
+                            sequence=last_event.sequence,
+                            timestamp=datetime.now(timezone.utc),
+                            data={},
                         )
-                        yield delivered
                     continue
                 try:
                     event = pending.result()
@@ -77,8 +74,8 @@ class EventPublisher:
 
     async def _deliver(self, event: AgentEvent) -> AgentEvent:
         """在真正发送前分配游标，保证心跳与业务事件严格单调。"""
+        if event.event_type == AgentEventType.HEARTBEAT:
+            return event
         sequence = self._event_sequence.next(event.conversation_id)
-        delivered = event.model_copy(
-            update={"event_id": f"{event.conversation_id}:{sequence}", "sequence": sequence}
-        )
+        delivered = event.model_copy(update={"event_id": f"{sequence}-0", "sequence": sequence})
         return delivered

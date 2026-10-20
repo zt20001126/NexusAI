@@ -13,7 +13,7 @@ def result_node(state: ImageAgentState) -> dict[str, list[AIMessage]]:
     """读取生成工具的结构化结果并输出可安全展示的简短消息。
 
     输入：ToolNode 产生的 generate_image ToolMessage。
-    输出：助手最终回复；图片卡片通过 task_result.updated 事件单独呈现。
+    输出：助手最终回复；图片卡片作为所属消息中的 task_result 块更新。
     下一节点：END。
     """
     messages = state.get("messages", [])
