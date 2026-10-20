@@ -16,12 +16,13 @@ async def test_validation_node_normalizes_request() -> None:
     assert result == {"original_request": "创建订单助手"}
 
 
-async def test_agent_node_asks_question_without_goal() -> None:
-    """缺少目标时，决策节点只调用结构化追问工具。"""
+async def test_agent_node_asks_for_clarification_in_natural_language() -> None:
+    """通用智能体缺少信息时通过普通助手消息自然澄清。"""
     node = create_agent_node(ScriptedToolCallingProvider().create_chat_model())
     result = await node({"messages": []})
 
-    assert result["messages"][0].tool_calls[0]["name"] == "ask_user_question"
+    assert result["messages"][0].content == "你希望整理哪类开发目标？"
+    assert not result["messages"][0].tool_calls
 
 
 async def test_result_node_formats_safe_summary() -> None:
@@ -46,7 +47,11 @@ def test_pause_tool_ends_current_graph_run() -> None:
     route = route_after_tools(
         {
             "messages": [
-                ToolMessage(content="{}", tool_call_id="tool-1", name="ask_user_question")
+                ToolMessage(
+                    content="{}",
+                    tool_call_id="tool-1",
+                    name="ask_listing_questions",
+                )
             ]
         }
     )

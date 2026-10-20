@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.constants import MAX_QUESTIONS_PER_BATCH, MAX_REFERENCE_IMAGE_COUNT
-from agent.schemas.question import Question
+from agent.schemas.question import Question, validate_question_batch
 from agents.image_agent.constants import IMAGE_PROMPT_MAX_LENGTH
 
 
@@ -96,6 +96,12 @@ class ImageQuestionToolInput(BaseModel):
         default_factory=dict,
         description="已经从用户请求中提取到的生图参数",
     )
+
+    @field_validator("questions")
+    @classmethod
+    def validate_question_batch(cls, questions: list[Question]) -> list[Question]:
+        """图片参数题批次使用与其他智能体相同的共享校验入口。"""
+        return validate_question_batch(questions).questions
 
 
 class GenerateImageToolInput(BaseModel):

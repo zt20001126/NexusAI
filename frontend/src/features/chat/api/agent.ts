@@ -63,13 +63,6 @@ export interface ListingTaskResult {
   }
 }
 
-interface QuestionBase {
-  id: string
-  title: string
-  prompt?: string
-  allow_custom_input: boolean
-}
-
 /** 追问答案保持文本或多选值数组，避免使用换行分隔的隐式格式。 */
 export type QuestionAnswer = string | string[]
 
@@ -78,15 +71,14 @@ export interface QuestionOption {
   description: string
 }
 
-export type QuestionOptionValue = string | QuestionOption
-
-/** 交互卡片支持的题型；缺少 type 时兼容现有文本题载荷。 */
-export type Question = QuestionBase & (
-  | { type?: 'TextQuestion'; placeholder?: string }
-  | { type: 'SingleChoice'; options: QuestionOptionValue[] }
-  | { type: 'MultiChoice'; options: QuestionOptionValue[] }
-  | { type: 'Confirmation' }
-)
+/** 全项目统一的结构化题卡协议。 */
+export interface Question {
+  id: string
+  title: string
+  type: 'SingleChoice' | 'MultiChoice'
+  options: [QuestionOption, QuestionOption, QuestionOption, QuestionOption]
+  allow_custom_input: false
+}
 
 export async function streamChat(
   payload: ChatRequest,

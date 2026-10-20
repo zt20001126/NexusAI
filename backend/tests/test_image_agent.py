@@ -15,7 +15,6 @@ from agents.image_agent.nodes.ask_node import ask_node
 from agents.image_agent.nodes.chat_node import create_chat_node
 from agents.image_agent.nodes.validation_node import validation_node
 from agents.image_agent.parameter_policy import (
-    RESIZE_PIXEL_CHOICES,
     SIZE_CHOICES,
     apply_answers,
     extract_documented_options,
@@ -318,21 +317,19 @@ async def test_downloader_limits_result_hosts_types_and_size() -> None:
 
 
 def test_ask_answers_only_map_to_documented_options() -> None:
-    """追问答案映射到文档字段，选项使用常见尺寸和像素档位。"""
+    """追问答案只映射到四种受支持的画幅比例。"""
     answer = next(iter(SIZE_CHOICES))
     options = apply_answers({}, {"image_size": answer, "unlisted_parameter": "ignore"})
 
     assert options["size"] == SIZE_CHOICES[answer]["size"]
     assert "unlisted_parameter" not in options
 
-    resize_answer = next(iter(RESIZE_PIXEL_CHOICES))
-    resized = apply_answers({}, {"resize_max_pixels": resize_answer})
-    assert resized["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[resize_answer]["resize_max_pixels"]
+    assert len(SIZE_CHOICES) == 4
 
 
 @pytest.mark.asyncio
-async def test_ask_node_splits_four_questions_and_preserves_prior_answers() -> None:
-    """图片参数超过每轮上限时分批询问，并在恢复后保留已确认值。"""
+async def test_ask_node_uses_one_structured_size_question_and_default_parameters() -> None:
+    """图片只追问画幅比例；水印、seed 和参考图面积不再生成自由文本题。"""
     state = {
         "original_request": "生成商品图，加水印，并提供 seed 以便复现和参考图缩放像素。",
         "attachment_ids": ["attachment-1"],
@@ -340,51 +337,28 @@ async def test_ask_node_splits_four_questions_and_preserves_prior_answers() -> N
 
     first_turn = await ask_node(state)
     first_call = first_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
-    assert [question["id"] for question in first_call["args"]["questions"]] == [
-        "image_size",
-        "footnote",
-        "seed",
-    ]
+    questions = first_call["args"]["questions"]
+    assert [question["id"] for question in questions] == ["image_size"]
+    assert len(questions[0]["options"]) == 4
+    assert all(isinstance(option, dict) for option in questions[0]["options"])
+    assert "prompt" not in questions[0]
     assert first_turn["image_size_confirmed"] is False
 
     size_answer = next(iter(SIZE_CHOICES))
-    first_answers = {
-        "image_size": size_answer,
-        "footnote": "Nexus",
-        "seed": "42",
-    }
-    second_turn = await ask_node(
+    resumed_turn = await ask_node(
         {
             **state,
             "generation_options": first_turn["generation_options"],
             "image_size_confirmed": first_turn["image_size_confirmed"],
-            "resume_answers": first_answers,
+            "resume_answers": {"image_size": size_answer},
         }
     )
-    second_call = second_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
-    assert [question["id"] for question in second_call["args"]["questions"]] == [
-        "resize_max_pixels",
-    ]
-    assert second_turn["image_size_confirmed"] is True
-    assert second_turn["generation_options"]["footnote"] == "Nexus"  # type: ignore[index]
-    assert second_turn["generation_options"]["seed"] == 42  # type: ignore[index]
-
-    resize_answer = next(iter(RESIZE_PIXEL_CHOICES))
-    third_turn = await ask_node(
-        {
-            **state,
-            "generation_options": second_turn["generation_options"],
-            "image_size_confirmed": second_turn["image_size_confirmed"],
-            "resume_answers": {"resize_max_pixels": resize_answer},
-        }
-    )
-    generated_call = third_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
+    generated_call = resumed_turn["messages"][0].tool_calls[0]  # type: ignore[union-attr]
     assert generated_call["name"] == "generate_image"
-    assert generated_call["args"]["seed"] == 42
-    assert generated_call["args"]["footnote"] == "Nexus"
-    assert generated_call["args"]["resize_max_pixels"] == RESIZE_PIXEL_CHOICES[
-        resize_answer
-    ]["resize_max_pixels"]
+    assert resumed_turn["image_size_confirmed"] is True
+    assert "seed" not in generated_call["args"]
+    assert "footnote" not in generated_call["args"]
+    assert "resize_max_pixels" not in generated_call["args"]
 
 
 @pytest.mark.asyncio

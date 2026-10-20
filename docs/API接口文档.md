@@ -195,7 +195,7 @@ SSE 的 `event`、`data` JSON 和 `id` 都沿用原有 AgentEvent 协议。事�
 
 按会话归属返回最近一次运行（或指定 `run_id`）的 `run_id`、`status`、`last_event_id` 和安全错误摘要。状态包含 `queued`、`running`、`waiting`、`completed`、`cancelled` 和 `failed`。已有会话历史接口 `GET /api/conversations/{conversation_id}/messages` 用于事件过期或 run 结束时恢复已入库消息。
 
-答案 key 必须与待回答问题 ID 集合完全匹配；共享追问协议每轮最多 3 道题，单个文本答案最多 2,000 个字符，多选答案最多 20 项且每项最多 500 个字符。后端还会按题型核对答案与选项。空白字符串、null、空多选答案和当前批次之外的问题 ID 会被拒绝。单次运行最多追问 3 轮；共享 Runner 会以 `QUESTION_ROUND_LIMIT` 拦截意外的超限问题批次。Listing 智能体每轮只问一道最高优先级问题，第三轮答案提交后直接按已确认和可见事实生成，省略未知属性。
+答案 key 必须与待回答问题 ID 集合完全匹配。结构化题卡每轮包含 1–3 道题，每次运行最多 3 轮；每题只能是单选或多选，必须恰好提供 4 个 `{label, description}` 选项对象，并且不接受自定义输入。单选答案是一个选项标签，多选答案是 1–4 个不重复标签。后端按题型和选项校验答案；空白答案、空多选答案和当前批次之外的问题 ID 会被拒绝。恢复运行和读取题卡历史时使用相同的结构化题目协议。
 
 ### `POST /api/agents/{agent}/runs/{run_id}/cancel`
 
@@ -227,7 +227,7 @@ SSE 的 `event`、`data` JSON 和 `id` 都沿用原有 AgentEvent 协议。事�
 | `message.completed` | `content` 完整助手消息 |
 | `tool.started` | `tool_name` |
 | `tool.completed` | `tool_name`、`success`、安全的工具结果 `data` |
-| `question.required` | `questions` 结构化数组（每轮 1–3 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题包含稳定 ID、标题、题型和适用时的选项；通用题目可附 `prompt` |
+| `question.required` | `questions` 结构化数组（每轮 1–3 题）；包含 `question_round` 和 `max_question_rounds`（最多 3 轮）；每题只能是单选或多选，包含稳定 ID、完整问题标题、恰好 4 个 `{label, description}` 选项对象和 `allow_custom_input: false` |
 | `task_result.updated` | 通用字段为 `task_result_id`、`agent`、`result_type` 和 `generation_status`；图片结果可含稳定 `image_url` 与尺寸 |
 | `run.completed` | 空对象 |
 | `run.cancelled` | 空对象 |
@@ -239,9 +239,9 @@ Redis Stream 正文按配置 TTL 过期；活动和等待回答的 run 会保留
 
 聊天任务由独立 `agent-worker` Celery 队列执行，Redis 同时提供 Broker 和有界事件回放存储。关闭或切换 SSE 连接只结束监听；只有显式调用 cancel 接口才会设置共享停止信号。部署可配置 `AGENT_EVENT_MAX_LENGTH`、`AGENT_EVENT_TTL_SECONDS`、`AGENT_EVENT_REDIS_TIMEOUT_SECONDS` 和每个 Agent Worker 实例唯一的 `AGENT_WORKER_SNOWFLAKE_ID`。
 
-追问题目支持 `TextQuestion`、`SingleChoice`、`MultiChoice` 和 `Confirmation`。选择题至少提供 2 个互不重复的选项；选项可以是字符串，也可以是包含 `label` 和 `description` 的对象，答案始终提交选项的 `label`。文本题和确认题不带 `options`，只有选择题可开启 `allow_custom_input`。题目 ID 使用英文 snake_case，标题、题干、标签和说明会去除两端空白并拒绝空值或多行内容；通用题目的 `prompt` 为可选补充内容。
+所有结构化追问都使用统一题目结构：`type` 为 `SingleChoice` 或 `MultiChoice`；`title` 包含完整问题；`options` 恰好有 4 个互不重复的对象，每项包含 `label`（最多 100 字符）和 `description`（最多 300 字符）；`allow_custom_input` 固定为 `false`。题目不包含 `prompt` 或 `placeholder`。题目 ID 使用英文 snake_case，题目和选项文本会去除两端空白并拒绝空值或多行内容。恢复运行和读取历史题卡遵循同一协议；通用对话通过普通自然语言消息澄清，不产生结构化文本题卡。
 
-Listing 问题只使用 `title` 表达完整题目，不返回 `prompt`；每个选项都包含不超过 100 字符的 `label` 和不超过 300 字符的 `description`。Listing 事件数据示例：
+以下 Listing 事件数据示例同样适用于其他智能体：
 
 ```json
 {
@@ -338,13 +338,13 @@ GET 返回历史会话当前选中的 `document_ids` 和摘要。PUT 的 JSON �
 
 listing_agent 使用配置的 DeepSeek ChatModel（默认 `deepseek-flash`）通过多模态 Chat Completions 识别商品外观、可读包装文字和可见特征，并使用同一模型判断必要信息及生成文案。图片以 Base64 `image_url` 内容块传入，模型名称、鉴权、地址和超时均使用现有 `DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_TIMEOUT_SECONDS` 配置。TokenHub 仍用于 `image_agent` 的生图能力。
 
-Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每个 question.required 事件只返回当前最高优先级的一道题；回答后再评估是否需要追问。Listing 问题只允许单选或多选，每题恰好 4 个互不重复的选项对象，每项包含 `label` 和 `description`，答案以 `label` 提交；不允许自定义输入。完整题目内容放在 `title`，不返回 `prompt`。一次运行最多追问 3 轮；第三轮答案提交后直接生成，并省略无法确认的属性，不将其猜测为事实。
+Listing 请求必须带至少一张 PNG/JPEG 图片附件；每次最多 3 张、每张不超过 5 MiB。商家可在消息中补充任意已知信息。智能体根据图片观察和商家文字判断必要问题，每轮可返回最多 3 道当前最重要的问题；回答后再评估是否需要追问。问题结构遵循统一题卡规则。一次运行最多追问 3 轮；第三轮答案提交后直接生成，并省略无法确认的属性，不将其猜测为事实。
 
 成功 JSON 包含恰好 3 个版本，每个版本有标题、卖点、纯文本详情描述、关键词和商品属性，保存在 `task_results.result`。完整结构通过 GET /api/task-results/{task_result_id} 读取；SSE 只发布任务结果摘要。
 
 ## 图片智能体参数
 
-`image_agent` 使用 TokenHub Hy-Image-3.5-preview。每次图片生成请求都会通过常见选项询问尺寸或输出面积档位，用户本轮选择作为最终值；恢复追问时不会重复询问。`seed`、`footnote` 和参考图 `resize_max_pixels` 只有在用户提出相应要求但没有给出值时才追问；其余情况采用请求值或 TokenHub 文档默认值（参考图面积默认 1,048,576）。参考图最多 3 张，每张最多 5 MiB。`session`、`model` 和 `messages` 由服务端组装。API 文档没有定义输出张数或独立清晰度参数，因此接口和问答不引入这两个字段。完整上游字段及限制请见[腾讯混元生图接入文档](https://cloud.tencent.com/document/product/1823/135745)。
+`image_agent` 使用 TokenHub Hy-Image-3.5-preview。用户未明确提供尺寸或面积档位时，题卡以 4 个画幅比例选项询问；用户已在原始请求中给出尺寸或档位时直接采用，不重复询问。`seed` 和 `footnote` 只从用户主动提供的值中读取，未提供水印时不加水印，未提供 seed 时不传 seed。参考图 `resize_max_pixels` 只采用用户明确提供的值；未指定时使用 TokenHub 默认面积 1,048,576，不额外追问。参考图最多 3 张，每张最多 5 MiB。`session`、`model` 和 `messages` 由服务端组装。API 文档没有定义输出张数或独立清晰度参数，因此接口和问答不引入这两个字段。完整上游字段及限制请见[腾讯混元生图接入文档](https://cloud.tencent.com/document/product/1823/135745)。
 
 ## 科研文献检索智能体
 

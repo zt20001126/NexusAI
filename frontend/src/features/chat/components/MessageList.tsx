@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Question, QuestionAnswer, QuestionOptionValue } from '../api/agent'
+import type { Question, QuestionAnswer } from '../api/agent'
 import type { DisplayAttachment, DisplayMessage, DisplayQuestionBatch } from '../model/messages'
 import type { AgentType } from '../constants'
 import AgentAvatar from './AgentAvatar'
@@ -253,7 +253,6 @@ function QuestionBatchHistoryCard({ questionBatch }: { questionBatch: DisplayQue
               </span>
               <span className="interaction-question-title">{question.title}</span>
             </legend>
-            {question.prompt && <p className="interaction-prompt">{question.prompt}</p>}
             <QuestionHistoryOptions question={question} />
           </fieldset>
         ))}
@@ -263,26 +262,14 @@ function QuestionBatchHistoryCard({ questionBatch }: { questionBatch: DisplayQue
 }
 
 function QuestionHistoryOptions({ question }: { question: Question }) {
-  const options: QuestionOptionValue[] = question.type === 'SingleChoice'
-    || question.type === 'MultiChoice'
-    ? question.options
-    : question.type === 'Confirmation'
-      ? ['确认', '取消']
-      : []
-  if (options.length === 0) return null
-
   return (
     <ul className="question-history-options">
-      {options.map((option) => {
-        const label = typeof option === 'string' ? option : option.label
-        const description = typeof option === 'string' ? undefined : option.description
-        return (
-          <li key={label}>
-            <span>{label}</span>
-            {description && <small>{description}</small>}
-          </li>
-        )
-      })}
+      {question.options.map((option) => (
+        <li key={option.label}>
+          <span>{option.label}</span>
+          <small>{option.description}</small>
+        </li>
+      ))}
     </ul>
   )
 }

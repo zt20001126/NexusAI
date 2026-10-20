@@ -14,7 +14,6 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent.constants import BASE_CONVERSATION_AGENT
-from agent.errors import InvalidResumeAnswersError
 from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
@@ -38,8 +37,8 @@ def _create_runtime() -> AgentRunner:
     )
 
 
-async def test_chat_pauses_with_structured_question() -> None:
-    """信息不足时，运行产生可恢复问题而不会错误发送完成事件。"""
+async def test_chat_uses_natural_language_for_general_clarification() -> None:
+    """通用对话通过助手文本追问，不再创建结构化题卡。"""
     runtime = _create_runtime()
 
     events = await _collect_events(
@@ -47,16 +46,13 @@ async def test_chat_pauses_with_structured_question() -> None:
     )
 
     event_types = [event.event_type for event in events]
-    question = next(
-        event
-        for event in events
-        if event.event_type == AgentEventType.QUESTION_REQUIRED
-    )
     assert AgentEventType.RUN_STARTED in event_types
-    assert AgentEventType.RUN_COMPLETED not in event_types
-    assert question.data["questions"][0]["id"] == "goal"
-    assert question.run_id
-    assert question.conversation_id
+    assert AgentEventType.QUESTION_REQUIRED not in event_types
+    assert AgentEventType.RUN_COMPLETED in event_types
+    completed = next(
+        event for event in events if event.event_type == AgentEventType.MESSAGE_COMPLETED
+    )
+    assert completed.data["content"] == "你希望整理哪类开发目标？"
 
 
 async def test_malformed_question_tool_result_fails_instead_of_waiting_forever() -> None:
@@ -71,7 +67,7 @@ async def test_malformed_question_tool_result_fails_instead_of_waiting_forever()
     message = ToolMessage(
         content='{"success":true,"data":{"questions":[]}}',
         tool_call_id="tool-1",
-        name="ask_user_question",
+        name="ask_listing_questions",
     )
 
     events = [event async for event in runner._events_for_message(record, message)]
@@ -93,10 +89,15 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
     message = ToolMessage(
         content=(
             '{"success":true,"data":{"questions":[{"id":"goal",'
-            '"title":"目标","prompt":"请说明目标。"}]}}'
+            '"title":"请选择目标类型。","type":"SingleChoice",'
+            '"options":[{"label":"订单","description":"订单处理目标"},'
+            '{"label":"库存","description":"库存处理目标"},'
+            '{"label":"售后","description":"售后处理目标"},'
+            '{"label":"其他","description":"其他业务目标"}],'
+            '"allow_custom_input":false}]}}'
         ),
         tool_call_id="tool-1",
-        name="ask_user_question",
+        name="ask_listing_questions",
     )
 
     events = [event async for event in runner._events_for_message(record, message)]
@@ -105,39 +106,6 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
     assert events[0].event_type == AgentEventType.RUN_FAILED
     assert events[0].data["code"] == "QUESTION_ROUND_LIMIT"
     assert record.metadata["question_round_count"] == 3
-
-
-async def test_resume_executes_tool_and_completes_once() -> None:
-    """提交问题答案后，从相同运行恢复，执行工具并且只完成一次。"""
-    runtime = _create_runtime()
-    paused_events = await _collect_events(
-        runtime.stream_chat(message="帮我整理一个开发目标")
-    )
-    paused = next(
-        event
-        for event in paused_events
-        if event.event_type == AgentEventType.QUESTION_REQUIRED
-    )
-
-    resumed_events = await _collect_events(
-        runtime.resume(
-            conversation_id=paused.conversation_id,
-            run_id=paused.run_id,
-            answers={"goal": "实现一个可复用的订单查询智能体"},
-        )
-    )
-
-    event_types = [event.event_type for event in resumed_events]
-    assert AgentEventType.MESSAGE_DELTA in event_types
-    assert AgentEventType.TOOL_COMPLETED in event_types
-    assert AgentEventType.MESSAGE_COMPLETED in event_types
-    assert event_types.count(AgentEventType.RUN_COMPLETED) == 1
-    final_message = next(
-        event
-        for event in resumed_events
-        if event.event_type == AgentEventType.MESSAGE_COMPLETED
-    )
-    assert "订单查询智能体" in final_message.data["content"]
 
 
 async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
@@ -240,30 +208,6 @@ async def test_runtime_stops_graph_after_configured_timeout() -> None:
         "code": "AGENT_RUN_TIMEOUT",
         "message": "智能体运行超时，请稍后重试",
     }
-
-
-async def test_resume_rejects_answers_for_unknown_question() -> None:
-    """恢复答案必须对应当前等待问题，不能向图状态注入任意字段。"""
-    runtime = _create_runtime()
-    paused_events = await _collect_events(
-        runtime.stream_chat(
-            message="帮我整理一个开发目标",
-            principal_id="developer-a",
-        )
-    )
-    paused = next(
-        event
-        for event in paused_events
-        if event.event_type == AgentEventType.QUESTION_REQUIRED
-    )
-
-    with pytest.raises(InvalidResumeAnswersError):
-        runtime.resume(
-            conversation_id=paused.conversation_id,
-            run_id=paused.run_id,
-            answers={"unexpected": "value"},
-            principal_id="developer-a",
-        )
 
 
 async def test_cancel_interrupts_long_running_node_without_waiting_for_update() -> None:
