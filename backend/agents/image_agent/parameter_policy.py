@@ -10,16 +10,25 @@ SIZE_CHOICES = {
     "3:4 竖图（1024×1365）": {"size": "1024x1365"},
     "4:3 横图（1365×1024）": {"size": "1365x1024"},
     "16:9 横图（1536×864）": {"size": "1536x864"},
-    "智能推荐（1.5K）": {"generate_max_pixels": 2_359_296},
-    "1K 面积档位": {"generate_max_pixels": 1_048_576},
-    "2K 面积档位": {"generate_max_pixels": 4_194_304},
 }
-RESIZE_PIXEL_CHOICES = {
-    "1K 参考图（1024×1024，文档默认）": {"resize_max_pixels": 1_048_576},
-    "1.5K 参考图（约 1536×1536）": {"resize_max_pixels": 2_359_296},
-    "2K 参考图（2048×2048）": {"resize_max_pixels": 4_194_304},
-}
-
+SIZE_QUESTION_OPTIONS = [
+    {
+        "label": "1:1 方图（1024×1024）",
+        "description": "适合商品缩略图和方形主图。",
+    },
+    {
+        "label": "3:4 竖图（1024×1365）",
+        "description": "适合竖版商品展示和手机端页面。",
+    },
+    {
+        "label": "4:3 横图（1365×1024）",
+        "description": "适合横向构图并展示商品与环境。",
+    },
+    {
+        "label": "16:9 横图（1536×864）",
+        "description": "适合宽幅场景图或横向详情图。",
+    },
+]
 DIMENSION_PATTERN = re.compile(r"(?<!\d)(\d{3,5})\s*[xX×]\s*(\d{3,5})(?!\d)")
 SEED_PATTERN = re.compile(r"\bseed\s*[:：=]?\s*(\d{1,19})\b", re.IGNORECASE)
 FOOTNOTE_PATTERN = re.compile(
@@ -94,22 +103,6 @@ def apply_answers(
             result.pop("size", None)
             result.pop("generate_max_pixels", None)
             result.update(selected_size)
-
-    footnote_answer = answers.get("footnote")
-    if isinstance(footnote_answer, str) and footnote_answer.strip():
-        footnote = footnote_answer.strip()
-        if len(footnote) <= 16:
-            result["footnote"] = footnote
-
-    seed_answer = answers.get("seed")
-    if isinstance(seed_answer, str) and seed_answer.isdigit():
-        seed = int(seed_answer)
-        if seed <= 9_223_372_036_854_775_807:
-            result["seed"] = seed
-
-    resize_answer = answers.get("resize_max_pixels")
-    if isinstance(resize_answer, str):
-        result.update(RESIZE_PIXEL_CHOICES.get(resize_answer, {}))
 
     return ImageGenerationOptions(**result).validate_parameter_exclusivity().model_dump(
         exclude_none=True

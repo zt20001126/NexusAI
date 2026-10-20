@@ -60,7 +60,7 @@ from agent.title import (
 from agent.schemas.run import RunRecord, RunStatus
 from agent.schemas.conversation import text_content
 from agent.schemas.task_result import TaskResultStatus
-from agent.schemas.question import QuestionPayload
+from agent.schemas.question import validate_question_batch
 from agent.schemas.tool_result import ToolResult
 from agent.streaming.events import AgentEvent, AgentEventType
 from agent.tools.registry import PAUSE_TOOL_NAMES
@@ -455,20 +455,23 @@ class AgentRunner:
         if not pending_question_ids or set(answers) != pending_question_ids:
             raise InvalidResumeAnswersError()
         pending_questions_data = record.metadata.get("pending_questions")
-        question_titles: dict[str, str] = {}
-        if isinstance(pending_questions_data, list):
-            try:
-                pending_questions = QuestionPayload(questions=pending_questions_data)
-                pending_questions.validate_answers(answers)
-                question_titles = {
-                    question.id: question.title
-                    for question in pending_questions.questions
-                }
-            except ValueError as error:
-                raise InvalidResumeAnswersError() from error
-        if "question_round_count" not in record.metadata:
-            # 兼容升级前创建、只持久化了问题 ID 的等待中运行。
-            record.metadata["question_round_count"] = 1
+        question_round_count = record.metadata.get("question_round_count")
+        try:
+            if not isinstance(pending_questions_data, list):
+                raise ValueError("待答问题批次缺失")
+            pending_questions = validate_question_batch(pending_questions_data)
+            pending_questions.validate_answers(answers)
+            question_ids = {question.id for question in pending_questions.questions}
+            if question_ids != pending_question_ids:
+                raise ValueError("待答问题标识与题目批次不匹配")
+            if (
+                not isinstance(question_round_count, int)
+                or isinstance(question_round_count, bool)
+                or not 1 <= question_round_count <= MAX_QUESTION_ROUNDS_PER_RUN
+            ):
+                raise ValueError("追问轮数无效")
+        except (TypeError, ValueError) as error:
+            raise InvalidResumeAnswersError() from error
         record.metadata.update({
             "action": "resume",
             "resume_request_id": request_id,
@@ -482,12 +485,15 @@ class AgentRunner:
 
     def _save_resume_message(self, record: RunRecord, answers: dict[str, Any]) -> None:
         """把追问回答按现有消息内容块存入会话历史。"""
-        question_titles: dict[str, str] = {}
         questions_data = record.metadata.get("pending_questions")
-        if isinstance(questions_data, list):
-            with suppress(ValueError):
-                questions = QuestionPayload(questions=questions_data)
-                question_titles = {question.id: question.title for question in questions.questions}
+        if not isinstance(questions_data, list):
+            raise InvalidResumeAnswersError()
+        questions = validate_question_batch(questions_data)
+        questions.validate_answers(answers)
+        question_titles = {
+            question.id: question.title
+            for question in questions.questions
+        }
         answer_text = "\n".join(
             f"{question_id}: {', '.join(value) if isinstance(value, list) else value}"
             for question_id, value in answers.items()
@@ -894,9 +900,7 @@ class AgentRunner:
                 return
             try:
                 tool_data = payload.get("data", {})
-                questions = QuestionPayload.model_validate(
-                    {"questions": tool_data.get("questions")}
-                )
+                questions = validate_question_batch(tool_data.get("questions", []))
             except ValueError:
                 yield self._event(
                     record,
@@ -942,12 +946,7 @@ class AgentRunner:
                         {
                             "type": "text",
                             "text": "\n".join(
-                                "\n".join(
-                                    text
-                                    for text in (question.title, question.prompt)
-                                    if text
-                                )
-                                for question in questions.questions
+                                question.title for question in questions.questions
                             ),
                         },
                         {

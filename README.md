@@ -89,7 +89,7 @@ flowchart LR
 
 前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
-使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Agent 对话需要运行 Compose 中的 `agent-worker`；文献导入还需要启动 `literature-worker` 并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库表结构.md)。
+使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Agent 对话需要运行 Compose 中的 `agent-worker`；文献导入还需要启动 `literature-worker` 并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库结构.md)。
 
 ### 使用 Docker 启动后端和 Worker
 
@@ -107,9 +107,8 @@ docker compose --env-file backend/.env -f backend/compose.yaml up -d --build bac
 
 ## 文档
 
-- [文档导航](docs/README.md)：项目设计文档、智能体说明和变更记录。
-- [后端架构](docs/ARCHITECTURE.md)：模块职责、依赖方向和扩展方式。
-- [API 接口](docs/API接口文档.md)：路由、请求响应、SSE 和错误说明。
-- [数据库结构](docs/数据库表结构.md)：表、迁移和持久化说明。
+- [后端架构](docs/架构说明.md)：模块职责、依赖方向和扩展方式。
+- [API 接口](docs/接口说明.md)：路由、请求响应、SSE 和错误说明。
+- [数据库结构](docs/数据库结构.md)：表、迁移和持久化说明。
 - [开发约定](AGENTS.md)：代码变更与验证规则。
 - [变更日志](CHANGELOG.md)：面向使用者的项目变化。

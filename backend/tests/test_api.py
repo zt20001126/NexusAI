@@ -422,8 +422,8 @@ def test_research_rest_returns_partial_when_fewer_papers_match() -> None:
     assert response.json()["data"]["returned_count"] == 1
 
 
-def test_stream_chat_uses_stable_sse_event_contract() -> None:
-    """流式接口发布命名事件和 JSON 数据，不透传 LangGraph 原始事件。"""
+def test_stream_chat_uses_stable_sse_contract_without_general_question_cards() -> None:
+    """流式接口使用公共事件协议，通用对话澄清仍是普通助手消息。"""
     with _client() as client:
         response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat/stream",
@@ -432,16 +432,19 @@ def test_stream_chat_uses_stable_sse_event_contract() -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    assert "event: question.required" in response.text
-    assert "event: run.completed" not in response.text
+    assert "event: message.completed" in response.text
+    assert "event: run.completed" in response.text
+    assert "event: question.required" not in response.text
     data_lines = [
         line.removeprefix("data: ")
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]
     events = [json.loads(line) for line in data_lines]
-    question = next(event for event in events if event["event_type"] == "question.required")
-    assert question["data"]["questions"][0]["id"] == "goal"
+    completed = next(
+        event for event in events if event["event_type"] == "message.completed"
+    )
+    assert completed["data"]["content"] == "你希望整理哪类开发目标？"
 
 
 def test_legacy_agent_route_is_not_supported() -> None:
@@ -709,52 +712,39 @@ def test_image_upload_enforces_configured_size_limit() -> None:
     assert response.status_code == 413
 
 
-def test_resume_endpoint_completes_paused_run() -> None:
-    """API 调用方可以使用追问事件中的标识恢复并完成同一次运行。"""
+def test_general_chat_uses_natural_language_without_question_cards() -> None:
+    """通用聊天通过助手消息自然澄清，不产生结构化追问事件。"""
     with _client() as client:
-        paused_response = client.post(
+        response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我梳理业务"},
         )
-        paused_events = paused_response.json()["data"]
-        question = next(
-            event for event in paused_events if event["event_type"] == "question.required"
-        )
-        resumed_response = client.post(
-            f"/api/agents/{COMMON_AGENT}/runs/{question['run_id']}/resume",
-            json={
-                "conversation_id": question["conversation_id"],
-                "answers": {"goal": "构建售后工单智能体"},
-            },
-        )
+        events = response.json()["data"]
 
-    assert resumed_response.status_code == 200
-    assert "event: tool.completed" in resumed_response.text
-    assert resumed_response.text.count("event: run.completed") == 1
-    assert "售后工单智能体" in resumed_response.text
+    assert response.status_code == 200
+    assert not any(event["event_type"] == "question.required" for event in events)
+    completed = next(event for event in events if event["event_type"] == "message.completed")
+    assert completed["data"]["content"] == "你希望整理哪类开发目标？"
+    assert sum(event["event_type"] == "run.completed" for event in events) == 1
 
 
 def test_conversation_and_message_history_endpoints_support_paging() -> None:
     """会话列表和消息历史 API 返回新建对话，并可按消息 ID 读取更早消息。"""
     with _client() as client:
-        paused_response = client.post(
+        first_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我梳理业务"},
         )
-        paused_events = paused_response.json()["data"]
-        question = next(
-            event for event in paused_events if event["event_type"] == "question.required"
-        )
-        conversation_id = question["conversation_id"]
-
-        resumed_response = client.post(
-            f"/api/agents/{COMMON_AGENT}/runs/{question['run_id']}/resume",
+        first_events = first_response.json()["data"]
+        conversation_id = first_events[0]["conversation_id"]
+        second_response = client.post(
+            f"/api/agents/{COMMON_AGENT}/chat",
             json={
                 "conversation_id": conversation_id,
-                "answers": {"goal": "构建售后工单智能体"},
+                "message": "再补充：面向售后工单处理。",
             },
         )
-        assert resumed_response.status_code == 200
+        assert second_response.status_code == 200
 
         conversations_response = client.get(
             "/api/conversations",
@@ -780,24 +770,20 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
 
     assert latest_page_response.status_code == 200
     assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
-    answer_block = latest_page["items"][0]["content"]["blocks"][1]
-    assert answer_block == {
-        "type": "question_answers",
-        "answers": {"goal": "构建售后工单智能体"},
-        "question_titles": {"goal": question["data"]["questions"][0]["title"]},
-    }
+    assert latest_page["items"][0]["content"]["blocks"][0]["text"] == (
+        "再补充：面向售后工单处理。"
+    )
     assert latest_page["next_before_message_id"] == latest_page["items"][0]["message_id"]
 
     earlier_page = earlier_page_response.json()["data"]
     assert earlier_page_response.status_code == 200
     assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
-    question_block = next(
-        block
-        for block in earlier_page["items"][1]["content"]["blocks"]
-        if block["type"] == "question_batch"
+    assert earlier_page["items"][0]["content"]["blocks"][0]["text"] == "帮我梳理业务"
+    assert not any(
+        block["type"] == "question_batch"
+        for message in earlier_page["items"]
+        for block in message["content"]["blocks"]
     )
-    assert question_block["run_id"] == question["run_id"]
-    assert question_block["questions"][0]["id"] == "goal"
 
 
 def test_conversation_messages_are_hidden_from_other_principals() -> None:

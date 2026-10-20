@@ -3,14 +3,13 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.constants import (
-    MAX_QUESTION_ANSWER_CHARS,
-    MAX_QUESTION_SELECTION_CHARS,
+    MAX_QUESTION_OPTION_CHARS,
     MAX_QUESTION_SELECTION_COUNT,
     MAX_QUESTIONS_PER_BATCH,
     MAX_REFERENCE_IMAGE_COUNT,
 )
 
-AnswerValue = str | int | float | bool | None | list[str]
+AnswerValue = str | list[str]
 
 
 class ChatRequest(BaseModel):
@@ -85,24 +84,20 @@ class ResumeRequest(BaseModel):
         cls,
         answers: dict[str, AnswerValue],
     ) -> dict[str, AnswerValue]:
-        """限制答案键、文本和列表大小，避免无界内容进入 Checkpoint。"""
+        """限制答案键、选项标签和多选数量，避免无界内容进入 Checkpoint。"""
         for question_id, value in answers.items():
             if not question_id or len(question_id) > 64:
                 raise ValueError("问题标识长度不合法")
-            if isinstance(value, str) and len(value) > MAX_QUESTION_ANSWER_CHARS:
-                raise ValueError(
-                    f"单个答案文本不能超过 {MAX_QUESTION_ANSWER_CHARS} 个字符"
-                )
             if isinstance(value, str) and not value.strip():
-                raise ValueError("必要问题不能提交空白答案")
-            if value is None:
-                raise ValueError("必要问题不能提交空答案")
+                raise ValueError("选择题答案不能是空白内容")
+            if isinstance(value, str) and len(value) > MAX_QUESTION_OPTION_CHARS:
+                raise ValueError("选择题答案长度超出选项标签限制")
             if isinstance(value, list):
                 if (
                     not value
                     or len(value) > MAX_QUESTION_SELECTION_COUNT
                     or any(
-                        not item.strip() or len(item) > MAX_QUESTION_SELECTION_CHARS
+                        not item.strip() or len(item) > MAX_QUESTION_OPTION_CHARS
                         for item in value
                     )
                     or len(value) != len(set(value))

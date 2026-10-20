@@ -5,17 +5,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agent.constants import MAX_REFERENCE_IMAGE_COUNT
-from agent.schemas.question import QuestionOption
+from agent.constants import MAX_QUESTIONS_PER_BATCH, MAX_REFERENCE_IMAGE_COUNT
+from agent.schemas.question import Question, validate_question_batch
 from agents.listing_agent.constants import (
     LISTING_SCHEMA_VERSION,
     LISTING_VERSION_COUNT,
-    LISTING_QUESTION_OPTION_COUNT,
     MAX_LISTING_ATTRIBUTES,
     MAX_LISTING_DESCRIPTION_CHARS,
     MAX_LISTING_KEYWORDS,
     MAX_LISTING_PRODUCT_FACTS,
-    MAX_LISTING_QUESTION_COUNT,
     MAX_LISTING_SELLING_POINTS,
     MAX_LISTING_TITLE_CHARS,
     MIN_LISTING_KEYWORDS,
@@ -47,58 +45,6 @@ class ListingImageAnalysis(BaseModel):
     )
 
 
-class ListingQuestion(BaseModel):
-    """Listing 只接受标题明确、恰好四个选项的选择题。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z][a-z0-9_]{0,63}$",
-        description="稳定且唯一的 snake_case 问题标识",
-    )
-    title: str = Field(
-        min_length=1,
-        max_length=100,
-        description="完整、清晰的问题内容",
-    )
-
-    type: Literal["SingleChoice", "MultiChoice"] = Field(
-        default="SingleChoice",
-        description="只允许单选题或多选题",
-    )
-    options: list[QuestionOption] = Field(
-        min_length=LISTING_QUESTION_OPTION_COUNT,
-        max_length=LISTING_QUESTION_OPTION_COUNT,
-        description=(
-            f"必须提供 {LISTING_QUESTION_OPTION_COUNT} 个互不重复的选项对象，"
-            "每项包含 label 和 description"
-        ),
-    )
-    allow_custom_input: Literal[False] = Field(
-        default=False,
-        description="不允许用户输入选项之外的内容",
-    )
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str) -> str:
-        """标题去除两端空白并保持为单行文本。"""
-        normalized = value.strip()
-        if not normalized or "\n" in normalized or "\r" in normalized:
-            raise ValueError("问题标题必须是非空单行文本")
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_option_labels(self) -> "ListingQuestion":
-        """Listing 的选项标签必须互不重复。"""
-        labels = [option.label for option in self.options]
-        if len({label.casefold() for label in labels}) != len(labels):
-            raise ValueError("问题选项标签不能重复")
-        return self
-
-
 class ListingPlan(BaseModel):
     """模型根据图片和商家资料判断必要信息缺口。"""
 
@@ -108,23 +54,18 @@ class ListingPlan(BaseModel):
         default_factory=dict,
         max_length=MAX_LISTING_PRODUCT_FACTS,
     )
-    questions: list[ListingQuestion] = Field(
+    questions: list[Question] = Field(
         default_factory=list,
-        max_length=MAX_LISTING_QUESTION_COUNT,
+        max_length=MAX_QUESTIONS_PER_BATCH,
     )
 
-    @model_validator(mode="after")
-    def validate_question_ids(self) -> "ListingPlan":
-        """保持问题标识稳定且唯一。"""
-        ids = [question.id for question in self.questions]
-        if len(ids) != len(set(ids)):
-            raise ValueError("追问问题标识不能重复")
-        if any(
-            re.fullmatch(r"[a-z][a-z0-9_]{0,63}", question_id) is None
-            for question_id in ids
-        ):
-            raise ValueError("追问问题标识必须使用 snake_case")
-        return self
+    @field_validator("questions")
+    @classmethod
+    def validate_question_batch(cls, questions: list[Question]) -> list[Question]:
+        """Listing 计划使用共享入口校验每个非空问题批次。"""
+        if questions:
+            return validate_question_batch(questions).questions
+        return questions
 
 
 class ListingVersion(BaseModel):
@@ -193,9 +134,9 @@ class AskListingQuestionsInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[ListingQuestion] = Field(
+    questions: list[Question] = Field(
         min_length=1,
-        max_length=MAX_LISTING_QUESTION_COUNT,
+        max_length=MAX_QUESTIONS_PER_BATCH,
     )
     task_result_id: str = Field(min_length=1, max_length=64)
     principal_id: str = Field(min_length=1, max_length=256)
@@ -206,6 +147,12 @@ class AskListingQuestionsInput(BaseModel):
     image_analysis: ListingImageAnalysis
     product_facts: dict[str, str] = Field(max_length=MAX_LISTING_PRODUCT_FACTS)
     confirmed_answers: dict[str, Any] = Field(max_length=20)
+
+    @field_validator("questions")
+    @classmethod
+    def validate_question_batch(cls, questions: list[Question]) -> list[Question]:
+        """Listing 追问工具输入再次复用共享问题批次校验。"""
+        return validate_question_batch(questions).questions
 
 
 class SaveListingResultInput(BaseModel):

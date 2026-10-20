@@ -8,12 +8,12 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from agent.persistence.memory import MemoryAttachmentStore, MemoryTaskResultStore
+from agent.schemas.question import Question
 from agents.listing_agent.nodes import create_plan_node, create_vision_node
 from agents.listing_agent.schemas import (
     AskListingQuestionsInput,
     ListingImageAnalysis,
     ListingPlan,
-    ListingQuestion,
     ListingResult,
 )
 from agents.listing_agent.tools.task_result import create_listing_task_result_tools
@@ -105,8 +105,8 @@ def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
         "options": _listing_options("不锈钢", "玻璃", "塑料", "不确定/暂不提供"),
         "allow_custom_input": False,
     }
-    single_choice = ListingQuestion.model_validate(base_question)
-    multiple_choice = ListingQuestion.model_validate(
+    single_choice = Question.model_validate(base_question)
+    multiple_choice = Question.model_validate(
         {**base_question, "type": "MultiChoice"}
     )
     assert len(single_choice.options) == 4
@@ -114,7 +114,7 @@ def test_listing_questions_require_exactly_four_closed_choice_options() -> None:
     assert single_choice.options[0].label == "不锈钢"
     assert single_choice.options[0].description
     assert "prompt" not in single_choice.model_dump(mode="json")
-    assert "prompt" not in ListingQuestion.model_json_schema()["properties"]
+    assert "prompt" not in Question.model_json_schema()["properties"]
 
     invalid_questions = [
         {**base_question, "prompt": "请确认商品材质。"},
