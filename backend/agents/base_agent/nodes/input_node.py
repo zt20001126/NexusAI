@@ -1,4 +1,4 @@
-"""检查本轮用户消息，并向后续节点提供规范化请求。"""
+"""检查本轮用户消息，通过校验后继续执行图。"""
 
 from collections.abc import Awaitable, Callable
 
@@ -12,7 +12,7 @@ from agents.base_agent.state import BaseAgentState
 def create_input_node(
     config: BaseAgentConfig,
 ) -> Callable[[BaseAgentState], Awaitable[dict[str, str]]]:
-    """创建输入处理节点；输入为图状态，输出规范化请求文本并流向 agent_node。"""
+    """创建输入校验节点；校验通过后流向 agent_node，不写入额外状态。"""
 
     async def input_node(state: BaseAgentState) -> dict[str, str]:
         messages = state.get("messages", [])
@@ -35,6 +35,6 @@ def create_input_node(
                 code="input_too_long",
             )
 
-        return {"original_request": request_text}
+        return {}
 
     return input_node
