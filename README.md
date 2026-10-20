@@ -44,15 +44,15 @@ flowchart LR
     Runner --> DB
     App --> OSS[(私有阿里云 OSS)]
     App -->|Agent 任务与文献任务| Queue[(Redis Broker)]
-    Queue --> AgentWorker[Celery Agent Worker]
-    AgentWorker --> Events[(Redis Streams)]
+    Queue -->|agents 队列| Worker[Celery Worker]
+    Worker --> Events[(Redis Streams)]
     Events -->|SSE 回放| API
-    Queue --> LiteratureWorker[Celery 文献 Worker]
-    LiteratureWorker --> DB
-    LiteratureWorker --> OSS
+    Queue -->|celery 队列| Worker
+    Worker --> DB
+    Worker --> OSS
 ```
 
-前端通过 HTTP 和 SSE 访问 FastAPI。后端由 Router、Service、CRUD 处理应用请求，注册中心按 `AgentType` 字符串枚举路由到对应智能体；会话保存使用的 `agent`，各智能体复用 Runner、Checkpoint、会话和事件协议。聊天任务由独立 Agent Worker 执行，事件写入 Redis Streams 后供 SSE 连接回放；文献导入由独立 Celery Worker 处理，解析后的文本与向量写入 PostgreSQL/pgvector，原始文件保存在 OSS。
+前端通过 HTTP 和 SSE 访问 FastAPI。后端由 Router、Service、CRUD 处理应用请求，注册中心按 `AgentType` 字符串枚举路由到对应智能体；会话保存使用的 `agent`，各智能体复用 Runner、Checkpoint、会话和事件协议。Compose 中的单个 Celery Worker 同时处理聊天和文献任务；聊天事件写入 Redis Streams 后供 SSE 连接回放，文献导入会解析 PDF 并生成向量，结果写入 PostgreSQL/pgvector，原始文件保存在 OSS。
 
 ## 本地启动
 
@@ -67,7 +67,7 @@ flowchart LR
 2. 启动 PostgreSQL 和 Redis：
 
    ```powershell
-   docker compose --env-file backend/.env -f backend/compose.yaml up -d postgres redis agent-worker
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans postgres redis worker
    ```
 
 3. 启动后端：
@@ -89,20 +89,20 @@ flowchart LR
 
 前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
-使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Agent 对话需要运行 Compose 中的 `agent-worker`；文献导入还需要启动 `literature-worker` 并先应用文献数据库迁移。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库结构.md)。
+使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库结构.md)。
 
 ### 使用 Docker 启动后端和 Worker
 
 完成 `backend/.env` 配置后，在仓库根目录运行。首次启动或需要重建所有 Compose 服务时，使用：
 
 ```bash
-docker compose --env-file backend/.env -f backend/compose.yaml up -d --build
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --build --remove-orphans
 ```
 
-只需重建并启动后端和文献 Worker 时，使用：
+只需重建并启动后端和 Worker 时，使用：
 
 ```bash
-docker compose --env-file backend/.env -f backend/compose.yaml up -d --build backend agent-worker literature-worker
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --build --remove-orphans backend worker
 ```
 
 ## 文档
