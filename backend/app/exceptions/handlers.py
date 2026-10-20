@@ -1,6 +1,8 @@
 """将 Agent 领域异常转换为稳定的 HTTP 错误响应。"""
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 
 from agent.errors import AgentError, UnknownAgentError
@@ -10,10 +12,42 @@ from infra.literature_document_storage import (
     LiteratureStorageError,
     LiteratureStorageNotConfiguredError,
 )
+from app.exceptions.resume import ResumeApplicationError
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     """注册应用级业务异常转换器，保持现有错误响应结构。"""
+
+    @app.exception_handler(ResumeApplicationError)
+    async def handle_resume_error(
+        request: Request, error: ResumeApplicationError
+    ) -> JSONResponse:
+        """简历助手业务错误使用固定 code/message，不暴露底层异常。"""
+        del request
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_request_validation_error(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        """简历 API 校验失败时提供稳定错误码，其余路由沿用 FastAPI 行为。"""
+        if request.url.path.startswith("/api/resume"):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "success": False,
+                    "code": "INVALID_RESUME_DATA",
+                    "message": "简历内容格式或范围不合法",
+                },
+            )
+        return await request_validation_exception_handler(request, error)
 
     @app.exception_handler(AgentError)
     async def handle_agent_error(request: Request, error: AgentError) -> JSONResponse:

@@ -19,6 +19,9 @@
   "dependencies": {
     "@dicebear/core": "^10.7.0",
     "@dicebear/styles": "^10.6.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
     "phaser": "4.2.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

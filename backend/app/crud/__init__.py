@@ -6,6 +6,7 @@ from app.crud.legal_knowledge import PostgresLegalKnowledgeStore
 from app.crud.literature import PostgresLiteratureRepository
 from app.crud.run import PostgresRunStore
 from app.crud.run_lock import PostgresRunLock
+from app.crud.resume import PostgresResumeRepository
 from app.crud.task_result import PostgresTaskResultStore
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "PostgresLiteratureRepository",
     "PostgresRunLock",
     "PostgresRunStore",
+    "PostgresResumeRepository",
     "PostgresTaskResultStore",
 ]

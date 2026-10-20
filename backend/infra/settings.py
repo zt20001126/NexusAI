@@ -218,6 +218,11 @@ class AppSettings(BaseSettings):
             "LITERATURE_MIN_SIMILARITY", "literature_min_similarity"
         ),
     )
+
+    # 简历 PDF 导出限制并发和最长执行时间，防止 Chromium 占满应用资源。
+    resume_pdf_timeout_seconds: int = Field(default=30, ge=5, le=120)
+    resume_pdf_max_concurrency: int = Field(default=1, ge=1, le=4)
+
     @property
     def aliyun_oss_configured(self) -> bool:
         """判断 OSS 所需密钥和 Bucket 是否齐全；未配置时不影响非图片智能体启动。"""

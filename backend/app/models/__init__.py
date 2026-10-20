@@ -9,6 +9,7 @@ from app.models.literature import (
     LiteratureDocument,
 )
 from app.models.message import Message
+from app.models.resume import Resume
 from app.models.run import AgentRun
 from app.models.task_result import TaskResult
 from app.models.user import User
@@ -18,6 +19,7 @@ __all__ = [
     "Base",
     "Conversation",
     "Message",
+    "Resume",
     "LegalArticle",
     "LegalDocument",
     "LegalLawVersion",
