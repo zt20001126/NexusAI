@@ -1,11 +1,5 @@
-import { useMemo } from 'react'
-import { Avatar, Style } from '@dicebear/core'
-import bottts from '@dicebear/styles/bottts.json' with { type: 'json' }
 import { AgentType } from '../constants'
-
-const AGENT_AVATAR_SIZE = 128
-const robotAvatarStyle = new Style(bottts)
-const avatarSourceByAgent = new Map<AgentType, string>()
+import RobotAvatar from '../../../shared/components/RobotAvatar'
 
 interface AgentAvatarProps {
   agent: AgentType
@@ -22,24 +16,9 @@ const avatarSeedByAgent: Record<AgentType, string> = {
   [AgentType.BASIC_CONVERSATION]: '1874244142498832391',
 }
 
-/** 按稳定智能体类型生成对应的固定机器人头像，并在各聊天区域共用。 */
+/** 按智能体类型提供固定 seed，头像绘制器由共享界面能力复用。 */
 function AgentAvatar({ agent }: AgentAvatarProps) {
-  const avatarSource = useMemo(
-    () => {
-      const cachedSource = avatarSourceByAgent.get(agent)
-      if (cachedSource) return cachedSource
-
-      const generatedSource = new Avatar(robotAvatarStyle, {
-        seed: avatarSeedByAgent[agent],
-        size: AGENT_AVATAR_SIZE,
-      }).toDataUri()
-      avatarSourceByAgent.set(agent, generatedSource)
-      return generatedSource
-    },
-    [agent],
-  )
-
-  return <img className="agent-avatar-image" src={avatarSource} alt="" aria-hidden="true" draggable={false} />
+  return <RobotAvatar seed={avatarSeedByAgent[agent]} />
 }
 
 export default AgentAvatar

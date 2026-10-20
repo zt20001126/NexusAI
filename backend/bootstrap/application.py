@@ -11,6 +11,8 @@ from app.router.conversation import router as conversation_router
 from app.router.health import router as health_router
 from app.router.research import router as research_router
 from app.router.literature import router as literature_router
+from app.router.resume import router as resume_router
+from app.middleware.request_size_limit import ResumeRequestSizeLimitMiddleware
 from bootstrap.runtime import build_lifespan
 from infra.model_provider import ChatModelProvider
 from infra.settings import AppSettings
@@ -33,7 +35,9 @@ def create_app(
     app.include_router(conversation_router)
     app.include_router(research_router)
     app.include_router(literature_router)
+    app.include_router(resume_router)
     app.include_router(health_router)
+    app.add_middleware(ResumeRequestSizeLimitMiddleware)
     register_exception_handlers(app)
     return app
 

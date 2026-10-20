@@ -20,7 +20,7 @@ const DinoRunPage = lazy(() => import('../dino-run/DinoRunPage'))
 type MainView = 'directory' | 'game' | 'workspace'
 
 /** 组合聊天页面的导航、消息流、追问卡片和输入框。 */
-function ChatPage() {
+function ChatPage({ onOpenResume }: { onOpenResume: () => void }) {
   const [draft, setDraft] = useState('')
   const [pendingImages, setPendingImages] = useState<File[]>([])
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
@@ -150,6 +150,7 @@ function ChatPage() {
             returnLabel={chat.activeConversationId ? '返回当前对话' : '返回新对话'}
             onSelect={selectAgent}
             onOpenGame={openGame}
+            onOpenResume={onOpenResume}
             onReturnToConversation={() => setMainView('workspace')}
             onRetry={() => { void chat.loadAgents() }}
           />

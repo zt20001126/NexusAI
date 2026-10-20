@@ -1,5 +1,6 @@
 import type { AgentDefinition } from '../api/agent'
 import type { AgentType } from '../constants'
+import RobotAvatar, { RESUME_ASSISTANT_AVATAR_SEED } from '../../../shared/components/RobotAvatar'
 import AgentAvatar from './AgentAvatar'
 
 interface AgentDirectoryProps {
@@ -10,6 +11,7 @@ interface AgentDirectoryProps {
   returnLabel: string
   onSelect: (agent: AgentType) => void
   onOpenGame: () => void
+  onOpenResume: () => void
   onReturnToConversation: () => void
   onRetry: () => void
 }
@@ -23,6 +25,7 @@ function AgentDirectory({
   returnLabel,
   onSelect,
   onOpenGame,
+  onOpenResume,
   onReturnToConversation,
   onRetry,
 }: AgentDirectoryProps) {
@@ -41,9 +44,9 @@ function AgentDirectory({
           )}
         </div>
         <h1 id="agent-directory-title">找到适合你的智能助手</h1>
-        <p>选择一个智能体开始新对话，或进入小游戏放松一下。</p>
+        <p>选择智能体开始新对话，或打开效率工具和小游戏。</p>
         {!loading && !error && agents.length > 0 && (
-          <span className="agent-directory-count">{agents.length} 个智能体</span>
+          <span className="agent-directory-count">{agents.length + 2} 个应用</span>
         )}
       </div>
 
@@ -62,6 +65,24 @@ function AgentDirectory({
           <span className="agent-directory-description">操控蔡徐坤卡通角色躲避障碍，坚持更久，刷新你的最长记录。</span>
           <span className="agent-directory-capabilities"><span>小游戏</span></span>
           <span className="agent-directory-action">开始游戏 <span aria-hidden="true">→</span></span>
+        </button>
+
+        <button
+          className="agent-directory-card agent-directory-resume-card"
+          type="button"
+          onClick={onOpenResume}
+          aria-label="打开简历助手，创建和编辑简历并导出 PDF"
+        >
+          <span className="agent-directory-card-top">
+            <span className="agent-directory-avatar agent-directory-resume-avatar" aria-hidden="true">
+              <RobotAvatar seed={RESUME_ASSISTANT_AVATAR_SEED} />
+            </span>
+            <span className="agent-directory-arrow" aria-hidden="true">↗</span>
+          </span>
+          <strong className="agent-directory-name">简历助手</strong>
+          <span className="agent-directory-description">整理个人经历、实时预览 A4 简历，并导出 PDF。</span>
+          <span className="agent-directory-capabilities"><span>效率工具</span><span>PDF 导出</span></span>
+          <span className="agent-directory-action">开始制作 <span aria-hidden="true">→</span></span>
         </button>
 
         {!loading && !error && agents.map((agent) => (

@@ -44,6 +44,7 @@ from app.crud import (
     PostgresRunLock,
     PostgresRunStore,
     PostgresTaskResultStore,
+    PostgresResumeRepository,
 )
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService, AgentSessionApplicationService
@@ -52,12 +53,18 @@ from app.service.health import HealthMonitor
 from app.service.research import ResearchApplicationService
 from app.service.literature import LiteratureApplicationService
 from app.service.task_result import TaskResultApplicationService
+from app.service.resume import ResumeApplicationService
+from app.service.resume_pdf import PlaywrightResumePdfRenderer
 from infra.aliyun_oss import AliyunOSSImageStorage
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.object_storage import UnavailableImageObjectStore
 from infra.literature_document_storage import (
     AliyunOSSLiteratureStorage,
     UnavailableLiteratureStorage,
+)
+from infra.resume_photo_storage import (
+    AliyunOSSResumePhotoStorage,
+    UnavailableResumePhotoStorage,
 )
 from infra.health_probes import PostgresHealthProbe, RedisBrokerHealthProbe
 from infra.literature_task_queue import CeleryLiteratureTaskQueue
@@ -94,6 +101,11 @@ def build_lifespan(
                 AliyunOSSLiteratureStorage(settings)
                 if settings.aliyun_oss_configured
                 else UnavailableLiteratureStorage()
+            )
+            resume_photo_storage = (
+                AliyunOSSResumePhotoStorage(settings)
+                if settings.aliyun_oss_configured
+                else UnavailableResumePhotoStorage()
             )
             with PostgresDatabase(settings.database_url, id_generator) as database:
                 conversation_store = PostgresConversationStore(database)
@@ -245,6 +257,11 @@ def build_lifespan(
                     ),
                     settings=settings,
                     id_generator=id_generator,
+                )
+                app_instance.state.resume_service = ResumeApplicationService(
+                    repository=PostgresResumeRepository(database),
+                    photo_storage=resume_photo_storage,
+                    pdf_renderer=PlaywrightResumePdfRenderer(settings),
                 )
                 postgres_probe = PostgresHealthProbe(
                     settings.database_url,
