@@ -1,7 +1,7 @@
 """通用运行时的对话、追问恢复和事件协议测试。"""
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Annotated, TypedDict
 
 import pytest
@@ -172,6 +172,8 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
             and event.data.get("operation") == "delta"
         ):
             stream_completed_at_delta.append(chat_model.stream_completed)
+            if len(stream_completed_at_delta) == 1:
+                chat_model.continue_streaming()
 
     deltas = [
         event.data["text"]
@@ -519,6 +521,7 @@ class _StreamingReplyModel(BaseChatModel):
     """模拟支持 astream 的对话模型，避免流式运行时测试访问网络。"""
 
     _stream_completed: bool = PrivateAttr(default=False)
+    _continue_streaming: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
 
     @property
     def stream_completed(self) -> bool:
@@ -553,6 +556,25 @@ class _StreamingReplyModel(BaseChatModel):
         yield ChatGenerationChunk(message=AIMessageChunk(content="你好"))
         yield ChatGenerationChunk(message=AIMessageChunk(content="，世界"))
         self._stream_completed = True
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: object = None,
+        **kwargs: object,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        """等待测试收到首个增量事件后再发送剩余内容，固定流式时序。"""
+        del messages, stop, run_manager, kwargs
+        yield ChatGenerationChunk(message=AIMessageChunk(content="你好"))
+        await asyncio.wait_for(self._continue_streaming.wait(), timeout=5)
+        yield ChatGenerationChunk(message=AIMessageChunk(content="，世界"))
+        self._stream_completed = True
+
+    def continue_streaming(self) -> None:
+        """允许模型发送第二段，避免测试依赖线程调度速度。"""
+        self._continue_streaming.set()
+
 
 async def test_title_is_generated_only_for_first_message_of_new_conversation() -> None:
     """同一会话仅首轮调用模型命名，后续消息不会覆盖生成标题。"""
