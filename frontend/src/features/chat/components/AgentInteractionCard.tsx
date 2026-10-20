@@ -6,8 +6,6 @@ import { selectCurrentQuestionAnswers } from '../model/currentQuestionAnswers.mj
 
 interface AgentInteractionCardProps {
   questions: Question[]
-  questionRound: number
-  maxQuestionRounds: number
   disabled: boolean
   embedded?: boolean
   onSubmit: (answers: Record<string, QuestionAnswer>) => void
@@ -16,8 +14,6 @@ interface AgentInteractionCardProps {
 /** 在对话流中展示统一追问题卡，并按当前批次收集必答内容。 */
 function AgentInteractionCard({
   questions,
-  questionRound,
-  maxQuestionRounds,
   disabled,
   embedded = false,
   onSubmit,
@@ -61,7 +57,6 @@ function AgentInteractionCard({
           <strong>需要补充信息</strong>
           <p>本轮共 {questions.length} 道必答题，回答后 NexusAI 会继续处理。</p>
         </div>
-        <span className="interaction-round-badge">第 {questionRound} / {maxQuestionRounds} 轮</span>
       </header>
 
       <div className="interaction-questions">
@@ -108,7 +103,6 @@ function QuestionInput({
   onChange,
 }: QuestionInputProps) {
   const selectedOptions = Array.isArray(value) ? value : []
-  const typeLabel = question.type === 'SingleChoice' ? '单选' : '多选'
 
   return (
     <fieldset className="interaction-field">
@@ -117,9 +111,6 @@ function QuestionInput({
         <span className="interaction-question-title">{question.title}</span>
         <span className="interaction-required">必答</span>
       </legend>
-      <p className="interaction-prompt">
-        <span className="interaction-question-type">{typeLabel}</span>
-      </p>
 
       {question.type === 'SingleChoice' ? (
         <div className="interaction-options" role="radiogroup" aria-label={question.title}>

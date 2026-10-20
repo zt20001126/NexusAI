@@ -145,8 +145,6 @@ function MessageList({
                   <AgentInteractionCard
                     key={`${questionBatch.runId}-${questionBatch.questionRound}`}
                     questions={questionBatch.questions}
-                    questionRound={questionBatch.questionRound}
-                    maxQuestionRounds={questionBatch.maxQuestionRounds}
                     disabled={questionDisabled}
                     embedded
                     onSubmit={onSubmitQuestion}
@@ -240,9 +238,6 @@ function QuestionBatchHistoryCard({ questionBatch }: { questionBatch: DisplayQue
           <strong>模型提出的问题</strong>
           <p>本轮需要确认 {questionBatch.questions.length} 项信息。</p>
         </div>
-        <span className="interaction-round-badge">
-          第 {questionBatch.questionRound} / {questionBatch.maxQuestionRounds} 轮
-        </span>
       </header>
       <div className="interaction-questions">
         {questionBatch.questions.map((question, index) => (
@@ -278,23 +273,31 @@ function TaskResultCards({ results }: { results: DisplayMessage['taskResults'] }
   if (!results?.length) return null
   return (
     <>
-      {results.map((result) => (
-        <div className="task-result-card" key={result.task_result_id}>
-          {result.result_type === 'listing' ? (
-            <ListingResultCard result={result} />
-          ) : result.result_type === 'research_search' ? (
-            <ResearchResultCard result={result} />
-          ) : result.generation_status === 'succeeded' && result.image_url ? (
-            <a href={result.image_url} target="_blank" rel="noreferrer">
-              <img src={result.image_url} alt="生成的淘宝商品图片" loading="lazy" />
-            </a>
-          ) : result.generation_status === 'failed' ? (
-            <p role="status">图片生成失败：{result.error_message || '请调整描述后重试。'}</p>
-          ) : (
-            <p role="status">{taskResultStatusText(result.generation_status)}</p>
-          )}
-        </div>
-      ))}
+      {results.map((result) => {
+        if (
+          result.result_type !== 'listing'
+          && result.result_type !== 'research_search'
+          && result.generation_status === 'awaiting_input'
+        ) return null
+
+        return (
+          <div className="task-result-card" key={result.task_result_id}>
+            {result.result_type === 'listing' ? (
+              <ListingResultCard result={result} />
+            ) : result.result_type === 'research_search' ? (
+              <ResearchResultCard result={result} />
+            ) : result.generation_status === 'succeeded' && result.image_url ? (
+              <a href={result.image_url} target="_blank" rel="noreferrer">
+                <img src={result.image_url} alt="生成的淘宝商品图片" loading="lazy" />
+              </a>
+            ) : result.generation_status === 'failed' ? (
+              <p role="status">图片生成失败：{result.error_message || '请调整描述后重试。'}</p>
+            ) : (
+              <p role="status">{taskResultStatusText(result.generation_status)}</p>
+            )}
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -321,7 +324,6 @@ function MessageImage({ attachment }: { attachment: DisplayAttachment }) {
 function taskResultStatusText(status: string): string {
   switch (status) {
     case 'pending': return '图片任务已创建…'
-    case 'awaiting_input': return '等待图片参数…'
     case 'running': return '正在生成图片…'
     case 'cancelled': return '图片生成已取消。'
     default: return '正在准备图片结果…'
