@@ -5,19 +5,19 @@
 ## 节点流程
 
 ```text
-START → validation_node → chat_node
-                               ├─ 有已注册工具调用 → tool_node → chat_node
-                               └─ 无工具调用       → answer_node → END
+START → input_node → agent_node
+                         ├─ 有已注册工具调用 → tool_node → agent_node
+                         └─ 无工具调用       → output_node → END
 ```
 
-四个节点始终参与图构建。工具集为空时模型不会绑定工具，正常流程直接从 `chat_node` 进入 `answer_node`。
+四个节点始终参与图构建。工具集为空时模型不会绑定工具，正常流程直接从 `agent_node` 进入 `output_node`。
 
 | 节点 | 输入与输出 | 职责 |
 |---|---|---|
-| `validation_node` | 图状态 → 规范化请求文本 | 检查最新用户消息类型、空白内容和长度。 |
-| `chat_node` | 对话状态 → 新 AI 消息 | 使用注入的模型和系统提示词；有工具时允许模型选择已注册工具。 |
+| `input_node` | 图状态 → 规范化请求文本 | 检查最新用户消息类型、空白内容和长度。 |
+| `agent_node` | 对话状态 → 新 AI 消息 | 使用注入的模型和系统提示词；有工具时允许模型选择已注册工具。 |
 | `tool_node` | AI 工具调用 → 工具消息 | 执行注册工具；失败时返回统一错误观察供模型判断后续步骤。 |
-| `answer_node` | 最后一条 AI 消息 → `answer` | 提取最终文本并校验非空，不发起第二次模型调用。 |
+| `output_node` | 最后一条 AI 消息 → `answer` | 提取最终文本并校验非空，不发起第二次模型调用。 |
 
 ## 初始化边界
 
@@ -67,7 +67,7 @@ async def lookup_item(item_id: str) -> str:
     return await injected_service.lookup(item_id)
 ```
 
-工具名称必须唯一，并匹配小写字母、数字和下划线格式。工具执行异常不会带原始异常文本返回用户；基座会将受控错误观察交还给模型，最终回答仍由 `answer_node` 校验。
+工具名称必须唯一，并匹配小写字母、数字和下划线格式。工具执行异常不会带原始异常文本返回用户；基座会将受控错误观察交还给模型，最终回答仍由 `output_node` 校验。
 
 ## 扩展原则
 

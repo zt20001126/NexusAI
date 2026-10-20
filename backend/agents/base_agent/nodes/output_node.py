@@ -25,7 +25,7 @@ def _extract_text(content: object) -> str:
     return ""
 
 
-async def answer_node(state: BaseAgentState) -> dict[str, str]:
+async def output_node(state: BaseAgentState) -> dict[str, str]:
     """读取最后一条 AI 消息并输出 answer 字段，供图转到 END。"""
 
     last_ai_message = next(

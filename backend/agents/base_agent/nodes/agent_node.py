@@ -18,13 +18,13 @@ from agents.base_agent.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-def create_chat_node(
+def create_agent_node(
     *,
     config: BaseAgentConfig,
     chat_model: BaseChatModel,
     tool_registry: ToolRegistry,
 ) -> Callable[..., Any]:
-    """输入对话状态并追加 AI 消息；后续由图路由到 tool_node 或 answer_node。"""
+    """输入对话状态并追加 AI 消息；后续由图路由到 tool_node 或 output_node。"""
 
     model = (
         chat_model.bind_tools(list(tool_registry.tools))
@@ -32,7 +32,7 @@ def create_chat_node(
         else chat_model
     )
 
-    async def chat_node(
+    async def agent_node(
         state: BaseAgentState,
         runnable_config: RunnableConfig | None = None,
     ) -> dict[str, list[BaseMessage]]:
@@ -69,4 +69,4 @@ def create_chat_node(
             )
         return {"messages": [response]}
 
-    return chat_node
+    return agent_node

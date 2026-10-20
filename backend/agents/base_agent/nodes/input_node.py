@@ -9,12 +9,12 @@ from agents.base_agent.errors import BaseAgentInputError
 from agents.base_agent.state import BaseAgentState
 
 
-def create_validation_node(
+def create_input_node(
     config: BaseAgentConfig,
 ) -> Callable[[BaseAgentState], Awaitable[dict[str, str]]]:
-    """创建输入校验节点；输入为图状态，输出规范化请求文本并流向 chat_node。"""
+    """创建输入处理节点；输入为图状态，输出规范化请求文本并流向 agent_node。"""
 
-    async def validation_node(state: BaseAgentState) -> dict[str, str]:
+    async def input_node(state: BaseAgentState) -> dict[str, str]:
         messages = state.get("messages", [])
         latest_user_message = next(
             (message for message in reversed(messages) if isinstance(message, HumanMessage)),
@@ -37,4 +37,4 @@ def create_validation_node(
 
         return {"original_request": request_text}
 
-    return validation_node
+    return input_node
