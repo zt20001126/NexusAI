@@ -23,7 +23,14 @@ START → input_node → agent_node
 
 组合方创建模型、业务工具和可选 Checkpointer 后传入 `BaseAgent`。基座在初始化时检查工具名称、描述和参数 schema，并只构建一次已编译图。请求配置通过 `RunnableConfig` 传入；启用 Checkpointer 时必须提供 `configurable.thread_id`。
 
-基座也提供一个不带工具的基础对话助手工厂。它使用 `prompts/default_chat.py` 中的默认提示词，模型仍由应用通过 Provider 创建并注入：
+基座也提供一个不带工具的基础对话助手工厂。默认提示词按以下结构维护，由 `prompts/loader.py` 组合 `system.md` 与 `agent.md`。系统提示词定义助手身份与范围；Agent 行为指令约定交流方式、信息可靠性、上下文和用户材料处理。模型仍由应用通过 Provider 创建并注入：
+
+```text
+prompts/
+├── system.md  # 系统提示词
+├── agent.md   # Agent 行为指令
+└── loader.py  # 提示词加载器
+```
 
 ```python
 from langgraph.checkpoint.memory import MemorySaver
@@ -72,7 +79,7 @@ async def lookup_item(item_id: str) -> str:
 ## 扩展原则
 
 - 业务节点、提示词、工具和领域类型放在具体智能体目录，不写入本基座。
-- 基础对话提示词位于 `prompts/`；业务智能体应使用自己的提示词，避免修改基座默认行为。
+- 基础对话提示词分为 `prompts/system.md` 和 `prompts/agent.md`，由 `prompts/loader.py` 加载；业务智能体应使用自己的提示词，避免修改基座默认行为。
 - 模型、工具、Checkpointer 由组合根创建并注入；节点只消费依赖。
 - 图状态只保存可序列化业务数据，不保存连接、客户端或密钥。
 - 新增智能体可直接调用基座；接入产品 API 时再由应用组合层注册，不要求重构已有智能体。
