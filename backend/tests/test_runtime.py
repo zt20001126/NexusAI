@@ -15,7 +15,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from pydantic import PrivateAttr
 
 from agent.constants import BASE_CONVERSATION_AGENT
-from agent.persistence.memory import MemoryConversationStore
+from agent.errors import InvalidResumeAnswersError
+from agent.persistence.memory import MemoryConversationStore, MemoryMessageStore
 from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
 from agent.streaming.events import (
@@ -25,9 +26,13 @@ from agent.streaming.events import (
     get_run_terminal_status,
 )
 from agent.title import ConversationTitleGenerator
+from agents.base_agent import BaseAgent, BaseAgentConfig
 from agents.base_agent import create_basic_conversation_agent
 from infra.settings import AppSettings
-from tests.fake_models import ScriptedToolCallingProvider
+from tests.fake_models import (
+    ScriptedQuestionCallingProvider,
+    ScriptedToolCallingProvider,
+)
 
 
 async def _collect_events(stream: object) -> list[AgentEvent]:
@@ -141,10 +146,13 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
 
 
 async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
-    """基础对话助手实时转发模型片段，并在完成事件中保留完整文本。"""
+    """无工具基座图实时转发模型片段，并在完成事件中保留完整文本。"""
     chat_model = _StreamingReplyModel()
-    assistant = create_basic_conversation_agent(
-        agent=BASE_CONVERSATION_AGENT,
+    assistant = BaseAgent(
+        config=BaseAgentConfig(
+            agent=BASE_CONVERSATION_AGENT,
+            system_prompt="直接回答用户。",
+        ),
         chat_model=chat_model,
         checkpointer=MemorySaver(),
     )
@@ -193,6 +201,116 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
     for event in delta_events:
         assert event.data["offset"] == expected_offset
         expected_offset += len(event.data["text"])
+
+
+async def test_basic_agent_question_card_waits_and_resumes_the_same_run() -> None:
+    """基础助手题卡进入 WAITING，用户选择后同一 run 继续生成回答。"""
+
+    message_store = MemoryMessageStore()
+    assistant = create_basic_conversation_agent(
+        agent=BASE_CONVERSATION_AGENT,
+        chat_model=ScriptedQuestionCallingProvider().create_chat_model(),
+        checkpointer=MemorySaver(),
+    )
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=assistant.compiled_graph,
+        message_store=message_store,
+        agent=BASE_CONVERSATION_AGENT,
+        title_generator=_UnavailableTitleGenerator(),
+    )
+
+    question_events = await _collect_events(
+        runtime.stream_chat(
+            message="请用题卡让我选一个计划风格。",
+            principal_id="question-user",
+        )
+    )
+    start_event = next(
+        event for event in question_events if event.event_type == AgentEventType.START
+    )
+    waiting_event = next(
+        event for event in question_events if event.event_type == AgentEventType.END
+    )
+    question_snapshot = next(
+        event
+        for event in question_events
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "snapshot"
+        and any(
+            block.get("type") == "question"
+            for block in event.data.get("content", {}).get("blocks", [])
+        )
+    )
+
+    assert waiting_event.data["status"] == RunTerminalStatus.WAITING.value
+    assert question_snapshot.run_id == start_event.run_id
+    question_block = next(
+        block
+        for block in question_snapshot.data["content"]["blocks"]
+        if block.get("type") == "question"
+    )
+    assert question_block["questions"][0]["type"] == "SingleChoice"
+
+    for request_id, invalid_answers in (
+        ("invalid-question-id", {"unknown_question": "稳步推进"}),
+        ("invalid-option", {"plan_style": "未提供的选项"}),
+    ):
+        with pytest.raises(InvalidResumeAnswersError):
+            runtime.prepare_resume(
+                conversation_id=start_event.conversation_id,
+                run_id=start_event.run_id,
+                answers=invalid_answers,
+                principal_id="question-user",
+                request_id=request_id,
+            )
+
+    answer_events = await _collect_events(
+        runtime.resume(
+            conversation_id=start_event.conversation_id,
+            run_id=start_event.run_id,
+            answers={"plan_style": "稳步推进"},
+            principal_id="question-user",
+        )
+    )
+    completed_event = next(
+        event for event in answer_events if event.event_type == AgentEventType.END
+    )
+    final_snapshot = next(
+        event
+        for event in answer_events
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "snapshot"
+        and any(
+            block.get("type") == "text"
+            for block in event.data.get("content", {}).get("blocks", [])
+        )
+    )
+
+    assert completed_event.data["status"] == RunTerminalStatus.COMPLETED.value
+    assert completed_event.run_id == start_event.run_id
+    assert final_snapshot.run_id == start_event.run_id
+    assert final_snapshot.data["content"]["blocks"][0]["text"] == (
+        "我会按“稳步推进”的风格安排计划。"
+    )
+    history = message_store.list_by_conversation(
+        start_event.conversation_id,
+        limit=10,
+        before_message_id=None,
+    )
+    assert any(
+        block.get("type") == "question"
+        for message in history
+        for block in message.content.get("blocks", [])
+    )
+    assert any(
+        message.role == "user"
+        and any(
+            block.get("type") == "text" and "稳步推进" in block.get("text", "")
+            for block in message.content.get("blocks", [])
+        )
+        for message in history
+    )
 
 
 async def test_completed_messages_are_sent_as_multiple_deltas() -> None:
@@ -435,7 +553,6 @@ class _StreamingReplyModel(BaseChatModel):
         yield ChatGenerationChunk(message=AIMessageChunk(content="你好"))
         yield ChatGenerationChunk(message=AIMessageChunk(content="，世界"))
         self._stream_completed = True
-
 
 async def test_title_is_generated_only_for_first_message_of_new_conversation() -> None:
     """同一会话仅首轮调用模型命名，后续消息不会覆盖生成标题。"""

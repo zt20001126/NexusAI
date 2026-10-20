@@ -3,12 +3,13 @@
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from agent.constants import ASK_USER_QUESTIONS_TOOL_NAME
 from agents.base_agent.config import BaseAgentConfig
 from agents.base_agent.errors import BaseAgentExecutionError
 from agents.base_agent.nodes.agent_node import create_agent_node
@@ -47,7 +48,30 @@ def _route_after_agent(
             "模型请求了未注册的工具",
             code="unregistered_tool_call",
         )
+    if any(
+        tool_call.get("name") == ASK_USER_QUESTIONS_TOOL_NAME
+        for tool_call in tool_calls
+    ) and len(tool_calls) != 1:
+        raise BaseAgentExecutionError(
+            "提问工具必须单独调用，每批问题应放在一次工具调用中",
+            code="invalid_question_tool_call_batch",
+        )
     return "tool_node"
+
+
+def _route_after_tools(
+    state: BaseAgentState,
+) -> Literal["agent_node", "pause"]:
+    """普通工具回到模型；提问工具结束本阶段并交由 Runner 等待答案。"""
+
+    messages = state.get("messages", [])
+    last_message = messages[-1] if messages else None
+    if (
+        isinstance(last_message, ToolMessage)
+        and last_message.name == ASK_USER_QUESTIONS_TOOL_NAME
+    ):
+        return "pause"
+    return "agent_node"
 
 
 def build_agent_graph(
@@ -85,6 +109,13 @@ def build_agent_graph(
             "output_node": "output_node",
         },
     )
-    graph.add_edge("tool_node", "agent_node")
+    graph.add_conditional_edges(
+        "tool_node",
+        _route_after_tools,
+        {
+            "agent_node": "agent_node",
+            "pause": END,
+        },
+    )
     graph.add_edge("output_node", END)
     return graph.compile(checkpointer=checkpointer)

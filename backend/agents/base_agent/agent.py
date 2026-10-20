@@ -5,13 +5,16 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
+from agent.constants import ASK_USER_QUESTIONS_TOOL_NAME
+from agent.schemas.question import QuestionPayload
+from agent.schemas.tool_result import ToolResult
 from agents.base_agent.config import BaseAgentConfig
 from agents.base_agent.errors import (
     BaseAgentConfigurationError,
@@ -106,13 +109,49 @@ class BaseAgent:
                 code="agent_execution_failed",
             ) from None
 
+        messages = result.get("messages", [])
+        last_message = messages[-1] if messages else None
+        if (
+            isinstance(last_message, ToolMessage)
+            and last_message.name == ASK_USER_QUESTIONS_TOOL_NAME
+        ):
+            return self._question_response(last_message)
+
         answer = result.get("answer")
         if not isinstance(answer, str) or not answer.strip():
             raise BaseAgentExecutionError(
                 "智能体未生成有效回答",
                 code="missing_agent_answer",
             )
-        return AgentResponse(agent=self._config.agent, answer=answer)
+        return AgentResponse(
+            agent=self._config.agent,
+            status="completed",
+            answer=answer,
+        )
+
+    def _question_response(self, message: ToolMessage) -> AgentResponse:
+        """校验提问工具结果，并将其映射为直接调用方可处理的等待响应。"""
+
+        try:
+            if not isinstance(message.content, str):
+                raise ValueError("提问工具结果必须为 JSON 文本")
+            tool_result = ToolResult.model_validate_json(message.content)
+            if not tool_result.success:
+                raise ValueError("提问工具未能生成有效题卡")
+            questions = QuestionPayload.model_validate(
+                {"questions": tool_result.data.get("questions")}
+            )
+        except (ValidationError, ValueError):
+            raise BaseAgentExecutionError(
+                "智能体生成的题卡格式无效",
+                code="invalid_question_tool_result",
+            ) from None
+
+        return AgentResponse(
+            agent=self._config.agent,
+            status="waiting",
+            questions=questions,
+        )
 
     def _prepare_runnable_config(
         self,

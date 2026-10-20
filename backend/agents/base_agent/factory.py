@@ -9,6 +9,7 @@ from agent.enums import AgentType
 from agents.base_agent.agent import BaseAgent
 from agents.base_agent.config import BaseAgentConfig
 from agents.base_agent.prompts import DEFAULT_CHAT_SYSTEM_PROMPT
+from agents.base_agent.tools.ask_user_questions import ask_user_questions
 
 
 def create_basic_conversation_agent(
@@ -25,5 +26,6 @@ def create_basic_conversation_agent(
             system_prompt=DEFAULT_CHAT_SYSTEM_PROMPT,
         ),
         chat_model=chat_model,
+        tools=[ask_user_questions],
         checkpointer=checkpointer,
     )
