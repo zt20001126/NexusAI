@@ -1,5 +1,7 @@
 """覆盖 Redis Stream 回放游标与事件过期判断。"""
 
+import json
+
 import pytest
 from redis.exceptions import ResponseError
 
@@ -15,11 +17,20 @@ class _FakeRedis:
         self.event = event
         self.latest_event_id = "9-0" if event is not None else None
 
+    def _fields(self) -> dict[str, str]:
+        if self.event is None:
+            return {}
+        return {
+            "event_type": self.event.event_type.value,
+            "timestamp": self.event.timestamp.isoformat(),
+            "data": json.dumps(self.event.data),
+        }
+
     def xinfo_stream(self, stream_key: str) -> dict[str, object]:
         del stream_key
         if self.event is None:
             raise ResponseError("no such key")
-        return {"first-entry": ("9-0", {"event": self.event.model_dump_json()})}
+        return {"first-entry": ("9-0", self._fields())}
 
     async def xread(
         self,
@@ -31,7 +42,7 @@ class _FakeRedis:
         del count, block
         if self.event is None:
             return []
-        return [(next(iter(streams)), [("9-0", {"event": self.event.model_dump_json()})])]
+        return [(next(iter(streams)), [("9-0", self._fields())])]
 
     def get(self, key: str) -> str | None:
         del key
@@ -49,14 +60,14 @@ def _event_store(redis: _FakeRedis) -> RedisAgentEventStore:
 
 @pytest.mark.asyncio
 async def test_replayed_event_uses_redis_stream_id_in_payload_and_cursor() -> None:
-    """重连时 JSON event_id/sequence 与 SSE Redis 游标保持一致。"""
+    """重连时内外事件 ID 都使用 Redis Stream 游标。"""
     original = AgentEvent(
-        event_id="conversation:1",
-        event_type=AgentEventType.RUN_TERMINAL,
+        event_id="9-0",
+        event_type=AgentEventType.END,
         conversation_id="123",
         run_id="456",
-        sequence=1,
-        data={"status": RunTerminalStatus.COMPLETED.value, "answer": "done"},
+        sequence=9,
+        data={"status": RunTerminalStatus.COMPLETED.value},
     )
     store = _event_store(_FakeRedis(original))
 
@@ -71,10 +82,77 @@ async def test_replayed_event_uses_redis_stream_id_in_payload_and_cursor() -> No
     assert len(events) == 1
     assert events[0].event_id == "9-0"
     assert events[0].sequence == 9
-    assert events[0].data == {
-        "status": RunTerminalStatus.COMPLETED.value,
-        "answer": "done",
+    public_event = events[0].public_event()
+    assert public_event.event_id == "9-0"
+    assert set(public_event.model_dump(mode="json")) == {
+        "event_id",
+        "event_type",
+        "timestamp",
+        "data",
     }
+
+
+def test_public_event_strips_run_context_from_nested_content() -> None:
+    """四字段外发投影递归删除会话及运行标识。"""
+    event = AgentEvent(
+        event_id="4-0",
+        event_type=AgentEventType.MESSAGE,
+        conversation_id="123",
+        run_id="456",
+        sequence=4,
+        data={
+            "operation": "snapshot",
+            "message_id": "789",
+            "content": {
+                "blocks": [{
+                    "id": "block-1",
+                    "type": "question",
+                    "run_id": "456",
+                    "question_round": 1,
+                    "max_question_rounds": 3,
+                    "questions": [{"id": "q1", "title": "Choose"}],
+                }]
+            },
+        },
+    )
+
+    public = event.public_event().model_dump(mode="json")
+
+    assert set(public) == {"event_id", "event_type", "timestamp", "data"}
+    assert public["data"]["content"]["blocks"][0] == {
+        "id": "block-1",
+        "type": "question",
+        "question_round": 1,
+        "max_question_rounds": 3,
+        "questions": [{"id": "q1", "title": "Choose"}],
+    }
+
+
+def test_public_event_requires_redis_cursor_and_valid_content_blocks() -> None:
+    """外发事件拒绝非 Redis ID 和缺字段的内容块。"""
+    invalid_cursor = AgentEvent(
+        event_id="conversation:1",
+        event_type=AgentEventType.START,
+        conversation_id="123",
+        run_id="456",
+        sequence=1,
+    )
+    with pytest.raises(ValueError):
+        invalid_cursor.public_event()
+
+    with pytest.raises(ValueError):
+        AgentEvent(
+            event_id="1-0",
+            event_type=AgentEventType.MESSAGE,
+            conversation_id="123",
+            run_id="456",
+            sequence=1,
+            data={
+                "operation": "snapshot",
+                "message_id": "789",
+                "content": {"blocks": [{"id": "block-1", "type": "text"}]},
+            },
+        )
 
 
 def test_missing_stream_with_retained_cursor_is_expired() -> None:

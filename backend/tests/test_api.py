@@ -1,6 +1,8 @@
 """FastAPI 对外接口和 SSE 协议测试。"""
 
 import json
+import asyncio
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -24,6 +26,8 @@ from agent.persistence.memory import (
     MemoryTaskResultStore,
 )
 from agent.runner import build_memory_runner
+from agent.schemas.run import RunStatus
+from agent.streaming.events import AgentEvent, AgentEventType, RunTerminalStatus
 from agent.streaming.publisher import EventPublisher
 from app.dependencies.auth import get_principal_id
 from bootstrap.application import create_app
@@ -54,6 +58,131 @@ from tests.fake_models import ScriptedToolCallingProvider
 TEST_PNG = b"\x89PNG\r\n\x1a\nmock-image-bytes"
 
 
+class _MemoryAgentEventStore:
+    """测试 API 的进程内事件流，模拟 Redis 游标和 end 结束规则。"""
+
+    def __init__(self) -> None:
+        self.events: defaultdict[tuple[str, str], list[AgentEvent]] = defaultdict(list)
+        self.worker_tasks: dict[str, asyncio.Task[None]] = {}
+
+    def append(self, event: AgentEvent) -> AgentEvent:
+        rows = self.events[(event.conversation_id, event.run_id)]
+        sequence = len(rows) + 1
+        saved = event.model_copy(update={"event_id": f"{sequence}-0", "sequence": sequence})
+        rows.append(saved)
+        return saved
+
+    def latest_id(self, conversation_id: str, run_id: str) -> str | None:
+        rows = self.events[(conversation_id, run_id)]
+        return rows[-1].event_id if rows else None
+
+    def last_event(self, conversation_id: str, run_id: str) -> AgentEvent | None:
+        rows = self.events[(conversation_id, run_id)]
+        return rows[-1] if rows else None
+
+    def last_event_type(self, conversation_id: str, run_id: str) -> AgentEventType | None:
+        event = self.last_event(conversation_id, run_id)
+        return event.event_type if event else None
+
+    def validate_cursor(
+        self,
+        conversation_id: str,
+        run_id: str,
+        after: str | None,
+        *,
+        allow_missing_at_latest: bool = False,
+    ) -> None:
+        del allow_missing_at_latest
+        latest = self.latest_id(conversation_id, run_id)
+        if latest and after and int(after.split("-", 1)[0]) > int(latest.split("-", 1)[0]):
+            raise ValueError("cursor is ahead of stream")
+
+    async def listen(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        after: str | None,
+        terminal_status: str | None = None,
+        allow_missing_at_latest: bool = False,
+    ) -> AsyncIterator[AgentEvent]:
+        del allow_missing_at_latest
+        cursor = int((after or "0-0").split("-", 1)[0])
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 10
+        heartbeat_at = loop.time() + 0.05
+        while True:
+            rows = list(self.events[(conversation_id, run_id)])
+            pending = [event for event in rows if event.sequence > cursor]
+            if pending:
+                for event in pending:
+                    cursor = event.sequence
+                    yield event
+                    if event.event_type == AgentEventType.END:
+                        return
+                continue
+            if terminal_status in {"completed", "cancelled", "failed"}:
+                return
+            worker_task = self.worker_tasks.get(run_id)
+            if worker_task is not None and worker_task.done():
+                error = worker_task.exception()
+                if error is not None:
+                    raise error
+            now = loop.time()
+            if now >= deadline:
+                raise TimeoutError(
+                    f"test worker produced no end event: run_id={run_id}, events={rows}"
+                )
+            if now >= heartbeat_at:
+                yield AgentEvent(
+                    event_id=f"{cursor}-0",
+                    event_type=AgentEventType.HEARTBEAT,
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    sequence=cursor,
+                )
+                heartbeat_at = now + 0.05
+            await asyncio.sleep(0.005)
+
+
+class _MemoryAgentTaskQueue:
+    """测试用后台队列，在当前事件循环内执行实际 Worker Service。"""
+
+    def __init__(self, event_store: _MemoryAgentEventStore) -> None:
+        self.services: dict[str, AgentApplicationService] = {}
+        self.tasks: dict[str, asyncio.Task[None]] = {}
+        self.event_store = event_store
+
+    def register(self, agent: str, service: AgentApplicationService) -> None:
+        self.services[agent] = service
+
+    def enqueue(self, agent: str, run_id: str) -> None:
+        current_task = self.tasks.get(run_id)
+        if current_task is not None and not current_task.done():
+            return
+        task = asyncio.create_task(self.services[agent].execute_worker(run_id))
+        self.tasks[run_id] = task
+        self.event_store.worker_tasks[run_id] = task
+
+
+def _parse_sse_events(body: str) -> list[dict[str, object]]:
+    """解析测试响应并校验 SSE 帧头与 JSON 事件字段一致。"""
+    events: list[dict[str, object]] = []
+    for block in body.replace("\r\n", "\n").split("\n\n"):
+        fields: dict[str, str] = {}
+        for line in block.splitlines():
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                fields[key] = value
+        if "data" not in fields:
+            continue
+        event = json.loads(fields["data"])
+        assert fields.get("id") == event["event_id"]
+        assert fields.get("event") == event["event_type"]
+        events.append(event)
+    return events
+
+
 class _FixedTitleGenerator:
     """API 测试使用固定标题，避免访问真实模型服务。"""
 
@@ -78,6 +207,8 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
             title_generator=title_generator,
         )
         event_sequence = MemoryEventSequence()
+        event_store = _MemoryAgentEventStore()
+        task_queue = _MemoryAgentTaskQueue(event_store)
         task_result_store = MemoryTaskResultStore()
         attachment_store = MemoryAttachmentStore()
 
@@ -258,11 +389,41 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         )
         publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
         services = {
-            COMMON_AGENT: AgentApplicationService(runner, publisher),
-            IMAGE_AGENT: AgentApplicationService(image_runner, publisher),
-            LISTING_AGENT: AgentApplicationService(listing_runner, publisher),
-            RESEARCH_AGENT: AgentApplicationService(research_runner, publisher),
+            COMMON_AGENT: AgentApplicationService(
+                runner,
+                publisher,
+                conversation_store=conversation_store,
+                run_store=runner._run_store,
+                event_store=event_store,
+                task_queue=task_queue,
+            ),
+            IMAGE_AGENT: AgentApplicationService(
+                image_runner,
+                publisher,
+                conversation_store=conversation_store,
+                run_store=image_runner._run_store,
+                event_store=event_store,
+                task_queue=task_queue,
+            ),
+            LISTING_AGENT: AgentApplicationService(
+                listing_runner,
+                publisher,
+                conversation_store=conversation_store,
+                run_store=listing_runner._run_store,
+                event_store=event_store,
+                task_queue=task_queue,
+            ),
+            RESEARCH_AGENT: AgentApplicationService(
+                research_runner,
+                publisher,
+                conversation_store=conversation_store,
+                run_store=research_runner._run_store,
+                event_store=event_store,
+                task_queue=task_queue,
+            ),
         }
+        for agent, service in services.items():
+            task_queue.register(agent, service)
         app.state.settings = settings
         app.state.agent_registry = AgentRegistry(
             [
@@ -324,6 +485,9 @@ def test_common_agent_uses_registered_chat_route() -> None:
         )
 
     assert response.status_code == 200
+    events = response.json()["data"]
+    assert events
+    assert all(set(event) == {"event_id", "event_type", "timestamp", "data"} for event in events)
 
 
 def test_multi_agent_discovery_includes_research_agent() -> None:
@@ -429,22 +593,41 @@ def test_stream_chat_uses_stable_sse_contract_without_general_question_cards() -
             f"/api/agents/{COMMON_AGENT}/chat/stream",
             json={"message": "帮我整理需求"},
         )
+        history = client.get(
+            f"/api/conversations/{response.headers['x-conversation-id']}/messages"
+        ).json()["data"]["items"]
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    assert "event: message.completed" in response.text
-    assert "event: run.terminal" in response.text
-    assert "event: question.required" not in response.text
-    data_lines = [
-        line.removeprefix("data: ")
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    events = [json.loads(line) for line in data_lines]
-    completed = next(
-        event for event in events if event["event_type"] == "message.completed"
+    assert response.headers["x-conversation-id"].isdigit()
+    assert response.headers["x-run-id"].isdigit()
+    events = _parse_sse_events(response.text)
+    assert all(
+        set(event) == {"event_id", "event_type", "timestamp", "data"}
+        for event in events
     )
-    assert completed["data"]["content"] == "你希望整理哪类开发目标？"
+    normalized_sse = response.text.replace("\r\n", "\n")
+    assert "event: message\n" in normalized_sse
+    assert "event: end\n" in normalized_sse
+    assert "event: question\n" not in normalized_sse
+    completed = next(
+        event for event in events
+        if event["event_type"] == "message"
+        and event["data"].get("operation") == "snapshot"
+    )
+    assert set(completed) == {"event_id", "event_type", "timestamp", "data"}
+    assert completed["data"]["content"]["blocks"][0]["text"] == "你希望整理哪类开发目标？"
+    history_message = next(
+        message for message in history
+        if message["message_id"] == completed["data"]["message_id"]
+    )
+    assert history_message["content"]["blocks"][0]["id"] == (
+        completed["data"]["content"]["blocks"][0]["id"]
+    )
+    assert history_message["content"]["blocks"][0]["text"] == (
+        completed["data"]["content"]["blocks"][0]["text"]
+    )
+    assert not {"conversation_id", "run_id"}.intersection(completed["data"])
 
 
 def test_legacy_agent_route_is_not_supported() -> None:
@@ -477,7 +660,8 @@ def test_conversation_cannot_be_reused_by_another_agent() -> None:
             f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "创建一个通用智能体会话"},
         )
-        conversation_id = common_response.json()["data"][0]["conversation_id"]
+        conversations = client.get("/api/conversations").json()["data"]["items"]
+        conversation_id = conversations[0]["conversation_id"]
         image_response = client.post(
             f"/api/agents/{IMAGE_AGENT}/chat",
             json={
@@ -486,7 +670,7 @@ def test_conversation_cannot_be_reused_by_another_agent() -> None:
             },
         )
 
-    assert image_response.status_code == 409
+    assert image_response.status_code == 404
     assert image_response.json()["code"] == "CONVERSATION_ACCESS_DENIED"
 
 
@@ -508,16 +692,26 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
                 "attachment_ids": [attachment_id],
             },
         )
-        paused_events = [
-            json.loads(line.removeprefix("data: "))
-            for line in paused_response.text.splitlines()
-            if line.startswith("data: ")
-        ]
+        paused_events = _parse_sse_events(paused_response.text)
         question_event = next(
-            event for event in paused_events if event["event_type"] == "question.required"
+            event for event in paused_events
+            if event["event_type"] == "message"
+            and event["data"].get("operation") == "snapshot"
+            and any(
+                block.get("type") == "question"
+                for block in event["data"]["content"]["blocks"]
+            )
         )
-        conversation_id = question_event["conversation_id"]
-        run_id = question_event["run_id"]
+        conversation_id = paused_response.headers["x-conversation-id"]
+        run_id = paused_response.headers["x-run-id"]
+        question_block = next(
+            block for block in question_event["data"]["content"]["blocks"]
+            if block["type"] == "question"
+        )
+        question_message_id = question_event["data"]["message_id"]
+        waiting_end = next(event for event in paused_events if event["event_type"] == "end")
+        assert waiting_end["data"]["status"] == "waiting"
+        assert "run_id" not in question_block
 
         resumed = client.post(
             f"/api/agents/{IMAGE_AGENT}/runs/{run_id}/resume",
@@ -526,16 +720,22 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
                 "answers": {"image_size": "1:1 方图（1024×1024）"},
             },
         )
-        resumed_events = [
-            json.loads(line.removeprefix("data: "))
-            for line in resumed.text.splitlines()
-            if line.startswith("data: ")
-        ]
+        assert resumed.headers["x-event-cursor"] == waiting_end["event_id"]
+        resumed_events = _parse_sse_events(resumed.text)
         result_event = next(
             event
             for event in resumed_events
-            if event["event_type"] == "task_result.updated"
-            and event["data"]["generation_status"] == "succeeded"
+            if event["event_type"] == "message"
+            and event["data"].get("operation") == "snapshot"
+            and any(
+                block.get("type") == "task_result"
+                and block.get("generation_status") == "succeeded"
+                for block in event["data"]["content"]["blocks"]
+            )
+        )
+        result_block = next(
+            block for block in result_event["data"]["content"]["blocks"]
+            if block["type"] == "task_result"
         )
         history = client.get(
             f"/api/conversations/{conversation_id}/messages",
@@ -546,19 +746,26 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
             for message in history
             for item in message["task_results"]
         )
+        linked_task_results = [
+            task_result
+            for message in history
+            for task_result in message["task_results"]
+        ]
+        question_message = next(
+            item for item in history if item["message_id"] == question_message_id
+        )
         user_message = next(item for item in history if item["role"] == "user")
         image_block = next(
             block for block in user_message["content"]["blocks"]
             if block["type"] == "image"
         )
-        assert image_block == {
-            "type": "image",
-            "attachment_id": attachment_id,
-            "image_url": (
-                f"/api/conversations/{conversation_id}/messages/"
-                f"{user_message['message_id']}/attachments/{attachment_id}/image"
-            ),
-        }
+        assert isinstance(image_block["id"], str) and image_block["id"]
+        assert image_block["type"] == "image"
+        assert image_block["attachment_id"] == attachment_id
+        assert image_block["image_url"] == (
+            f"/api/conversations/{conversation_id}/messages/"
+            f"{user_message['message_id']}/attachments/{attachment_id}/image"
+        )
         uploaded_image_response = client.get(image_block["image_url"])
         wrong_message_response = client.get(
             f"/api/conversations/{conversation_id}/messages/"
@@ -584,9 +791,22 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
     assert upload.json()["data"]["mime_type"] == "image/png"
     assert upload.json()["data"]["file_name"] == "product.png"
     assert paused_response.status_code == 200
-    assert question_event["data"]["questions"][0]["id"] == "image_size"
+    assert question_block["questions"][0]["id"] == "image_size"
     assert resumed.status_code == 200
-    assert result_event["data"]["image_url"] == result["image_url"]
+    assert result_block["image_url"] == result["image_url"]
+    assert len(linked_task_results) == 1, [
+        {
+            "message_id": item["message_id"],
+            "task_result_ids": [result["task_result_id"] for result in item["task_results"]],
+        }
+        for item in history
+        if item["task_results"]
+    ]
+    assert question_message["task_results"], [
+        (item["message_id"], item["role"], item["task_results"], item["content"]["blocks"])
+        for item in history
+    ]
+    assert question_message["task_results"][0]["task_result_id"] == result["task_result_id"]
     assert result["agent"] == IMAGE_AGENT
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/png"
@@ -634,61 +854,94 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
         )
         attachment_id = upload_response.json()["data"]["attachment_id"]
         first_response = client.post(
-            f"/api/agents/{LISTING_AGENT}/chat",
+            f"/api/agents/{LISTING_AGENT}/chat/stream",
             json={
                 "message": "这是一款蓝色便携水杯，请帮我写淘宝商品内容。",
                 "attachment_ids": [attachment_id],
             },
         )
-        first_events = first_response.json()["data"]
+        first_events = _parse_sse_events(first_response.text)
         question_event = next(
-            event for event in first_events if event["event_type"] == "question.required"
+            event for event in first_events
+            if event["event_type"] == "message"
+            and event["data"].get("operation") == "snapshot"
+            and any(
+                block.get("type") == "question"
+                for block in event["data"]["content"]["blocks"]
+            )
         )
-        task_result_event = next(
-            event for event in first_events if event["event_type"] == "task_result.updated"
+        conversation_id = first_response.headers["x-conversation-id"]
+        run_id = first_response.headers["x-run-id"]
+        question_block = next(
+            block for block in question_event["data"]["content"]["blocks"]
+            if block["type"] == "question"
         )
-        question_id = question_event["data"]["questions"][0]["id"]
-        assert "prompt" not in question_event["data"]["questions"][0]
-        assert "placeholder" not in question_event["data"]["questions"][0]
-        assert question_event["data"]["questions"][0]["options"][0] == {
+        question_message_id = question_event["data"]["message_id"]
+        task_result_block = next(
+            block for block in question_event["data"]["content"]["blocks"]
+            if block["type"] == "task_result"
+        )
+        question_id = question_block["questions"][0]["id"]
+        assert "prompt" not in question_block["questions"][0]
+        assert "placeholder" not in question_block["questions"][0]
+        assert question_block["questions"][0]["options"][0] == {
             "label": "350 毫升",
             "description": "水杯标注容量为 350 毫升",
         }
         blank_resume = client.post(
-            f"/api/agents/{LISTING_AGENT}/runs/{question_event['run_id']}/resume",
+            f"/api/agents/{LISTING_AGENT}/runs/{run_id}/resume",
             json={
-                "conversation_id": question_event["conversation_id"],
+                "conversation_id": conversation_id,
                 "answers": {question_id: "  "},
             },
         )
         resume_response = client.post(
-            f"/api/agents/{LISTING_AGENT}/runs/{question_event['run_id']}/resume",
+            f"/api/agents/{LISTING_AGENT}/runs/{run_id}/resume",
             json={
-                "conversation_id": question_event["conversation_id"],
+                "conversation_id": conversation_id,
                 "answers": {question_id: "500 毫升"},
             },
         )
-        resumed_events = [
-            json.loads(line.removeprefix("data: "))
-            for line in resume_response.text.splitlines()
-            if line.startswith("data: ")
-        ]
+        resumed_events = _parse_sse_events(resume_response.text)
         result_event = next(
             event
             for event in resumed_events
-            if event["event_type"] == "task_result.updated"
+            if event["event_type"] == "message"
+            and event["data"].get("operation") == "snapshot"
+            and any(
+                block.get("type") == "task_result"
+                for block in event["data"]["content"]["blocks"]
+            )
         )
-        task_result_id = result_event["data"]["task_result_id"]
+        result_block = next(
+            block for block in result_event["data"]["content"]["blocks"]
+            if block["type"] == "task_result"
+        )
+        task_result_id = result_block["task_result_id"]
         result_response = client.get(f"/api/task-results/{task_result_id}")
+        history = client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            params={"limit": 50},
+        ).json()["data"]["items"]
+        linked_task_results = [
+            task_result
+            for message in history
+            for task_result in message["task_results"]
+        ]
+        question_message = next(
+            item for item in history if item["message_id"] == question_message_id
+        )
         client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
         unauthorized_response = client.get(f"/api/task-results/{task_result_id}")
 
     result_data = result_response.json()["data"]["result_data"]
     assert upload_response.status_code == 200
     assert first_response.status_code == 200
-    assert question_event["data"]["questions"][0]["id"] == "capacity"
-    assert task_result_event["data"]["result_type"] == "listing"
-    assert task_result_event["data"]["task_result_id"] == task_result_id
+    assert question_block["questions"][0]["id"] == "capacity"
+    assert task_result_block["result_type"] == "listing"
+    assert task_result_block["task_result_id"] == task_result_id
+    assert len(linked_task_results) == 1
+    assert question_message["task_results"][0]["task_result_id"] == task_result_id
     assert blank_resume.status_code == 422
     assert resume_response.status_code == 200
     assert result_response.status_code == 200
@@ -722,11 +975,22 @@ def test_general_chat_uses_natural_language_without_question_cards() -> None:
         events = response.json()["data"]
 
     assert response.status_code == 200
-    assert not any(event["event_type"] == "question.required" for event in events)
-    completed = next(event for event in events if event["event_type"] == "message.completed")
-    assert completed["data"]["content"] == "你希望整理哪类开发目标？"
+    assert not any(
+        event["event_type"] == "message"
+        and any(
+            block.get("type") == "question"
+            for block in event["data"].get("content", {}).get("blocks", [])
+        )
+        for event in events
+    )
+    completed = next(
+        event for event in events
+        if event["event_type"] == "message"
+        and event["data"].get("operation") == "snapshot"
+    )
+    assert completed["data"]["content"]["blocks"][0]["text"] == "你希望整理哪类开发目标？"
     terminal_events = [
-        event for event in events if event["event_type"] == "run.terminal"
+        event for event in events if event["event_type"] == "end"
     ]
     assert len(terminal_events) == 1
     assert terminal_events[0]["data"]["status"] == "completed"
@@ -739,8 +1003,8 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
             f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "帮我梳理业务"},
         )
-        first_events = first_response.json()["data"]
-        conversation_id = first_events[0]["conversation_id"]
+        conversations = client.get("/api/conversations").json()["data"]["items"]
+        conversation_id = conversations[0]["conversation_id"]
         second_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
             json={
@@ -758,7 +1022,12 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
             f"/api/conversations/{conversation_id}/messages",
             params={"limit": 2},
         )
+        full_history_response = client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            params={"limit": 50},
+        )
         latest_page = latest_page_response.json()["data"]
+        full_history = full_history_response.json()["data"]
         earlier_page_response = client.get(
             f"/api/conversations/{conversation_id}/messages",
             params={
@@ -773,16 +1042,31 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
     assert conversations[0]["title"] == "模型生成的业务标题"
 
     assert latest_page_response.status_code == 200
-    assert [item["role"] for item in latest_page["items"]] == ["user", "assistant"]
-    assert latest_page["items"][0]["content"]["blocks"][0]["text"] == (
-        "再补充：面向售后工单处理。"
-    )
+    assert [item["message_id"] for item in latest_page["items"]] == [
+        item["message_id"] for item in full_history["items"][-2:]
+    ]
     assert latest_page["next_before_message_id"] == latest_page["items"][0]["message_id"]
+    assert any(
+        item["role"] == "user"
+        and item["content"]["blocks"][0]["text"] == "再补充：面向售后工单处理。"
+        for item in full_history["items"]
+    )
 
     earlier_page = earlier_page_response.json()["data"]
     assert earlier_page_response.status_code == 200
-    assert [item["role"] for item in earlier_page["items"]] == ["user", "assistant"]
-    assert earlier_page["items"][0]["content"]["blocks"][0]["text"] == "帮我梳理业务"
+    assert [item["message_id"] for item in earlier_page["items"]] == [
+        item["message_id"] for item in full_history["items"][-4:-2]
+    ], {
+        "full_history": [
+            (item["message_id"], item["role"], item["created_at"])
+            for item in full_history["items"]
+        ],
+        "cursor": latest_page["next_before_message_id"],
+        "earlier_page": [
+            (item["message_id"], item["role"], item["created_at"])
+            for item in earlier_page["items"]
+        ],
+    }
     assert not any(
         block["type"] == "question_batch"
         for message in earlier_page["items"]
@@ -797,12 +1081,12 @@ def test_conversation_messages_are_hidden_from_other_principals() -> None:
             f"/api/agents/{COMMON_AGENT}/chat",
             json={"message": "创建我的会话"},
         )
-        event = chat_response.json()["data"][0]
-        conversation_id = event["conversation_id"]
+        conversations = client.get("/api/conversations").json()["data"]["items"]
+        conversation_id = conversations[0]["conversation_id"]
         client.app.dependency_overrides[get_principal_id] = lambda: "another-principal"
         response = client.get(f"/api/conversations/{conversation_id}/messages")
 
-    assert response.status_code == 409
+    assert response.status_code == 404
     assert response.json()["code"] == "CONVERSATION_ACCESS_DENIED"
 
 

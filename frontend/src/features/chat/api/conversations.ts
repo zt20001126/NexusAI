@@ -48,8 +48,29 @@ export interface ConversationMessage {
   role: 'user' | 'assistant'
   content: {
     blocks: Array<
-      | { type: 'text'; text: string }
-      | { type: 'image'; attachment_id: string; image_url: string }
+      | { id?: string; type: 'text'; text: string }
+      | { id?: string; type: 'image'; attachment_id?: string; image_url: string }
+      | {
+          id?: string
+          type: 'question'
+          run_id?: string
+          question_round: number
+          max_question_rounds: number
+          questions: Question[]
+          answers?: Record<string, unknown>
+          question_titles?: Record<string, string>
+        }
+      | {
+          id?: string
+          type: 'task_result'
+          task_result_id: string
+          agent: AgentType
+          result_type: string
+          generation_status: TaskResultSummary['generation_status']
+          image_url?: string | null
+          error_code?: string | null
+          error_message?: string | null
+        }
       | {
           type: 'question_answers'
           answers: Record<string, unknown>

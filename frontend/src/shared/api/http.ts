@@ -1,6 +1,6 @@
 /** 提供前端共享的 JSON 请求、错误处理与 SSE 传输能力。 */
 
-import { parseSseBlock } from './sseParser.mjs'
+import { parseSseBlock, type ParsedSseFrame } from './sseParser.mjs'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -20,7 +20,27 @@ function readApiErrorMessage(body: ApiEnvelope<unknown> | null, status: number):
 }
 
 function isTerminalStreamEventType(eventType: unknown): boolean {
-  return eventType === 'run.terminal' || eventType === 'question.required'
+  return eventType === 'end'
+}
+
+function deliverStreamFrame<T>(
+  frame: ParsedSseFrame<T>,
+  onEvent: (event: T, eventId?: string) => void,
+  commitEventId: (eventId: string) => void,
+): boolean {
+  if (frame.data === null) return false
+  const event = frame.data as { event_id?: unknown; event_type?: unknown }
+  if (
+    frame.id === null
+    || frame.event === null
+    || frame.id !== event.event_id
+    || frame.event !== event.event_type
+  ) {
+    throw new Error('SSE 事件帧与 JSON 数据不一致')
+  }
+  onEvent(frame.data, frame.id)
+  if (event.event_type !== 'heartbeat') commitEventId(frame.id)
+  return isTerminalStreamEventType(event.event_type)
 }
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -144,6 +164,7 @@ export async function streamEvents<T>(
       if (!isListening) {
         conversationId = response.headers.get('X-Conversation-ID')
         runId = response.headers.get('X-Run-ID')
+        lastEventId = response.headers.get('X-Event-Cursor') ?? lastEventId
         if (conversationId && runId) options.onRun?.(conversationId, runId)
       }
       if (!response.body) throw new Error('浏览器无法读取服务器的流式响应')
@@ -161,28 +182,28 @@ export async function streamEvents<T>(
           buffer = blocks.pop() ?? ''
           for (const block of blocks) {
             const frame = parseSseBlock<T>(block)
-            if (frame.id !== null) {
-              lastEventId = frame.id
-              options.onEventId?.(frame.id)
-            }
-            if (frame.data !== null) {
-              onEvent(frame.data, frame.id ?? undefined)
-              const eventType = (frame.data as { event_type?: unknown }).event_type
-              if (isTerminalStreamEventType(eventType)) terminal = true
-            }
+            terminal = deliverStreamFrame(
+              frame,
+              onEvent,
+              (eventId) => {
+                lastEventId = eventId
+                options.onEventId?.(eventId)
+              },
+            ) || terminal
           }
           if (done) streamClosed = true
           if (done || terminal || options.signal?.aborted) break
         }
         const finalFrame = buffer ? parseSseBlock<T>(buffer) : null
-        if (finalFrame?.id !== null && finalFrame?.id !== undefined) {
-          lastEventId = finalFrame.id
-          options.onEventId?.(finalFrame.id)
-        }
-        if (finalFrame?.data !== null && finalFrame?.data !== undefined) {
-          onEvent(finalFrame.data, finalFrame.id ?? undefined)
-          const eventType = (finalFrame.data as { event_type?: unknown }).event_type
-          if (isTerminalStreamEventType(eventType)) terminal = true
+        if (finalFrame) {
+          terminal = deliverStreamFrame(
+            finalFrame,
+            onEvent,
+            (eventId) => {
+              lastEventId = eventId
+              options.onEventId?.(eventId)
+            },
+          ) || terminal
         }
       } finally {
         reader.releaseLock()

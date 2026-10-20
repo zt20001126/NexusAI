@@ -162,7 +162,7 @@ class ConversationApplicationService:
         if not isinstance(blocks, list):
             return content
         enriched = []
-        for block in blocks:
+        for index, block in enumerate(blocks):
             if isinstance(block, dict) and block.get("type") == "image":
                 attachment_id = block.get("attachment_id")
                 if isinstance(attachment_id, str):
@@ -173,5 +173,7 @@ class ConversationApplicationService:
                             f"{message_id}/attachments/{attachment_id}/image"
                         ),
                     }
+            if isinstance(block, dict) and not isinstance(block.get("id"), str):
+                block = {**block, "id": f"{message_id}-block-{index}"}
             enriched.append(block)
         return {**content, "blocks": enriched}

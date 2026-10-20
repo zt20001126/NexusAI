@@ -17,7 +17,8 @@ from agent.runner import AgentRunner
 from agent.schemas.run import RunRecord, RunStatus
 from agent.streaming.events import (
     AgentEvent,
-    AgentEventType,
+    RunTerminalStatus,
+    get_run_terminal_status,
     is_run_terminal_event_type,
 )
 from agent.streaming.publisher import EventPublisher
@@ -129,7 +130,7 @@ class AgentApplicationService:
         principal_id: str,
         request_id: str,
         after: str | None,
-    ) -> tuple[RunRecord, AsyncIterator[AgentEvent]]:
+    ) -> tuple[RunRecord, AsyncIterator[AgentEvent], str]:
         """将追问恢复也作为后台任务执行，并从旧游标继续同一 run 流。"""
         record = self._runner.prepare_resume(
             conversation_id=conversation_id,
@@ -142,7 +143,7 @@ class AgentApplicationService:
         if self._event_store is not None:
             latest_id = self._event_store.latest_id(conversation_id, run_id)
             # 恢复请求从既有 waiting 终止事件之后开始；幂等重试时 latest_id
-            # 也可能已经包含本轮新事件，避免重放旧 question.required 并提前结束。
+            # 也可能已经包含本轮新事件，避免重放旧 question 快照并提前结束。
             cursor = latest_id
             try:
                 self._event_store.validate_cursor(
@@ -170,7 +171,7 @@ class AgentApplicationService:
             run_id=run_id,
             after=cursor,
             allow_missing_at_latest=True,
-        )
+        ), cursor or "0-0"
 
     async def execute_worker(self, run_id: str) -> None:
         """在 Celery Worker 中执行 Runner，并先持久化每个事件再供客户端读取。"""
@@ -222,12 +223,17 @@ class AgentApplicationService:
             self._task_queue.enqueue(record.agent.value, record.run_id)
 
         latest_id = self._event_store.latest_id(conversation_id, record.run_id)
+        last_event = self._event_store.last_event(conversation_id, record.run_id)
+        waiting_end_persisted = (
+            record.status == RunStatus.WAITING
+            and last_event is not None
+            and get_run_terminal_status(last_event) == RunTerminalStatus.WAITING
+        )
         terminal_status = record.status in {
-            RunStatus.WAITING,
             RunStatus.COMPLETED,
             RunStatus.CANCELLED,
             RunStatus.FAILED,
-        }
+        } or waiting_end_persisted
         if terminal_status and (
             (latest_id is None and after in {None, "0-0"})
             or (latest_id is not None and after is not None
@@ -244,13 +250,8 @@ class AgentApplicationService:
             allow_missing_at_latest=allow_missing_at_latest,
         )
         if terminal_status:
-            last_event_type = self._event_store.last_event_type(
-                conversation_id, record.run_id
-            )
-            if not (
-                is_run_terminal_event_type(last_event_type)
-                or last_event_type == AgentEventType.QUESTION_REQUIRED
-            ):
+            last_event_type = self._event_store.last_event_type(conversation_id, record.run_id)
+            if not is_run_terminal_event_type(last_event_type):
                 # Redis 事件写入失败时，Runner 仍可能已保存终态；避免连接空转，
                 # 让客户端明确退回数据库历史消息。
                 raise AgentRunAlreadyEndedError()
@@ -259,7 +260,11 @@ class AgentApplicationService:
             conversation_id=conversation_id,
             run_id=record.run_id,
             after=after,
-            terminal_status=record.status.value,
+            terminal_status=(
+                record.status.value
+                if record.status != RunStatus.WAITING or waiting_end_persisted
+                else None
+            ),
             allow_missing_at_latest=allow_missing_at_latest,
         )
 

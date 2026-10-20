@@ -27,7 +27,11 @@ class MessageStore(Protocol):
         conversation_id: str,
         role: str,
         content: dict[str, Any],
+        message_id: str | None = None,
     ) -> str: ...
+    def update_content(
+        self, conversation_id: str, message_id: str, content: dict[str, Any]
+    ) -> None: ...
     def get_for_conversation(
         self, conversation_id: str, message_id: str
     ) -> MessageRecord | None: ...

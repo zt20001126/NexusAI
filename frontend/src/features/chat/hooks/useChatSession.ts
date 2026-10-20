@@ -28,7 +28,11 @@ import {
   type Conversation,
   type TaskResultSummary,
 } from '../api/conversations'
-import { toDisplayMessage, type DisplayMessage } from '../model/messages'
+import {
+  toDisplayMessage,
+  type DisplayContentBlock,
+  type DisplayMessage,
+} from '../model/messages'
 import { streamLiteratureChat } from '../api/literature'
 
 interface PendingQuestion {
@@ -51,9 +55,9 @@ interface RetryableResumeSubmission {
 }
 
 function readRunTerminalOutcome(event: AgentEvent): RunTerminalStatus | null {
-  if (event.event_type !== 'run.terminal') return null
+  if (event.event_type !== 'end') return null
   const status = readString(event.data.status)
-  return status === 'completed' || status === 'cancelled' || status === 'failed'
+  return status === 'completed' || status === 'waiting' || status === 'cancelled' || status === 'failed'
     ? status
     : null
 }
@@ -87,7 +91,9 @@ export function useChatSession() {
   const liveRunKeysRef = useRef(new Set<string>())
   const retryableSubmissionRef = useRef<RetryableChatSubmission | null>(null)
   const retryableResumeRef = useRef<RetryableResumeSubmission | null>(null)
-  const handleAgentEventRef = useRef<((event: AgentEvent, eventId?: string) => void) | null>(null)
+  const handleAgentEventRef = useRef<(
+    (event: AgentEvent, conversationId?: string, runId?: string) => void
+  ) | null>(null)
 
   const detachCurrentListener = useCallback(() => {
     const key = listenerKeyRef.current
@@ -235,15 +241,21 @@ export function useChatSession() {
         setOlderCursor(page.next_before_message_id)
         const savedQuestion = [...page.items].reverse().find((item) =>
           item.role === 'assistant'
-          && item.content.blocks.some((block) => block.type === 'question_batch'),
-        )?.content.blocks.find((block) => block.type === 'question_batch')
+          && item.content.blocks.some((block) => (
+            block.type === 'question_batch'
+            || (block.type === 'question' && 'questions' in block && !('answers' in block))
+          )),
+        )?.content.blocks.find((block) => (
+          block.type === 'question_batch'
+          || (block.type === 'question' && 'questions' in block && !('answers' in block))
+        ))
         try {
           const run = await getConversationRunStatus(conversationId)
           if (!current) return
-          if (run.status === 'waiting' && savedQuestion?.type === 'question_batch') {
+          if (run.status === 'waiting' && savedQuestion && 'questions' in savedQuestion) {
             setPendingQuestion({
               conversationId,
-              runId: savedQuestion.run_id,
+              runId: savedQuestion.run_id ?? run.run_id,
               questions: savedQuestion.questions,
               questionRound: savedQuestion.question_round,
               maxQuestionRounds: savedQuestion.max_question_rounds,
@@ -263,14 +275,16 @@ export function useChatSession() {
           activeRunRef.current = run.run_id
           setStatus(run.status === 'queued' ? '正在排队…' : '正在恢复后台生成…')
           if (liveRunKeysRef.current.has(key)) return
-          const after = readSavedRunCursor(conversationId, run.run_id) ?? run.last_event_id
+          // 历史消息已从数据库恢复到本次查询时刻；从 Redis 最新游标继续，
+          // 避免把已经合并进历史快照的旧 delta 再追加一次。
+          const after = run.last_event_id
           controller = new AbortController()
           listenerControllerRef.current = controller
           listenerKeyRef.current = key
           liveRunKeysRef.current.add(key)
           setSending(true)
-          void listenAgentRun(conversationId, run.run_id, after, (event, eventId) => {
-            handleAgentEventRef.current?.(event, eventId)
+          void listenAgentRun(conversationId, run.run_id, after, (event) => {
+            handleAgentEventRef.current?.(event, conversationId, run.run_id)
           }, {
             signal: controller.signal,
             onEventId: (eventId) => saveRunCursor(conversationId, run.run_id, eventId),
@@ -314,79 +328,100 @@ export function useChatSession() {
     }
   }, [activeConversationId, detachCurrentListener, refreshHistory])
 
-  const handleAgentEvent = useCallback((event: AgentEvent, eventId?: string) => {
-    const resolvedEventId = eventId ?? event.event_id
-    runByConversationRef.current.set(event.conversation_id, event.run_id)
-    if (resolvedEventId) saveRunCursor(event.conversation_id, event.run_id, resolvedEventId)
-    if (activeConversationRef.current !== event.conversation_id) return
-    activeRunRef.current = event.run_id
+  const handleAgentEvent = useCallback((
+    event: AgentEvent,
+    eventConversationId?: string,
+    eventRunId?: string,
+  ) => {
+    const conversationId = eventConversationId ?? activeConversationRef.current
+    const runId = eventRunId ?? activeRunRef.current
+    if (!conversationId || !runId) return
+    runByConversationRef.current.set(conversationId, runId)
+    if (activeConversationRef.current !== conversationId) return
+    activeRunRef.current = runId
 
     const terminalOutcome = readRunTerminalOutcome(event)
     if (terminalOutcome === 'completed') {
       setPendingQuestion(null)
-      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      if (activeRunRef.current === runId) activeRunRef.current = null
+      setMessages((current) => current.map((message) => ({ ...message, streaming: false })))
       setStatus('回复完成')
       return
     }
+    if (terminalOutcome === 'waiting') {
+      setMessages((current) => current.map((message) => ({ ...message, streaming: false })))
+      setStatus('等待你的补充信息')
+      return
+    }
     if (terminalOutcome === 'cancelled') {
-      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      if (activeRunRef.current === runId) activeRunRef.current = null
       setPendingQuestion(null)
+      setMessages((current) => current.map((message) => ({ ...message, streaming: false })))
       setStatus('已停止生成')
       return
     }
     if (terminalOutcome === 'failed') {
-      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      if (activeRunRef.current === runId) activeRunRef.current = null
       setPendingQuestion(null)
+      setMessages((current) => current.map((message) => ({ ...message, streaming: false })))
       setStatus('本轮未完成')
-      setError(readString(event.data.message) || '对话执行失败，请重试。')
+      const error = event.event_type === 'end' ? event.data.error : undefined
+      setError(
+        error && typeof error === 'object' && 'message' in error
+          ? readString(error.message)
+          : '对话执行失败，请重试。',
+      )
       return
     }
 
     switch (event.event_type) {
-      case 'run.started':
+      case 'start':
         setStatus('正在准备回复…')
         break
-      case 'message.delta': {
-        const content = readString(event.data.content)
-        if (!content) break
-        setStatus('正在回复…')
-        setMessages((current) => upsertAssistantMessage(current, event.run_id, content, true, true))
+      case 'heartbeat':
+        break
+      case 'message': {
+        if (event.data.operation === 'delta') {
+          const { message_id: messageId, block_id: blockId, offset, text } = event.data
+          if (!messageId || !blockId || !text || !Number.isInteger(offset) || offset < 0) break
+          setStatus('正在回复…')
+          setMessages((current) => upsertAssistantDelta(
+            current, messageId, blockId, offset, text,
+          ))
+          break
+        }
+        const messageId = event.data.message_id
+        const blocks: DisplayContentBlock[] = event.data.content.blocks.map((block) => (
+          block.type === 'question' && !readString(block.run_id)
+            ? { ...block, run_id: runId }
+            : block
+        ))
+        setMessages((current) => upsertAssistantSnapshot(
+          current, messageId, blocks, activeAgentRef.current,
+        ))
+        const question = blocks.find((block) => block.type === 'question' && Array.isArray(block.questions))
+        if (question && Array.isArray(question.questions)) {
+          setPendingQuestion({
+            conversationId,
+            runId,
+            questions: question.questions as Question[],
+            questionRound: readInteger(question.question_round) ?? 1,
+            maxQuestionRounds: readInteger(question.max_question_rounds)
+              ?? MAX_QUESTION_ROUNDS_PER_RUN,
+          })
+          setStatus('等待你的补充信息')
+        } else if (blocks.some((block) => block.type === 'text')) {
+          setStatus('正在回复…')
+        }
         break
       }
-      case 'message.completed': {
-        const content = readString(event.data.content)
-        if (content) setMessages((current) => upsertAssistantMessage(current, event.run_id, content, false, false))
-        break
-      }
-      case 'tool.status':
+      case 'status':
         if (event.data.status === 'started') {
           setStatus(`正在使用${readString(event.data.tool_name) || '工具'}…`)
         } else if (event.data.status === 'completed') {
           setStatus('正在整理结果…')
         }
         break
-      case 'question.required': {
-        const questions = Array.isArray(event.data.questions)
-          ? event.data.questions as Question[]
-          : []
-        setPendingQuestion({
-          conversationId: event.conversation_id,
-          runId: event.run_id,
-          questions,
-          questionRound: readInteger(event.data.question_round) ?? 1,
-          maxQuestionRounds: readInteger(event.data.max_question_rounds)
-            ?? MAX_QUESTION_ROUNDS_PER_RUN,
-        })
-        setStatus('等待你的补充信息')
-        break
-      }
-      case 'task_result.updated': {
-        const result = readTaskResult(event.data, activeAgentRef.current)
-        if (result) {
-          setMessages((current) => upsertAssistantResult(current, event.run_id, result))
-        }
-        break
-      }
       default:
         break
     }
@@ -518,6 +553,14 @@ export function useChatSession() {
             : null
         },
       }
+      const onStreamEvent = (event: AgentEvent) => {
+        const runId = resolvedConversationId
+          ? runByConversationRef.current.get(resolvedConversationId)
+          : undefined
+        if (resolvedConversationId && runId) {
+          handleAgentEvent(event, resolvedConversationId, runId)
+        }
+      }
       if (submittedAgent === LITERATURE_READER_AGENT) {
         await streamLiteratureChat(
           {
@@ -526,7 +569,7 @@ export function useChatSession() {
             document_ids: documentIds,
             request_id: requestId,
           },
-          handleAgentEvent,
+          onStreamEvent,
           streamOptions,
         )
       } else {
@@ -539,7 +582,7 @@ export function useChatSession() {
               : {}),
             request_id: requestId,
           },
-          handleAgentEvent,
+          onStreamEvent,
           submittedAgent,
           streamOptions,
         )
@@ -588,7 +631,11 @@ export function useChatSession() {
         pending.runId,
         pending.conversationId,
         answers,
-        handleAgentEvent,
+        (event) => handleAgentEvent(
+          event,
+          pending.conversationId,
+          pending.runId,
+        ),
         activeAgentRef.current,
         {
           signal: controller.signal,
@@ -737,27 +784,80 @@ function readAgent(value: unknown, fallback: AgentType): AgentType {
   return Object.values(AgentType).find((agent) => agent === value) ?? fallback
 }
 
-function upsertAssistantResult(
+function upsertAssistantDelta(
   messages: DisplayMessage[],
-  runId: string,
-  result: TaskResultSummary,
+  messageId: string,
+  blockId: string,
+  offset: number,
+  text: string,
 ): DisplayMessage[] {
-  const id = `assistant-${runId}`
-  const existingIndex = messages.findIndex((message) => message.id === id)
-  if (existingIndex === -1) {
-    return [...messages, { id, role: 'assistant', content: '', taskResults: [result] }]
+  const existing = messages.find((message) => message.id === messageId)
+  const blocks = [...(existing?.contentBlocks ?? [])]
+  const index = blocks.findIndex((block) => block.id === blockId)
+  const existingText = index === -1 ? '' : readString(blocks[index].text)
+  const nextText = offset > existingText.length
+    ? `${existingText}${text}`
+    : existingText.slice(0, offset) + text + existingText.slice(offset + text.length)
+  if (index === -1) blocks.push({ id: blockId, type: 'text', text: nextText })
+  else blocks[index] = { ...blocks[index], text: nextText }
+  return upsertAssistantBlocks(messages, messageId, blocks, true)
+}
+
+function upsertAssistantSnapshot(
+  messages: DisplayMessage[],
+  messageId: string,
+  blocks: DisplayContentBlock[],
+  agent: AgentType,
+): DisplayMessage[] {
+  const existing = messages.find((message) => message.id === messageId)
+  const taskResults = blocks
+    .filter((block) => block.type === 'task_result')
+    .map((block) => readTaskResult(block, agent))
+    .filter((result): result is TaskResultSummary => result !== null)
+  return upsertAssistantBlocks(
+    messages,
+    messageId,
+    blocks,
+    existing?.streaming ?? false,
+    taskResults,
+  )
+}
+
+function upsertAssistantBlocks(
+  messages: DisplayMessage[],
+  messageId: string,
+  blocks: DisplayContentBlock[],
+  streaming: boolean,
+  taskResults?: TaskResultSummary[],
+): DisplayMessage[] {
+  const text = blocks
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+  const question = blocks.find((block) => block.type === 'question' && Array.isArray(block.questions))
+  const message: DisplayMessage = {
+    ...(messages.find((item) => item.id === messageId) ?? {}),
+    id: messageId,
+    role: 'assistant',
+    content: text,
+    contentBlocks: blocks,
+    taskResults: taskResults ?? messages.find((item) => item.id === messageId)?.taskResults ?? [],
+    streaming,
+    ...(question && Array.isArray(question.questions)
+      ? {
+          questionBatch: {
+            runId: readString(question.run_id),
+            questionRound: readInteger(question.question_round) ?? 1,
+            maxQuestionRounds: readInteger(question.max_question_rounds)
+              ?? MAX_QUESTION_ROUNDS_PER_RUN,
+            questions: question.questions as Question[],
+          },
+        }
+      : {}),
   }
-  return messages.map((message, index) => {
-    if (index !== existingIndex) return message
-    const results = message.taskResults ?? []
-    return {
-      ...message,
-      taskResults: [
-        ...results.filter((item) => item.task_result_id !== result.task_result_id),
-        result,
-      ],
-    }
-  })
+  const index = messages.findIndex((item) => item.id === messageId)
+  if (index === -1) return [...messages, message]
+  return messages.map((item, itemIndex) => itemIndex === index ? message : item)
 }
 
 function readNullableString(value: unknown): string | null {
@@ -776,21 +876,6 @@ function readInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
 
-function upsertAssistantMessage(
-  messages: DisplayMessage[],
-  runId: string,
-  content: string,
-  append: boolean,
-  streaming: boolean,
-): DisplayMessage[] {
-  const id = `assistant-${runId}`
-  const existingIndex = messages.findIndex((message) => message.id === id)
-  if (existingIndex === -1) return [...messages, { id, role: 'assistant', content, streaming }]
-  return messages.map((message, index) => index === existingIndex
-    ? { ...message, content: append ? message.content + content : content, streaming }
-    : message)
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '发生未知错误，请稍后重试。'
 }
@@ -805,7 +890,7 @@ function runIdentityKey(conversationId: string): string {
 }
 
 function runCursorKey(conversationId: string, runId: string): string {
-  return `nexusai:agent-cursor:${conversationId}:${runId}`
+  return `nexusai:agent-cursor:v2:${conversationId}:${runId}`
 }
 
 function saveRunIdentity(conversationId: string, runId: string): void {

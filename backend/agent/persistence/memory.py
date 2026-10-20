@@ -15,7 +15,7 @@ from agent.errors import (
     RunBusyError,
 )
 from agent.schemas.conversation import ConversationRecord, MessageRecord
-from agent.schemas.run import RunRecord
+from agent.schemas.run import RunRecord, RunStatus
 from agent.schemas.task_result import (
     ImageAttachmentRecord,
     TaskResultRecord,
@@ -99,9 +99,15 @@ class MemoryMessageStore:
         conversation_id: str,
         role: str,
         content: dict[str, Any],
+        message_id: str | None = None,
     ) -> str:
         """按写入顺序保存测试消息。"""
-        message_id = get_snowflake_generator().next_id_string()
+        message_id = message_id or get_snowflake_generator().next_id_string()
+        if any(
+            item["message_id"] == message_id
+            for item in self.messages[conversation_id]
+        ):
+            raise ValueError("消息 ID 已存在")
         self.messages[conversation_id].append(
             {
                 "message_id": message_id,
@@ -112,6 +118,16 @@ class MemoryMessageStore:
             }
         )
         return message_id
+
+    def update_content(
+        self, conversation_id: str, message_id: str, content: dict[str, Any]
+    ) -> None:
+        """替换已有助手消息的完整内容。"""
+        for item in self.messages.get(conversation_id, []):
+            if item["message_id"] == message_id and item["role"] == "assistant":
+                item["content"] = content
+                return
+        raise ValueError("待更新的助手消息不存在")
 
     def get_for_conversation(
         self, conversation_id: str, message_id: str
@@ -237,9 +253,13 @@ class MemoryTaskResultStore:
     def save(self, record: TaskResultRecord) -> None:
         """新增或替换结果状态，同时保留初次创建时间。"""
         existing = self.records.get(record.task_result_id)
+        message_id = record.message_id or (
+            existing.message_id if existing is not None else None
+        )
         self.records[record.task_result_id] = TaskResultRecord(
             **{
                 **record.__dict__,
+                "message_id": message_id,
                 "created_at": record.created_at or (
                     existing.created_at if existing is not None else datetime.now(timezone.utc)
                 ),

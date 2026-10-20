@@ -1,6 +1,7 @@
 """Redis Streams 实现的智能体事件回放与跨进程取消信号。"""
 
 from collections.abc import AsyncIterator
+import json
 
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
@@ -11,11 +12,7 @@ from agent.errors import (
     AgentEventStreamExpiredError,
     AgentEventStoreUnavailableError,
 )
-from agent.streaming.events import (
-    AgentEvent,
-    AgentEventType,
-    is_run_terminal_event_type,
-)
+from agent.streaming.events import AgentEvent, AgentEventType, is_final_run_status
 from infra.settings import AppSettings
 
 
@@ -55,13 +52,14 @@ class RedisAgentEventStore:
             script = """
                 local sequence = redis.call('INCR', KEYS[2])
                 local event_id = tostring(sequence) .. '-0'
-                redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], event_id, 'event', ARGV[2])
-                redis.call('EXPIRE', KEYS[1], ARGV[3])
+                redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], event_id,
+                    'event_type', ARGV[2], 'timestamp', ARGV[3], 'data', ARGV[4])
+                redis.call('EXPIRE', KEYS[1], ARGV[5])
                 -- 游标元数据比事件正文寿命更长，避免过期后同一 run 的续跑序号归零。
                 redis.call('SET', KEYS[3], event_id)
-                if ARGV[4] == '1' then
-                    redis.call('EXPIRE', KEYS[2], ARGV[3])
-                    redis.call('EXPIRE', KEYS[3], ARGV[3])
+                if ARGV[6] == '1' then
+                    redis.call('EXPIRE', KEYS[2], ARGV[7])
+                    redis.call('EXPIRE', KEYS[3], ARGV[7])
                 end
                 return sequence
             """
@@ -72,9 +70,15 @@ class RedisAgentEventStore:
                 sequence_key,
                 self._latest_key(event.conversation_id, event.run_id),
                 self._max_events,
-                event.model_dump_json(),
+                event.event_type.value,
+                event.timestamp.isoformat(),
+                json.dumps(event.data, ensure_ascii=False, separators=(',', ':')),
                 self._ttl_seconds,
-                1 if is_run_terminal_event_type(event.event_type) else 0,
+                1 if (
+                    event.event_type == AgentEventType.END
+                    and is_final_run_status(event.data.get("status"))
+                ) else 0,
+                self._ttl_seconds,
             ))
             event_id = f"{sequence}-0"
             return event.model_copy(update={"event_id": event_id, "sequence": sequence})
@@ -108,8 +112,17 @@ class RedisAgentEventStore:
         if not rows:
             return None
         try:
-            return AgentEvent.model_validate_json(rows[0][1]["event"])
-        except (KeyError, ValueError) as error:
+            fields = rows[0][1]
+            return AgentEvent(
+                event_id=rows[0][0],
+                event_type=AgentEventType(fields["event_type"]),
+                conversation_id=conversation_id,
+                run_id=run_id,
+                sequence=_sequence_from_id(rows[0][0]),
+                timestamp=fields["timestamp"],
+                data=json.loads(fields["data"]),
+            )
+        except (KeyError, TypeError, ValueError) as error:
             raise AgentEventStoreUnavailableError() from error
 
     def validate_cursor(
@@ -187,26 +200,23 @@ class RedisAgentEventStore:
                             raise AgentEventStreamExpiredError()
                         cursor = event_id
                         try:
-                            event = AgentEvent.model_validate_json(fields["event"])
-                        except (KeyError, ValueError) as error:
+                            event = AgentEvent(
+                                event_id=event_id,
+                                event_type=AgentEventType(fields["event_type"]),
+                                conversation_id=conversation_id,
+                                run_id=run_id,
+                                sequence=_sequence_from_id(event_id),
+                                timestamp=fields["timestamp"],
+                                data=json.loads(fields["data"]),
+                            )
+                        except (KeyError, TypeError, ValueError) as error:
                             raise AgentEventStoreUnavailableError() from error
-                        # Redis Stream ID 是唯一回放游标；覆盖运行器的内存序号，
-                        # 让初次推送与重连回放的 SSE id 和 data.event_id 完全一致。
-                        event = event.model_copy(
-                            update={
-                                "event_id": event_id,
-                                "sequence": _sequence_from_id(event_id),
-                            }
-                        )
                         yield event
-                        if (
-                            is_run_terminal_event_type(event.event_type)
-                            or event.event_type == AgentEventType.QUESTION_REQUIRED
-                        ):
+                        if event.event_type == AgentEventType.END:
                             return
                 continue
 
-            if terminal_status in {"completed", "cancelled", "failed", "waiting"}:
+            if terminal_status in {"completed", "cancelled", "failed"}:
                 return
             yield AgentEvent(
                 event_id=cursor,
@@ -238,11 +248,11 @@ class RedisAgentEventStore:
 
     @staticmethod
     def _stream_key(conversation_id: str, run_id: str) -> str:
-        return f"nexusai:agent:events:{conversation_id}:{run_id}"
+        return f"nexusai:agent:events:v2:{conversation_id}:{run_id}"
 
     @staticmethod
     def _latest_key(conversation_id: str, run_id: str) -> str:
-        return f"nexusai:agent:latest:{conversation_id}:{run_id}"
+        return f"nexusai:agent:latest:v2:{conversation_id}:{run_id}"
 
     def _check_cursor(self, stream_key: str, latest_key: str, cursor: str) -> None:
         try:
