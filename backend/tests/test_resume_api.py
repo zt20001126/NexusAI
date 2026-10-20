@@ -112,6 +112,58 @@ def test_put_persists_skills_as_string_array_and_rejects_owner_fields(
     assert rejected.json()["code"] == "INVALID_RESUME_DATA"
 
 
+def test_put_persists_manual_age_and_work_experience_without_birth_month(
+    client: TestClient,
+) -> None:
+    payload = _valid_payload()
+    payload["content"]["basic_info"].update(
+        {"age": 29, "work_experience_years": 5}
+    )
+
+    response = client.put("/api/resume", json=payload)
+
+    assert response.status_code == 200
+    basic_info = response.json()["data"]["content"]["basic_info"]
+    assert basic_info["age"] == 29
+    assert basic_info["work_experience_years"] == 5
+    assert "birth_month" not in basic_info
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("age", -1),
+        ("age", 121),
+        ("age", "29"),
+        ("work_experience_years", -1),
+        ("work_experience_years", 81),
+        ("work_experience_years", 2.5),
+    ],
+)
+def test_manual_year_fields_reject_values_outside_integer_ranges(
+    client: TestClient,
+    field: str,
+    value: object,
+) -> None:
+    payload = _valid_payload()
+    payload["content"]["basic_info"][field] = value
+
+    response = client.put("/api/resume", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_RESUME_DATA"
+
+
+def test_put_rejects_removed_birth_month_field(client: TestClient) -> None:
+    payload = _valid_payload()
+    payload["content"]["basic_info"]["birth_month"] = "1996-08"
+
+    response = client.put("/api/resume", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_RESUME_DATA"
+
+
 def test_skills_must_be_plain_text_strings(client: TestClient) -> None:
     payload = _valid_payload()
     payload["content"]["skills"] = [{"type": "paragraph", "text": "Python"}]

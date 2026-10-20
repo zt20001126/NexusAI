@@ -18,8 +18,14 @@ function BasicInfoEditor({
   onUploadPhoto,
   onRemovePhoto,
 }: BasicInfoEditorProps) {
-  function change(field: keyof BasicInfo, nextValue: string | null) {
+  function changeText(field: 'name' | 'phone' | 'email' | 'intended_position', nextValue: string) {
     onChange({ ...value, [field]: nextValue })
+  }
+
+  function changeNumber(field: 'age' | 'work_experience_years', nextValue: string) {
+    const parsedValue = nextValue === '' ? null : Number(nextValue)
+    if (parsedValue !== null && !Number.isFinite(parsedValue)) return
+    onChange({ ...value, [field]: parsedValue })
   }
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -34,7 +40,7 @@ function BasicInfoEditor({
         <div>
           <p className="resume-editor-eyebrow">PERSONAL PROFILE</p>
           <h2>基本信息</h2>
-          <p>补充联系方式和求职意向，姓名、电话和邮箱为必填项。</p>
+          <p>补充联系方式和求职意向，姓名、电话和邮箱为必填项；年龄和工作经验年限手动填写。</p>
         </div>
       </div>
 
@@ -67,23 +73,27 @@ function BasicInfoEditor({
       <div className="resume-form-grid">
         <label className="resume-field">
           <span>姓名 <em>*</em></span>
-          <input value={value.name} maxLength={80} disabled={disabled} autoComplete="name" onChange={(event) => change('name', event.target.value)} placeholder="例如：张三" />
+          <input value={value.name} maxLength={80} disabled={disabled} autoComplete="name" onChange={(event) => changeText('name', event.target.value)} placeholder="例如：张三" />
         </label>
         <label className="resume-field">
           <span>联系电话 <em>*</em></span>
-          <input value={value.phone} maxLength={32} disabled={disabled} autoComplete="tel" onChange={(event) => change('phone', event.target.value)} placeholder="例如：138 0000 0000" />
+          <input value={value.phone} maxLength={32} disabled={disabled} autoComplete="tel" onChange={(event) => changeText('phone', event.target.value)} placeholder="例如：138 0000 0000" />
         </label>
         <label className="resume-field resume-field-span">
           <span>邮箱 <em>*</em></span>
-          <input type="email" value={value.email} maxLength={254} disabled={disabled} autoComplete="email" onChange={(event) => change('email', event.target.value)} placeholder="name@example.com" />
+          <input type="email" value={value.email} maxLength={254} disabled={disabled} autoComplete="email" onChange={(event) => changeText('email', event.target.value)} placeholder="name@example.com" />
         </label>
         <label className="resume-field resume-field-span">
           <span>求职意向</span>
-          <input value={value.intended_position} maxLength={120} disabled={disabled} onChange={(event) => change('intended_position', event.target.value)} placeholder="例如：后端开发工程师" />
+          <input value={value.intended_position} maxLength={120} disabled={disabled} onChange={(event) => changeText('intended_position', event.target.value)} placeholder="例如：后端开发工程师" />
         </label>
         <label className="resume-field">
-          <span>出生年月</span>
-          <input type="month" value={value.birth_month ?? ''} disabled={disabled} onChange={(event) => change('birth_month', event.target.value || null)} />
+          <span>工作经验（年）</span>
+          <input type="number" min={0} max={80} step={1} value={value.work_experience_years ?? ''} disabled={disabled} onChange={(event) => changeNumber('work_experience_years', event.target.value)} placeholder="例如：5" />
+        </label>
+        <label className="resume-field">
+          <span>年龄（岁）</span>
+          <input type="number" min={0} max={120} step={1} value={value.age ?? ''} disabled={disabled} onChange={(event) => changeNumber('age', event.target.value)} placeholder="例如：28" />
         </label>
       </div>
     </div>

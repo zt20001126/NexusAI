@@ -7,7 +7,15 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 
 MAX_EDUCATIONS = 10
@@ -40,16 +48,9 @@ class BasicInfo(StrictModel):
     phone: Annotated[StrictStr, Field(max_length=32)] = ""
     email: Annotated[StrictStr, Field(max_length=254)] = ""
     intended_position: Annotated[StrictStr, Field(max_length=120)] = ""
-    birth_month: Annotated[StrictStr, Field(max_length=7)] | None = None
+    age: Annotated[StrictInt, Field(ge=0, le=120)] | None = None
+    work_experience_years: Annotated[StrictInt, Field(ge=0, le=80)] | None = None
     photo_id: Annotated[StrictStr, Field(pattern=_PHOTO_ID_PATTERN.pattern)] | None = None
-
-    @field_validator("birth_month")
-    @classmethod
-    def validate_birth_month(cls, value: str | None) -> str | None:
-        """校验出生年月格式。"""
-        if value is not None and not _MONTH_PATTERN.fullmatch(value):
-            raise ValueError("月份必须采用 YYYY-MM 格式")
-        return value
 
 
 class EducationItem(StrictModel):

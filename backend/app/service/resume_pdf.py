@@ -130,17 +130,27 @@ def build_resume_html(
         if style.font_family == "arphic_ukai"
         else '"WenQuanYi Zen Hei", sans-serif'
     )
-    contact = "　|　".join(
-        html.escape(value)
-        for value in (info.phone, info.email, info.birth_month or "")
-        if value
+    first_filled_degree = next(
+        (item.degree.strip() for item in content.educations if item.degree.strip()),
+        "",
     )
+    contact_items = [value.strip() for value in (info.phone, info.email) if value.strip()]
+    if info.age is not None:
+        contact_items.append(f"{info.age}岁")
+    if first_filled_degree:
+        contact_items.append(first_filled_degree)
+    contact = "　|　".join(html.escape(value) for value in contact_items)
     photo_html = (
         f'<img class="resume-photo" src="{html.escape(photo_data_uri, quote=True)}" alt="证件照">'
         if photo_data_uri
         else ""
     )
-    position_html = f'<p class="resume-position">{html.escape(info.intended_position)}</p>' if info.intended_position else ""
+    position_items = [info.intended_position.strip()]
+    if info.work_experience_years is not None:
+        position_items.append(f"{info.work_experience_years}年工作经验")
+    position = "　|　".join(html.escape(value) for value in position_items if value)
+    position_html = f'<p class="resume-position">{position}</p>' if position else ""
+    contact_html = f'<p class="resume-contact">{contact}</p>' if contact else ""
 
     sections = [
         _render_education(content.educations),
@@ -162,8 +172,8 @@ def build_resume_html(
     .resume-page {{ width: 210mm; height: 297mm; padding: {page_margin.top}mm {page_margin.right}mm {page_margin.bottom}mm {page_margin.left}mm; overflow: visible; }}
     .resume-header {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 14mm; padding-bottom: 5mm; border-bottom: 0.35mm solid #d9e4f2; }}
     .resume-name {{ margin: 0; color: {style.heading_color}; font-size: 22pt; line-height: 1.2; }}
-    .resume-position {{ margin: 2mm 0 0; font-size: 12pt; font-weight: 600; }}
-    .resume-contact {{ margin: 3mm 0 0; color: #526174; font-size: 9pt; }}
+    .resume-position {{ margin: 2mm 0 0; font-size: 12pt; font-weight: 600; overflow-wrap: anywhere; }}
+    .resume-contact {{ margin: 3mm 0 0; color: #526174; font-size: 9pt; overflow-wrap: anywhere; }}
     .resume-photo {{ width: 28mm; height: 36mm; object-fit: cover; border-radius: 1mm; }}
     .resume-sections {{ padding-top: 3mm; }}
     .resume-section {{ margin-top: {style.section_spacing_pt}pt; break-inside: avoid; }}
@@ -185,7 +195,7 @@ def build_resume_html(
       <div>
         <h1 class="resume-name">{html.escape(info.name)}</h1>
         {position_html}
-        <p class="resume-contact">{contact}</p>
+        {contact_html}
       </div>
       {photo_html}
     </header>

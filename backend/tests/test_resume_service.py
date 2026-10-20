@@ -92,6 +92,37 @@ def test_get_empty_resume_does_not_write_repository() -> None:
     assert storage.events == ["cleanup:None"]
 
 
+def test_get_migrated_resume_defaults_manual_profile_values_to_empty() -> None:
+    migrated_content = {
+        "basic_info": {
+            "name": "Existing Name",
+            "phone": "13800000000",
+            "email": "existing@example.com",
+            "intended_position": "Engineer",
+            "photo_id": None,
+        },
+        "educations": [],
+        "skills": [],
+        "works": [],
+        "projects": [],
+    }
+    now = datetime.now(timezone.utc)
+    repository = FakeResumeRepository(
+        ResumeRecord(
+            migrated_content,
+            ResumeStyleConfig().model_dump(mode="json"),
+            now,
+            now,
+        )
+    )
+    service = _service(repository, FakeResumePhotoStorage())
+
+    response = service.get_resume("fixed-owner")
+
+    assert response.content.basic_info.age is None
+    assert response.content.basic_info.work_experience_years is None
+
+
 def test_photo_is_promoted_before_database_switch_and_old_photo_deleted_after() -> None:
     old_photo_id = "1" * 32
     new_photo_id = "2" * 32

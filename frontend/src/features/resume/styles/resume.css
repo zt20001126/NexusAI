@@ -47,8 +47,8 @@
 .resume-preview-paper.is-loading { background: linear-gradient(110deg, #FFF 8%, #F8FAFC 18%, #FFF 33%); background-size: 200% 100%; animation: resume-skeleton 1.4s linear infinite; }
 .resume-preview-personal { display: flex; align-items: flex-start; justify-content: space-between; gap: 5%; padding-bottom: 3.5%; border-bottom: 1px solid #DDE6F0; }
 .resume-preview-personal h1 { margin: 0; color: var(--resume-heading-color); font-size: 3.55cqw; line-height: 1.2; }
-.resume-preview-position { margin: 1.2% 0 0; font-size: 1.95cqw; font-weight: 650; }
-.resume-preview-contact { margin: 1.7% 0 0; color: #5D6D81; font-size: 1.36cqw; }
+.resume-preview-position { margin: 1.2% 0 0; font-size: 1.95cqw; font-weight: 650; overflow-wrap: anywhere; }
+.resume-preview-contact { margin: 1.7% 0 0; color: #5D6D81; font-size: 1.36cqw; overflow-wrap: anywhere; }
 .resume-preview-photo { width: 13.4%; aspect-ratio: 7 / 9; flex: 0 0 auto; object-fit: cover; border-radius: 1.3cqw; }
 .resume-preview-section { margin-top: var(--resume-section-space); }
 .resume-preview-section h2 { display: flex; align-items: center; gap: 1.2%; padding: 0 0 1%; margin: 0 0 1.8%; border-bottom: var(--resume-divider-width) solid var(--resume-divider-color); color: var(--resume-heading-color); font-size: 1.85cqw; line-height: 1.35; }

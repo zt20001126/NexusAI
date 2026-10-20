@@ -5,7 +5,8 @@ export interface BasicInfo {
   phone: string
   email: string
   intended_position: string
-  birth_month: string | null
+  age: number | null
+  work_experience_years: number | null
   photo_id: string | null
 }
 
@@ -125,7 +126,8 @@ export const DEFAULT_RESUME_CONTENT: ResumeContent = {
     phone: '',
     email: '',
     intended_position: '',
-    birth_month: null,
+    age: null,
+    work_experience_years: null,
     photo_id: null,
   },
   educations: [],

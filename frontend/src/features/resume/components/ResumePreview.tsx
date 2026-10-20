@@ -6,6 +6,7 @@ import type {
   TiptapDocument,
   TiptapNode,
 } from '../model/types'
+import { createResumeProfileSummary } from '../model/profileSummary'
 import ResumeSectionIcon from './ResumeSectionIcon'
 import type { ResumeSectionIconName } from './ResumeSectionIcon'
 
@@ -21,6 +22,7 @@ interface ResumePreviewProps {
 function ResumePreview({ content, style, photoPreviewUrl, exists, dirty, loading }: ResumePreviewProps) {
   const pageRef = useRef<HTMLElement>(null)
   const [overflow, setOverflow] = useState(false)
+  const profileSummary = createResumeProfileSummary(content.basic_info, content.educations)
 
   useEffect(() => {
     const page = pageRef.current
@@ -73,10 +75,8 @@ function ResumePreview({ content, style, photoPreviewUrl, exists, dirty, loading
               <header className="resume-preview-personal">
                 <div>
                   <h1>{content.basic_info.name || '你的姓名'}</h1>
-                  {content.basic_info.intended_position && <p className="resume-preview-position">{content.basic_info.intended_position}</p>}
-                  <p className="resume-preview-contact">
-                    {[content.basic_info.phone, content.basic_info.email, content.basic_info.birth_month].filter(Boolean).join('　|　') || '电话　|　邮箱' }
-                  </p>
+                  {profileSummary.positionItems.length > 0 && <p className="resume-preview-position">{profileSummary.positionItems.join('　|　')}</p>}
+                  {profileSummary.contactItems.length > 0 && <p className="resume-preview-contact">{profileSummary.contactItems.join('　|　')}</p>}
                 </div>
                 {photoPreviewUrl && <img className="resume-preview-photo" src={photoPreviewUrl} alt="证件照" />}
               </header>

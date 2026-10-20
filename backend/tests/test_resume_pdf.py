@@ -83,6 +83,77 @@ def test_html_uses_installed_cjk_font_families() -> None:
     assert 'font-family: "AR PL UKai CN", "AR PL UKai HK", "WenQuanYi Zen Hei", serif' in serif_html
 
 
+def test_html_renders_profile_summary_in_requested_order() -> None:
+    content = ResumeContent.model_validate(
+        {
+            "basic_info": {
+                "name": "林知远",
+                "phone": "13800138000",
+                "email": "lin@example.com",
+                "intended_position": "高级全栈工程师",
+                "age": 29,
+                "work_experience_years": 5,
+            },
+            "educations": [
+                {
+                    "id": "71b1c2b7-f7f5-48fc-9f19-b5242df1b8c3",
+                    "school": "浙江大学",
+                    "major": "软件工程",
+                    "degree": "   ",
+                    "start_month": "2018-09",
+                    "end_month": "2021-06",
+                },
+                {
+                    "id": "81b1c2b7-f7f5-48fc-9f19-b5242df1b8c3",
+                    "school": "浙江大学",
+                    "major": "软件工程",
+                    "degree": "硕士",
+                    "start_month": "2018-09",
+                    "end_month": "2021-06",
+                },
+                {
+                    "id": "91b1c2b7-f7f5-48fc-9f19-b5242df1b8c3",
+                    "school": "其他学校",
+                    "major": "其他专业",
+                    "degree": "本科",
+                    "start_month": "2014-09",
+                    "end_month": "2018-06",
+                },
+            ],
+        }
+    )
+
+    html_document = build_resume_html(
+        content,
+        ResumeStyleConfig(),
+        photo_data_uri=None,
+    )
+
+    assert (
+        '<p class="resume-position">高级全栈工程师　|　5年工作经验</p>'
+        in html_document
+    )
+    assert (
+        '<p class="resume-contact">13800138000　|　lin@example.com　|　29岁　|　硕士</p>'
+        in html_document
+    )
+    assert html_document.count("本科") == 1
+    assert html_document.index('class="resume-position"') < html_document.index(
+        'class="resume-contact"'
+    )
+
+
+def test_html_omits_empty_profile_lines_and_contact_separators() -> None:
+    html_document = build_resume_html(
+        ResumeContent(),
+        ResumeStyleConfig(),
+        photo_data_uri=None,
+    )
+
+    assert 'class="resume-position">' not in html_document
+    assert 'class="resume-contact">' not in html_document
+
+
 def test_tiptap_rejects_excessive_depth_and_unsupported_marks() -> None:
     from app.schemas.resume import TiptapDocument
 
