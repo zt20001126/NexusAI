@@ -19,7 +19,7 @@ def _handle_tool_error(error: Exception) -> str:
 
 
 def create_tool_node(tool_registry: ToolRegistry) -> ToolNode:
-    """输入 AI 工具调用并追加 ToolMessage；执行后由图返回 chat_node。
+    """输入 AI 工具调用并追加 ToolMessage；执行后由图返回 agent_node。
 
     空工具集仍可构建，但没有已注册工具调用时图不会进入此节点。
     """

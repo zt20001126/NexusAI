@@ -7,8 +7,7 @@ from langgraph.graph.message import add_messages
 
 
 class BaseAgentState(TypedDict, total=False):
-    """在节点间传递的消息、校验后请求和最终回答。"""
+    """在节点间传递的对话消息和最终回答。"""
 
     messages: Annotated[list[BaseMessage], add_messages]
-    original_request: str
     answer: str

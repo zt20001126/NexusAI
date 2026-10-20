@@ -11,7 +11,11 @@ from agent.errors import (
     AgentEventStreamExpiredError,
     AgentEventStoreUnavailableError,
 )
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import (
+    AgentEvent,
+    AgentEventType,
+    is_run_terminal_event_type,
+)
 from infra.settings import AppSettings
 
 
@@ -70,11 +74,7 @@ class RedisAgentEventStore:
                 self._max_events,
                 event.model_dump_json(),
                 self._ttl_seconds,
-                1 if event.event_type in {
-                    AgentEventType.RUN_COMPLETED,
-                    AgentEventType.RUN_CANCELLED,
-                    AgentEventType.RUN_FAILED,
-                } else 0,
+                1 if is_run_terminal_event_type(event.event_type) else 0,
             ))
             event_id = f"{sequence}-0"
             return event.model_copy(update={"event_id": event_id, "sequence": sequence})
@@ -91,6 +91,11 @@ class RedisAgentEventStore:
 
     def last_event_type(self, conversation_id: str, run_id: str) -> AgentEventType | None:
         """读取当前保留流的末事件类型，验证运行终态是否已持久化。"""
+        event = self.last_event(conversation_id, run_id)
+        return event.event_type if event is not None else None
+
+    def last_event(self, conversation_id: str, run_id: str) -> AgentEvent | None:
+        """读取当前保留流的末事件，用于恢复 Worker 的状态流转。"""
         try:
             rows = self._redis.xrevrange(
                 self._stream_key(conversation_id, run_id),
@@ -103,10 +108,9 @@ class RedisAgentEventStore:
         if not rows:
             return None
         try:
-            event = AgentEvent.model_validate_json(rows[0][1]["event"])
+            return AgentEvent.model_validate_json(rows[0][1]["event"])
         except (KeyError, ValueError) as error:
             raise AgentEventStoreUnavailableError() from error
-        return event.event_type
 
     def validate_cursor(
         self,
@@ -195,12 +199,10 @@ class RedisAgentEventStore:
                             }
                         )
                         yield event
-                        if event.event_type in {
-                            AgentEventType.RUN_COMPLETED,
-                            AgentEventType.RUN_CANCELLED,
-                            AgentEventType.RUN_FAILED,
-                            AgentEventType.QUESTION_REQUIRED,
-                        }:
+                        if (
+                            is_run_terminal_event_type(event.event_type)
+                            or event.event_type == AgentEventType.QUESTION_REQUIRED
+                        ):
                             return
                 continue
 

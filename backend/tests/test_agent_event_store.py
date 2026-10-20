@@ -4,7 +4,7 @@ import pytest
 from redis.exceptions import ResponseError
 
 from agent.errors import AgentEventStreamExpiredError
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import AgentEvent, AgentEventType, RunTerminalStatus
 from infra.agent_event_store import RedisAgentEventStore
 
 
@@ -52,11 +52,11 @@ async def test_replayed_event_uses_redis_stream_id_in_payload_and_cursor() -> No
     """重连时 JSON event_id/sequence 与 SSE Redis 游标保持一致。"""
     original = AgentEvent(
         event_id="conversation:1",
-        event_type=AgentEventType.RUN_COMPLETED,
+        event_type=AgentEventType.RUN_TERMINAL,
         conversation_id="123",
         run_id="456",
         sequence=1,
-        data={"answer": "done"},
+        data={"status": RunTerminalStatus.COMPLETED.value, "answer": "done"},
     )
     store = _event_store(_FakeRedis(original))
 
@@ -71,7 +71,10 @@ async def test_replayed_event_uses_redis_stream_id_in_payload_and_cursor() -> No
     assert len(events) == 1
     assert events[0].event_id == "9-0"
     assert events[0].sequence == 9
-    assert events[0].data == {"answer": "done"}
+    assert events[0].data == {
+        "status": RunTerminalStatus.COMPLETED.value,
+        "answer": "done",
+    }
 
 
 def test_missing_stream_with_retained_cursor_is_expired() -> None:

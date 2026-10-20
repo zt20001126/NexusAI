@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from agent.streaming.events import AgentEventType
+from agent.streaming.events import RunTerminalStatus, get_run_terminal_status
 from app.schemas.research import ResearchRequest, ResearchResponse
 from app.service.agent import AgentApplicationService
 from app.service.task_result import TaskResultApplicationService
@@ -76,7 +76,7 @@ class ResearchApplicationService:
             (
                 event.data.get("message")
                 for event in events
-                if event.event_type == AgentEventType.RUN_FAILED
+                if get_run_terminal_status(event) == RunTerminalStatus.FAILED
                 and isinstance(event.data.get("message"), str)
             ),
             "科研文献检索未能完成，请稍后重试。",

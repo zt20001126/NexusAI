@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from agent.persistence.memory import MemoryEventSequence, MemoryMessageStore
 from agent.schemas.conversation import text_content
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import AgentEvent, AgentEventType, RunTerminalStatus
 from agent.streaming.publisher import EventPublisher
 
 
@@ -22,10 +22,11 @@ async def _slow_event_source() -> AsyncIterator[AgentEvent]:
     await asyncio.sleep(0.03)
     yield AgentEvent(
         event_id="conversation:3",
-        event_type=AgentEventType.RUN_COMPLETED,
+        event_type=AgentEventType.RUN_TERMINAL,
         conversation_id="conversation",
         run_id="run",
         sequence=3,
+        data={"status": RunTerminalStatus.COMPLETED.value},
     )
 
 

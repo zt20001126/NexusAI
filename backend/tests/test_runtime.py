@@ -17,7 +17,12 @@ from agent.constants import BASE_CONVERSATION_AGENT
 from agent.persistence.memory import MemoryConversationStore
 from agent.runner import AgentRunner, build_memory_runner
 from agent.schemas.run import RunRecord, RunStatus
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import (
+    AgentEvent,
+    AgentEventType,
+    RunTerminalStatus,
+    get_run_terminal_status,
+)
 from agent.title import ConversationTitleGenerator
 from agents.base_agent import create_basic_conversation_agent
 from infra.settings import AppSettings
@@ -48,7 +53,8 @@ async def test_chat_uses_natural_language_for_general_clarification() -> None:
     event_types = [event.event_type for event in events]
     assert AgentEventType.RUN_STARTED in event_types
     assert AgentEventType.QUESTION_REQUIRED not in event_types
-    assert AgentEventType.RUN_COMPLETED in event_types
+    terminal = next(event for event in events if event.event_type == AgentEventType.RUN_TERMINAL)
+    assert terminal.data["status"] == RunTerminalStatus.COMPLETED.value
     completed = next(
         event for event in events if event.event_type == AgentEventType.MESSAGE_COMPLETED
     )
@@ -72,7 +78,8 @@ async def test_malformed_question_tool_result_fails_instead_of_waiting_forever()
 
     events = [event async for event in runner._events_for_message(record, message)]
 
-    assert events[0].event_type == AgentEventType.RUN_FAILED
+    assert events[0].event_type == AgentEventType.RUN_TERMINAL
+    assert events[0].data["status"] == RunTerminalStatus.FAILED.value
     assert events[0].data["code"] == "INVALID_QUESTION_PAYLOAD"
 
 
@@ -103,7 +110,8 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
     events = [event async for event in runner._events_for_message(record, message)]
 
     assert len(events) == 1
-    assert events[0].event_type == AgentEventType.RUN_FAILED
+    assert events[0].event_type == AgentEventType.RUN_TERMINAL
+    assert events[0].data["status"] == RunTerminalStatus.FAILED.value
     assert events[0].data["code"] == "QUESTION_ROUND_LIMIT"
     assert record.metadata["question_round_count"] == 3
 
@@ -202,9 +210,12 @@ async def test_runtime_stops_graph_after_configured_timeout() -> None:
     )
 
     failed = next(
-        event for event in events if event.event_type == AgentEventType.RUN_FAILED
+        event
+        for event in events
+        if get_run_terminal_status(event) == RunTerminalStatus.FAILED
     )
     assert failed.data == {
+        "status": RunTerminalStatus.FAILED.value,
         "code": "AGENT_RUN_TIMEOUT",
         "message": "智能体运行超时，请稍后重试",
     }
@@ -232,8 +243,9 @@ async def test_cancel_interrupts_long_running_node_without_waiting_for_update() 
 
     assert loop.time() - cancel_started_at < 0.5
     assert [event.event_type for event in remaining_events] == [
-        AgentEventType.RUN_CANCELLED
+        AgentEventType.RUN_TERMINAL
     ]
+    assert remaining_events[0].data["status"] == RunTerminalStatus.CANCELLED.value
 
 
 async def test_second_run_on_same_conversation_fails_without_orphan_record() -> None:
@@ -257,7 +269,8 @@ async def test_second_run_on_same_conversation_fails_without_orphan_record() -> 
         )
     )
 
-    assert second_events[-1].event_type == AgentEventType.RUN_FAILED
+    assert second_events[-1].event_type == AgentEventType.RUN_TERMINAL
+    assert second_events[-1].data["status"] == RunTerminalStatus.FAILED.value
     assert second_events[-1].data["code"] == "RUN_BUSY"
     runtime.cancel(
         run_id=first_started.run_id,
