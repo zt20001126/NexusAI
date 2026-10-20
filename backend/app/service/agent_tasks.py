@@ -6,7 +6,13 @@ import logging
 from fastapi import FastAPI
 
 from agent.schemas.run import RunStatus
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import (
+    AgentEvent,
+    AgentEventType,
+    RunTerminalStatus,
+    get_run_terminal_status,
+    is_run_terminal_event_type,
+)
 from app.crud.run import PostgresRunStore
 from app.db.database import PostgresDatabase
 from bootstrap.runtime import build_lifespan
@@ -42,57 +48,73 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
             record = run_store.get(run_id)
             if record is None:
                 return
-            terminal_type_by_status = {
-                RunStatus.COMPLETED: AgentEventType.RUN_COMPLETED,
-                RunStatus.CANCELLED: AgentEventType.RUN_CANCELLED,
-                RunStatus.FAILED: AgentEventType.RUN_FAILED,
+            terminal_status_by_run_status = {
+                RunStatus.COMPLETED: RunTerminalStatus.COMPLETED,
+                RunStatus.CANCELLED: RunTerminalStatus.CANCELLED,
+                RunStatus.FAILED: RunTerminalStatus.FAILED,
             }
-            last_event_type = event_store.last_event_type(
+            last_event = event_store.last_event(
                 record.conversation_id,
                 record.run_id,
             )
-            if record.status in terminal_type_by_status:
-                expected_terminal_type = terminal_type_by_status[record.status]
-                if last_event_type in {
-                    AgentEventType.RUN_COMPLETED,
-                    AgentEventType.RUN_CANCELLED,
-                    AgentEventType.RUN_FAILED,
-                }:
+            if record.status in terminal_status_by_run_status:
+                terminal_status = terminal_status_by_run_status[record.status]
+                if last_event is not None and is_run_terminal_event_type(
+                    last_event.event_type
+                ):
                     return
-                event_type = expected_terminal_type
+                event_data = {"status": terminal_status.value}
+                if terminal_status == RunTerminalStatus.FAILED:
+                    event_data.update(
+                        {
+                            "code": "AGENT_WORKER_START_FAILED",
+                            "message": "智能体暂时无法启动，请稍后重新提交",
+                        }
+                    )
             elif record.status in {RunStatus.QUEUED, RunStatus.RUNNING}:
-                status_by_terminal_type = {
-                    AgentEventType.RUN_COMPLETED: RunStatus.COMPLETED,
-                    AgentEventType.RUN_CANCELLED: RunStatus.CANCELLED,
-                    AgentEventType.RUN_FAILED: RunStatus.FAILED,
+                run_status_by_terminal_status = {
+                    RunTerminalStatus.COMPLETED: RunStatus.COMPLETED,
+                    RunTerminalStatus.CANCELLED: RunStatus.CANCELLED,
+                    RunTerminalStatus.FAILED: RunStatus.FAILED,
                 }
                 if record.metadata.get("action") != "resume":
-                    status_by_terminal_type[AgentEventType.QUESTION_REQUIRED] = RunStatus.WAITING
-                persisted_status = status_by_terminal_type.get(last_event_type)
+                    if (
+                        last_event is not None
+                        and last_event.event_type == AgentEventType.QUESTION_REQUIRED
+                    ):
+                        record.status = RunStatus.WAITING
+                        run_store.save(record)
+                        return
+                persisted_terminal_status = (
+                    get_run_terminal_status(last_event)
+                    if last_event is not None
+                    else None
+                )
+                persisted_status = run_status_by_terminal_status.get(
+                    persisted_terminal_status
+                )
                 if persisted_status is not None:
                     record.status = persisted_status
                     if persisted_status == RunStatus.FAILED:
                         record.metadata["error_summary"] = "智能体运行失败，请稍后重试"
                     run_store.save(record)
                     return
-                event_type = AgentEventType.RUN_FAILED
+                terminal_status = RunTerminalStatus.FAILED
+                event_data = {
+                    "status": terminal_status.value,
+                    "code": "AGENT_WORKER_START_FAILED",
+                    "message": "智能体暂时无法启动，请稍后重新提交",
+                }
             else:
                 # waiting 需要问题数据才能继续交互，不能合成空的 question.required。
                 return
             event = AgentEvent(
                 event_id="",
-                event_type=event_type,
+                event_type=AgentEventType.RUN_TERMINAL,
                 conversation_id=record.conversation_id,
                 run_id=record.run_id,
                 sequence=1,
-                data=(
-                    {
-                        "code": "AGENT_WORKER_START_FAILED",
-                        "message": "智能体暂时无法启动，请稍后重新提交",
-                    }
-                    if event_type == AgentEventType.RUN_FAILED
-                    else {}
-                ),
+                data=event_data,
             )
             await asyncio.to_thread(event_store.append, event)
             if record.status in {RunStatus.QUEUED, RunStatus.RUNNING}:

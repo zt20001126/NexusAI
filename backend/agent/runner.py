@@ -62,7 +62,13 @@ from agent.schemas.conversation import text_content
 from agent.schemas.task_result import TaskResultStatus
 from agent.schemas.question import validate_question_batch
 from agent.schemas.tool_result import ToolResult
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import (
+    AgentEvent,
+    AgentEventType,
+    RunTerminalStatus,
+    ToolStatus,
+    get_run_terminal_status,
+)
 from agent.tools.registry import PAUSE_TOOL_NAMES
 from infra.model_provider import ChatModelProvider, OpenAICompatibleProvider
 from infra.settings import AppSettings
@@ -321,9 +327,9 @@ class AgentRunner:
                     return
                 record.status = RunStatus.FAILED
                 record.metadata["error_summary"] = "智能体 Worker 中断，本轮未能安全续跑"
-                yield self._event(
+                yield self._terminal_event(
                     record,
-                    AgentEventType.RUN_FAILED,
+                    RunTerminalStatus.FAILED,
                     {
                         "code": "AGENT_WORKER_INTERRUPTED",
                         "message": "本轮执行中断，请重新提交消息后重试",
@@ -337,10 +343,13 @@ class AgentRunner:
                 if not isinstance(answers, dict):
                     record.status = RunStatus.FAILED
                     record.metadata["error_summary"] = "本轮输入暂时无法读取"
-                    yield self._event(
+                    yield self._terminal_event(
                         record,
-                        AgentEventType.RUN_FAILED,
-                        {"code": "RUN_INPUT_MISSING", "message": "本轮输入暂时无法读取"},
+                        RunTerminalStatus.FAILED,
+                        {
+                            "code": "RUN_INPUT_MISSING",
+                            "message": "本轮输入暂时无法读取",
+                        },
                     )
                     return
                 events = self._execute_resume_record(record, answers)
@@ -352,10 +361,13 @@ class AgentRunner:
                 if input_message is None:
                     record.status = RunStatus.FAILED
                     record.metadata["error_summary"] = "本轮输入暂时无法读取"
-                    yield self._event(
+                    yield self._terminal_event(
                         record,
-                        AgentEventType.RUN_FAILED,
-                        {"code": "RUN_INPUT_MISSING", "message": "本轮输入暂时无法读取"},
+                        RunTerminalStatus.FAILED,
+                        {
+                            "code": "RUN_INPUT_MISSING",
+                            "message": "本轮输入暂时无法读取",
+                        },
                     )
                     return
                 blocks = input_message.content.get("blocks", [])
@@ -604,7 +616,7 @@ class AgentRunner:
                 async for stream_item in self._cancel_aware_stream(graph_stream, cancel_event):
                     if stream_item is None:
                         record.status = RunStatus.CANCELLED
-                        yield self._event(record, AgentEventType.RUN_CANCELLED)
+                        yield self._terminal_event(record, RunTerminalStatus.CANCELLED)
                         return
                     stream_mode, payload = stream_item
                     if stream_mode == "messages":
@@ -617,10 +629,13 @@ class AgentRunner:
                             output_char_count += len(content)
                             if output_char_count > self._max_output_chars:
                                 record.status = RunStatus.FAILED
-                                yield self._event(
+                                yield self._terminal_event(
                                     record,
-                                    AgentEventType.RUN_FAILED,
-                                    {"code": "AGENT_OUTPUT_LIMIT", "message": "智能体输出超过允许长度"},
+                                    RunTerminalStatus.FAILED,
+                                    {
+                                        "code": "AGENT_OUTPUT_LIMIT",
+                                        "message": "智能体输出超过允许长度",
+                                    },
                                 )
                                 return
                             yield self._event(
@@ -651,10 +666,13 @@ class AgentRunner:
                                         output_char_count += len(missing_content)
                                         if output_char_count > self._max_output_chars:
                                             record.status = RunStatus.FAILED
-                                            yield self._event(
+                                            yield self._terminal_event(
                                                 record,
-                                                AgentEventType.RUN_FAILED,
-                                                {"code": "AGENT_OUTPUT_LIMIT", "message": "智能体输出超过允许长度"},
+                                                RunTerminalStatus.FAILED,
+                                                {
+                                                    "code": "AGENT_OUTPUT_LIMIT",
+                                                    "message": "智能体输出超过允许长度",
+                                                },
                                             )
                                             return
                                         # 特殊智能体的回复可能要等任务或证据校验完成；仅拆分最终安全文本。
@@ -664,39 +682,48 @@ class AgentRunner:
                                                 AgentEventType.MESSAGE_DELTA,
                                                 {"content": text_chunk},
                                             )
-                                if event.event_type == AgentEventType.TOOL_STARTED:
+                                if (
+                                    event.event_type == AgentEventType.TOOL_STATUS
+                                    and event.data.get("status") == ToolStatus.STARTED.value
+                                ):
                                     tool_call_count += 1
                                     if tool_call_count > self._max_tool_calls:
                                         record.status = RunStatus.FAILED
-                                        yield self._event(
+                                        yield self._terminal_event(
                                             record,
-                                            AgentEventType.RUN_FAILED,
-                                            {"code": "AGENT_TOOL_CALL_LIMIT", "message": "工具调用次数超过允许范围"},
+                                            RunTerminalStatus.FAILED,
+                                            {
+                                                "code": "AGENT_TOOL_CALL_LIMIT",
+                                                "message": "工具调用次数超过允许范围",
+                                            },
                                         )
                                         return
                                 if event.event_type == AgentEventType.QUESTION_REQUIRED:
                                     waiting_for_answer = True
                                 yield event
-                                if event.event_type == AgentEventType.RUN_FAILED:
+                                if (
+                                    get_run_terminal_status(event)
+                                    == RunTerminalStatus.FAILED
+                                ):
                                     record.status = RunStatus.FAILED
                                     return
             if waiting_for_answer:
                 record.status = RunStatus.WAITING
             else:
                 record.status = RunStatus.COMPLETED
-                yield self._event(record, AgentEventType.RUN_COMPLETED)
+                yield self._terminal_event(record, RunTerminalStatus.COMPLETED)
         except RunBusyError:
             record.status = RunStatus.FAILED
-            yield self._event(
+            yield self._terminal_event(
                 record,
-                AgentEventType.RUN_FAILED,
+                RunTerminalStatus.FAILED,
                 {"code": "RUN_BUSY", "message": "当前会话正在处理中"},
             )
         except GraphRecursionError:
             record.status = RunStatus.FAILED
-            yield self._event(
+            yield self._terminal_event(
                 record,
-                AgentEventType.RUN_FAILED,
+                RunTerminalStatus.FAILED,
                 {"code": "AGENT_MAX_STEPS", "message": "智能体执行步骤超过允许范围"},
             )
         except TimeoutError:
@@ -706,9 +733,9 @@ class AgentRunner:
                 record.conversation_id,
                 record.run_id,
             )
-            yield self._event(
+            yield self._terminal_event(
                 record,
-                AgentEventType.RUN_FAILED,
+                RunTerminalStatus.FAILED,
                 {"code": "AGENT_RUN_TIMEOUT", "message": "智能体运行超时，请稍后重试"},
             )
         except asyncio.CancelledError:
@@ -722,9 +749,9 @@ class AgentRunner:
                 record.conversation_id,
                 record.run_id,
             )
-            yield self._event(
+            yield self._terminal_event(
                 record,
-                AgentEventType.RUN_FAILED,
+                RunTerminalStatus.FAILED,
                 {"code": "AGENT_RUN_FAILED", "message": "智能体运行失败，请稍后重试"},
             )
         finally:
@@ -863,10 +890,17 @@ class AgentRunner:
         """把 LangChain 消息转换为受控工具、追问或文本事件。"""
         if isinstance(message, AIMessage):
             for tool_call in message.tool_calls:
+                tool_data: dict[str, Any] = {
+                    "tool_name": tool_call.get("name", ""),
+                    "status": ToolStatus.STARTED.value,
+                }
+                tool_call_id = tool_call.get("id")
+                if isinstance(tool_call_id, str):
+                    tool_data["tool_call_id"] = tool_call_id
                 yield self._event(
                     record,
-                    AgentEventType.TOOL_STARTED,
-                    {"tool_name": tool_call.get("name", "")},
+                    AgentEventType.TOOL_STATUS,
+                    tool_data,
                 )
             if isinstance(message.content, str) and message.content:
                 message_id = self._message_store.save(
@@ -892,20 +926,26 @@ class AgentRunner:
         payload = self._safe_tool_payload(message.content)
         if message.name in PAUSE_TOOL_NAMES:
             if not payload.get("success", False):
-                yield self._event(
+                yield self._terminal_event(
                     record,
-                    AgentEventType.RUN_FAILED,
-                    {"code": "QUESTION_TOOL_FAILED", "message": "生成追问信息失败"},
+                    RunTerminalStatus.FAILED,
+                    {
+                        "code": "QUESTION_TOOL_FAILED",
+                        "message": "生成追问信息失败",
+                    },
                 )
                 return
             try:
                 tool_data = payload.get("data", {})
                 questions = validate_question_batch(tool_data.get("questions", []))
             except ValueError:
-                yield self._event(
+                yield self._terminal_event(
                     record,
-                    AgentEventType.RUN_FAILED,
-                    {"code": "INVALID_QUESTION_PAYLOAD", "message": "追问信息格式不正确"},
+                    RunTerminalStatus.FAILED,
+                    {
+                        "code": "INVALID_QUESTION_PAYLOAD",
+                        "message": "追问信息格式不正确",
+                    },
                 )
                 return
             question_round_count = record.metadata.get("question_round_count", 0)
@@ -916,9 +956,9 @@ class AgentRunner:
                 question_round_count = 0
             if question_round_count >= MAX_QUESTION_ROUNDS_PER_RUN:
                 record.status = RunStatus.FAILED
-                yield self._event(
+                yield self._terminal_event(
                     record,
-                    AgentEventType.RUN_FAILED,
+                    RunTerminalStatus.FAILED,
                     {
                         "code": "QUESTION_ROUND_LIMIT",
                         "message": (
@@ -984,9 +1024,11 @@ class AgentRunner:
             return
         yield self._event(
             record,
-            AgentEventType.TOOL_COMPLETED,
+            AgentEventType.TOOL_STATUS,
             {
                 "tool_name": message.name or "unknown",
+                "tool_call_id": message.tool_call_id,
+                "status": ToolStatus.COMPLETED.value,
                 "success": bool(payload.get("success", False)),
                 "data": payload.get("data", {}),
             },
@@ -1026,6 +1068,17 @@ class AgentRunner:
             sequence=sequence,
             data=data or {},
         )
+
+    def _terminal_event(
+        self,
+        record: RunRecord,
+        status: RunTerminalStatus,
+        data: dict[str, Any] | None = None,
+    ) -> AgentEvent:
+        """创建统一运行终态事件，并保留错误等补充载荷。"""
+        payload = dict(data or {})
+        payload["status"] = status.value
+        return self._event(record, AgentEventType.RUN_TERMINAL, payload)
 
     @staticmethod
     def _scope_key(record: RunRecord) -> str:

@@ -14,7 +14,12 @@ import {
   streamChat,
   uploadReferenceImage,
 } from '../api/agent'
-import type { AgentDefinition, AgentEvent, UploadedImage } from '../api/agent'
+import type {
+  AgentDefinition,
+  AgentEvent,
+  RunTerminalStatus,
+  UploadedImage,
+} from '../api/agent'
 import {
   getConversationMessages,
   getActiveAgentRuns,
@@ -43,6 +48,14 @@ interface RetryableChatSubmission {
 interface RetryableResumeSubmission {
   signature: string
   requestId: string
+}
+
+function readRunTerminalOutcome(event: AgentEvent): RunTerminalStatus | null {
+  if (event.event_type !== 'run.terminal') return null
+  const status = readString(event.data.status)
+  return status === 'completed' || status === 'cancelled' || status === 'failed'
+    ? status
+    : null
 }
 
 /** 封装聊天会话的加载、发送、恢复和事件状态更新。 */
@@ -308,6 +321,27 @@ export function useChatSession() {
     if (activeConversationRef.current !== event.conversation_id) return
     activeRunRef.current = event.run_id
 
+    const terminalOutcome = readRunTerminalOutcome(event)
+    if (terminalOutcome === 'completed') {
+      setPendingQuestion(null)
+      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      setStatus('回复完成')
+      return
+    }
+    if (terminalOutcome === 'cancelled') {
+      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      setPendingQuestion(null)
+      setStatus('已停止生成')
+      return
+    }
+    if (terminalOutcome === 'failed') {
+      if (activeRunRef.current === event.run_id) activeRunRef.current = null
+      setPendingQuestion(null)
+      setStatus('本轮未完成')
+      setError(readString(event.data.message) || '对话执行失败，请重试。')
+      return
+    }
+
     switch (event.event_type) {
       case 'run.started':
         setStatus('正在准备回复…')
@@ -324,11 +358,12 @@ export function useChatSession() {
         if (content) setMessages((current) => upsertAssistantMessage(current, event.run_id, content, false, false))
         break
       }
-      case 'tool.started':
-        setStatus(`正在使用${readString(event.data.tool_name) || '工具'}…`)
-        break
-      case 'tool.completed':
-        setStatus('正在整理结果…')
+      case 'tool.status':
+        if (event.data.status === 'started') {
+          setStatus(`正在使用${readString(event.data.tool_name) || '工具'}…`)
+        } else if (event.data.status === 'completed') {
+          setStatus('正在整理结果…')
+        }
         break
       case 'question.required': {
         const questions = Array.isArray(event.data.questions)
@@ -352,22 +387,6 @@ export function useChatSession() {
         }
         break
       }
-      case 'run.completed':
-        setPendingQuestion(null)
-        if (activeRunRef.current === event.run_id) activeRunRef.current = null
-        setStatus('回复完成')
-        break
-      case 'run.cancelled':
-        if (activeRunRef.current === event.run_id) activeRunRef.current = null
-        setPendingQuestion(null)
-        setStatus('已停止生成')
-        break
-      case 'run.failed':
-        if (activeRunRef.current === event.run_id) activeRunRef.current = null
-        setPendingQuestion(null)
-        setStatus('本轮未完成')
-        setError(readString(event.data.message) || '对话执行失败，请重试。')
-        break
       default:
         break
     }

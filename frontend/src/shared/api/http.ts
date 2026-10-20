@@ -19,6 +19,10 @@ function readApiErrorMessage(body: ApiEnvelope<unknown> | null, status: number):
   return `请求失败（HTTP ${status}）`
 }
 
+function isTerminalStreamEventType(eventType: unknown): boolean {
+  return eventType === 'run.terminal' || eventType === 'question.required'
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -164,10 +168,7 @@ export async function streamEvents<T>(
             if (frame.data !== null) {
               onEvent(frame.data, frame.id ?? undefined)
               const eventType = (frame.data as { event_type?: unknown }).event_type
-              if (eventType === 'run.completed' || eventType === 'run.cancelled'
-                || eventType === 'run.failed' || eventType === 'question.required') {
-                terminal = true
-              }
+              if (isTerminalStreamEventType(eventType)) terminal = true
             }
           }
           if (done) streamClosed = true
@@ -181,10 +182,7 @@ export async function streamEvents<T>(
         if (finalFrame?.data !== null && finalFrame?.data !== undefined) {
           onEvent(finalFrame.data, finalFrame.id ?? undefined)
           const eventType = (finalFrame.data as { event_type?: unknown }).event_type
-          if (eventType === 'run.completed' || eventType === 'run.cancelled'
-            || eventType === 'run.failed' || eventType === 'question.required') {
-            terminal = true
-          }
+          if (isTerminalStreamEventType(eventType)) terminal = true
         }
       } finally {
         reader.releaseLock()

@@ -6,13 +6,26 @@ import { COMMON_AGENT, normalizeAgentType, type AgentType } from '../constants'
 
 export interface AgentEvent {
   event_id: string
-  event_type: string
+  event_type: AgentEventType
   conversation_id: string
   run_id: string
   sequence: number
   timestamp: string
   data: Record<string, unknown>
 }
+
+export type AgentEventType =
+  | 'heartbeat'
+  | 'run.started'
+  | 'run.terminal'
+  | 'message.delta'
+  | 'message.completed'
+  | 'tool.status'
+  | 'question.required'
+  | 'task_result.updated'
+
+export type RunTerminalStatus = 'completed' | 'cancelled' | 'failed'
+export type ToolStatus = 'started' | 'completed'
 
 export interface ChatRequest {
   message: string

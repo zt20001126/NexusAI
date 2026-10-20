@@ -15,7 +15,11 @@ from agent.errors import (
 from agent.persistence.interfaces import ConversationStore, RunStore
 from agent.runner import AgentRunner
 from agent.schemas.run import RunRecord, RunStatus
-from agent.streaming.events import AgentEvent, AgentEventType
+from agent.streaming.events import (
+    AgentEvent,
+    AgentEventType,
+    is_run_terminal_event_type,
+)
 from agent.streaming.publisher import EventPublisher
 
 
@@ -239,17 +243,17 @@ class AgentApplicationService:
             after,
             allow_missing_at_latest=allow_missing_at_latest,
         )
-        if terminal_status and self._event_store.last_event_type(
-            conversation_id, record.run_id
-        ) not in {
-            AgentEventType.RUN_COMPLETED,
-            AgentEventType.RUN_CANCELLED,
-            AgentEventType.RUN_FAILED,
-            AgentEventType.QUESTION_REQUIRED,
-        }:
-            # Redis 事件写入失败时，Runner 仍可能已保存终态；避免连接空转，
-            # 让客户端明确退回数据库历史消息。
-            raise AgentRunAlreadyEndedError()
+        if terminal_status:
+            last_event_type = self._event_store.last_event_type(
+                conversation_id, record.run_id
+            )
+            if not (
+                is_run_terminal_event_type(last_event_type)
+                or last_event_type == AgentEventType.QUESTION_REQUIRED
+            ):
+                # Redis 事件写入失败时，Runner 仍可能已保存终态；避免连接空转，
+                # 让客户端明确退回数据库历史消息。
+                raise AgentRunAlreadyEndedError()
 
         return self._event_store.listen(
             conversation_id=conversation_id,

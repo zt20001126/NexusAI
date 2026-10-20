@@ -433,7 +433,7 @@ def test_stream_chat_uses_stable_sse_contract_without_general_question_cards() -
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "event: message.completed" in response.text
-    assert "event: run.completed" in response.text
+    assert "event: run.terminal" in response.text
     assert "event: question.required" not in response.text
     data_lines = [
         line.removeprefix("data: ")
@@ -725,7 +725,11 @@ def test_general_chat_uses_natural_language_without_question_cards() -> None:
     assert not any(event["event_type"] == "question.required" for event in events)
     completed = next(event for event in events if event["event_type"] == "message.completed")
     assert completed["data"]["content"] == "你希望整理哪类开发目标？"
-    assert sum(event["event_type"] == "run.completed" for event in events) == 1
+    terminal_events = [
+        event for event in events if event["event_type"] == "run.terminal"
+    ]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["data"]["status"] == "completed"
 
 
 def test_conversation_and_message_history_endpoints_support_paging() -> None:
