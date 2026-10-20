@@ -18,7 +18,31 @@ def test_html_uses_a4_and_renders_skills_and_allowlisted_rich_text_safely() -> N
                 "phone": "13800000000",
                 "email": "test@example.com",
             },
-            "skills": ["Python <img src=x onerror=alert(2)>", "FastAPI"],
+            "skills": {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "Python <img src=x onerror=alert(2)>"}
+                        ],
+                    },
+                    {
+                        "type": "bulletList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "FastAPI"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            },
             "works": [
                 {
                     "id": "71b1c2b7-f7f5-48fc-9f19-b5242df1b8c3",
@@ -56,6 +80,7 @@ def test_html_uses_a4_and_renders_skills_and_allowlisted_rich_text_safely() -> N
     assert "<script>" not in html_document
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_document
     assert "&lt;img src=x onerror=alert(2)&gt;" in html_document
+    assert "<ul><li><p>FastAPI</p></li></ul>" in html_document
     assert "&lt;iframe&gt;safe&lt;/iframe&gt;" in html_document
     assert "<strong>&lt;iframe&gt;safe&lt;/iframe&gt;</strong>" in html_document
     assert "Example &amp; Co" in html_document
@@ -63,6 +88,11 @@ def test_html_uses_a4_and_renders_skills_and_allowlisted_rich_text_safely() -> N
     assert html_document.count('class="resume-section-icon ') == 2
     assert "resume-section-icon-skills" in html_document
     assert "resume-section-icon-work" in html_document
+
+
+def test_skill_array_is_rejected_after_data_migration() -> None:
+    with pytest.raises(ValidationError):
+        ResumeContent.model_validate({"skills": ["Python", "FastAPI"]})
 
 
 def test_html_uses_installed_cjk_font_families() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -19,10 +19,9 @@ from pydantic import (
 
 
 MAX_EDUCATIONS = 10
-MAX_SKILLS = 20
 MAX_WORKS = 20
 MAX_PROJECTS = 20
-MAX_SKILL_CHARS = 500
+MAX_SKILLS_DOCUMENT_CHARS = 10_000
 MAX_RICH_TEXT_CHARS = 4_000
 MAX_TOTAL_RICH_TEXT_CHARS = 20_000
 MAX_RESUME_JSON_NODES = 2_000
@@ -122,6 +121,7 @@ TiptapListItem.model_rebuild()
 
 
 class TiptapDocument(StrictModel):
+    MAX_DOCUMENT_CHARS: ClassVar[int] = MAX_RICH_TEXT_CHARS
     type: Literal["doc"] = "doc"
     content: list[TiptapParagraph | TiptapBulletList | TiptapOrderedList]
 
@@ -139,8 +139,8 @@ class TiptapDocument(StrictModel):
         serialized = self.model_dump(mode="python")
         if _count_json_nodes(serialized) > MAX_RESUME_JSON_NODES:
             raise ValueError("富文本节点数量超过上限")
-        if sum(len(value) for value in _text_values(serialized)) > MAX_RICH_TEXT_CHARS:
-            raise ValueError("单条富文本超过 4,000 个字符")
+        if sum(len(value) for value in _text_values(serialized)) > self.MAX_DOCUMENT_CHARS:
+            raise ValueError(f"单条富文本超过 {self.MAX_DOCUMENT_CHARS:,} 个字符")
         return self
 
 
@@ -197,13 +197,19 @@ class ProjectItem(StrictModel):
         return self
 
 
-SkillText = Annotated[StrictStr, Field(max_length=MAX_SKILL_CHARS)]
+class SkillsDocument(TiptapDocument):
+    MAX_DOCUMENT_CHARS: ClassVar[int] = MAX_SKILLS_DOCUMENT_CHARS
+
+
+def _empty_tiptap_document() -> SkillsDocument:
+    """构造编辑器使用的空文档。"""
+    return SkillsDocument(content=[TiptapParagraph(type="paragraph")])
 
 
 class ResumeContent(StrictModel):
     basic_info: BasicInfo = Field(default_factory=BasicInfo)
     educations: list[EducationItem] = Field(default_factory=list, max_length=MAX_EDUCATIONS)
-    skills: list[SkillText] = Field(default_factory=list, max_length=MAX_SKILLS)
+    skills: SkillsDocument = Field(default_factory=_empty_tiptap_document)
     works: list[WorkItem] = Field(default_factory=list, max_length=MAX_WORKS)
     projects: list[ProjectItem] = Field(default_factory=list, max_length=MAX_PROJECTS)
 
@@ -215,12 +221,17 @@ class ResumeContent(StrictModel):
             if len(identifiers) != len(set(identifiers)):
                 raise ValueError(f"{field_name} 中的条目 ID 不能重复")
 
+        rich_text_documents = [
+            self.skills,
+            *(item.content for item in self.works),
+            *(item.content for item in self.projects),
+        ]
         rich_text_length = sum(
-            sum(len(value) for value in _text_values(item.content.model_dump(mode="python")))
-            for item in [*self.works, *self.projects]
+            sum(len(value) for value in _text_values(document.model_dump(mode="python")))
+            for document in rich_text_documents
         )
         if rich_text_length > MAX_TOTAL_RICH_TEXT_CHARS:
-            raise ValueError("工作和项目富文本总量超过 20,000 个字符")
+            raise ValueError("专业技能、工作和项目富文本总量超过 20,000 个字符")
         if _count_json_nodes(self.model_dump(mode="python")) > MAX_RESUME_JSON_NODES:
             raise ValueError("简历 JSON 节点数量超过上限")
         return self

@@ -56,8 +56,7 @@
 .resume-preview-entry { margin: 0 0 2.1%; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
 .resume-preview-entry-heading { display: flex; justify-content: space-between; gap: 4%; font-size: 1.55cqw; line-height: 1.4; }
 .resume-preview-entry-heading > span { flex: 0 0 auto; color: #718198; font-size: 1.22cqw; }
-.resume-preview-entry p, .resume-preview-skill { margin: 1% 0 0; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
-.resume-preview-skill + .resume-preview-skill { margin-top: var(--resume-paragraph-space); }
+.resume-preview-entry p { margin: 1% 0 0; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
 .resume-preview-rich p { margin: 1% 0 0; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
 .resume-preview-rich ul, .resume-preview-rich ol { padding-left: 4.7%; margin: 1% 0 0; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
 .resume-preview-rich li { margin: .4% 0; }
@@ -92,8 +91,8 @@
 .resume-link-button { padding: 4px 5px; border: 0; color: #4974A5; background: transparent; font-size: 10px; font-weight: 650; }
 .resume-link-button:disabled { opacity: .45; }
 .resume-form-error { padding: 9px 11px; margin: 12px 0 0; border: 1px solid #F0D7D1; border-radius: 8px; color: #A13E32; background: #FFF7F5; font-size: 10px; }
-.resume-entry-editor-list, .resume-skill-list { display: grid; gap: 11px; }
-.resume-editor-card, .resume-skill-card { padding: 13px; border: 1px solid #E4EAF2; border-radius: 11px; background: #FFF; box-shadow: 0 3px 12px rgb(21 42 72 / 2%); }
+.resume-entry-editor-list { display: grid; gap: 11px; }
+.resume-editor-card { padding: 13px; border: 1px solid #E4EAF2; border-radius: 11px; background: #FFF; box-shadow: 0 3px 12px rgb(21 42 72 / 2%); }
 .resume-item-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .resume-item-card-heading strong { color: #405772; font-size: 10px; }
 .resume-icon-button { padding: 5px 8px; border: 1px solid #E3EAF2; border-radius: 7px; color: #6E8097; background: #FFF; font-size: 9px; }

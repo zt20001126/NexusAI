@@ -91,18 +91,27 @@ def test_get_returns_defaults_without_external_identity(client: TestClient) -> N
 
     assert response.status_code == 200
     assert response.json()["data"]["exists"] is False
-    assert response.json()["data"]["content"]["skills"] == []
+    assert response.json()["data"]["content"]["skills"] == {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": []}],
+    }
     assert response.headers["cache-control"] == "private, no-store"
     assert client.app.state.fake_resume_service.principals == [RESUME_OWNER_PRINCIPAL_ID]
 
 
-def test_put_persists_skills_as_string_array_and_rejects_owner_fields(
+def test_put_persists_rich_skills_and_rejects_owner_fields(
     client: TestClient,
 ) -> None:
     response = client.put("/api/resume", json=_valid_payload())
 
     assert response.status_code == 200
-    assert response.json()["data"]["content"]["skills"] == ["Python", "FastAPI"]
+    assert response.json()["data"]["content"]["skills"] == {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Python", "marks": None}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "FastAPI", "marks": None}]},
+        ],
+    }
     assert client.app.state.fake_resume_service.saved_payload is not None
 
     invalid_payload = _valid_payload()
@@ -110,6 +119,16 @@ def test_put_persists_skills_as_string_array_and_rejects_owner_fields(
     rejected = client.put("/api/resume", json=invalid_payload)
     assert rejected.status_code == 422
     assert rejected.json()["code"] == "INVALID_RESUME_DATA"
+
+
+def test_put_rejects_legacy_skill_array(client: TestClient) -> None:
+    payload = _valid_payload()
+    payload["content"]["skills"] = ["Python", "FastAPI"]
+
+    response = client.put("/api/resume", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_RESUME_DATA"
 
 
 def test_put_persists_manual_age_and_work_experience_without_birth_month(
@@ -164,7 +183,7 @@ def test_put_rejects_removed_birth_month_field(client: TestClient) -> None:
     assert response.json()["code"] == "INVALID_RESUME_DATA"
 
 
-def test_skills_must_be_plain_text_strings(client: TestClient) -> None:
+def test_put_rejects_non_document_skill_values(client: TestClient) -> None:
     payload = _valid_payload()
     payload["content"]["skills"] = [{"type": "paragraph", "text": "Python"}]
 
@@ -236,7 +255,13 @@ def _valid_payload() -> dict[str, Any]:
             "email": "zhangsan@example.com",
         }
     )
-    content["skills"] = ["Python", "FastAPI"]
+    content["skills"] = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Python"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "FastAPI"}]},
+        ],
+    }
     return {
         "content": content,
         "style_config": ResumeStyleConfig().model_dump(mode="json"),

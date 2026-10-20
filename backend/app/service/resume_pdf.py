@@ -182,8 +182,7 @@ def build_resume_html(
     .resume-entry {{ margin: 0 0 2.5mm; break-inside: avoid; }}
     .resume-entry-heading {{ display: flex; justify-content: space-between; gap: 4mm; font-size: 10pt; font-weight: 700; }}
     .resume-entry-meta {{ color: #596a80; font-size: 9pt; }}
-    .resume-entry p, .resume-skills p {{ margin: 1mm 0 0; font-size: {style.font_size_pt}pt; line-height: {style.line_height}; }}
-    .resume-skills p + p {{ margin-top: {style.paragraph_spacing_pt}pt; }}
+    .resume-entry p {{ margin: 1mm 0 0; font-size: {style.font_size_pt}pt; line-height: {style.line_height}; }}
     .resume-rich-text ul, .resume-rich-text ol {{ margin: 1mm 0 0; padding-left: 5mm; }}
     .resume-rich-text li {{ margin: 0.5mm 0; font-size: {style.font_size_pt}pt; line-height: {style.line_height}; }}
     .resume-rich-text p {{ margin: 1mm 0 0; font-size: {style.font_size_pt}pt; line-height: {style.line_height}; }}
@@ -220,11 +219,12 @@ def _render_education(items: list[Any]) -> str:
     return _section("教育背景", "".join(entries), "education")
 
 
-def _render_skills(items: list[str]) -> str:
-    if not items:
+def _render_skills(document: Any) -> str:
+    serialized = document.model_dump(mode="python")
+    if not any(value.strip() for value in _text_values(serialized)):
         return ""
-    paragraphs = "".join(f"<p>{html.escape(item)}</p>" for item in items)
-    return _section("专业技能", f'<div class="resume-skills">{paragraphs}</div>', "skills")
+    body = _render_tiptap(serialized)
+    return _section("专业技能", f'<div class="resume-rich-text">{body}</div>', "skills")
 
 
 def _render_works(items: list[Any]) -> str:
@@ -295,3 +295,14 @@ def _render_tiptap(node: Any) -> str:
     if node_type == "listItem":
         return f"<li>{children}</li>"
     return ""
+
+
+def _text_values(node: Any) -> list[str]:
+    """提取白名单 Tiptap 文档中的文本，用于判断技能章节是否为空。"""
+    if isinstance(node, dict):
+        text = node.get("text")
+        own = [text] if isinstance(text, str) else []
+        return own + [value for child in node.values() for value in _text_values(child)]
+    if isinstance(node, list):
+        return [value for child in node for value in _text_values(child)]
+    return []

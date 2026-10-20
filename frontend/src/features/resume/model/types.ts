@@ -83,7 +83,7 @@ export interface ProjectItem {
 export interface ResumeContent {
   basic_info: BasicInfo
   educations: EducationItem[]
-  skills: string[]
+  skills: TiptapDocument
   works: WorkItem[]
   projects: ProjectItem[]
 }
@@ -131,7 +131,7 @@ export const DEFAULT_RESUME_CONTENT: ResumeContent = {
     photo_id: null,
   },
   educations: [],
-  skills: [],
+  skills: { type: 'doc', content: [{ type: 'paragraph', content: [] }] },
   works: [],
   projects: [],
 }

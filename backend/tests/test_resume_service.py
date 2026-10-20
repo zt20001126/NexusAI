@@ -87,13 +87,16 @@ def test_get_empty_resume_does_not_write_repository() -> None:
     response = service.get_resume("fixed-owner")
 
     assert response.exists is False
-    assert response.content.skills == []
+    assert response.content.skills.model_dump(mode="json") == {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": []}],
+    }
     assert repository.events == ["get:fixed-owner"]
     assert storage.events == ["cleanup:None"]
 
 
-def test_get_migrated_resume_defaults_manual_profile_values_to_empty() -> None:
-    migrated_content = {
+def test_get_resume_defaults_manual_profile_values_to_empty() -> None:
+    stored_content = {
         "basic_info": {
             "name": "Existing Name",
             "phone": "13800000000",
@@ -102,14 +105,20 @@ def test_get_migrated_resume_defaults_manual_profile_values_to_empty() -> None:
             "photo_id": None,
         },
         "educations": [],
-        "skills": [],
+        "skills": {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "Python"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "FastAPI"}]},
+            ],
+        },
         "works": [],
         "projects": [],
     }
     now = datetime.now(timezone.utc)
     repository = FakeResumeRepository(
         ResumeRecord(
-            migrated_content,
+            stored_content,
             ResumeStyleConfig().model_dump(mode="json"),
             now,
             now,
@@ -121,6 +130,9 @@ def test_get_migrated_resume_defaults_manual_profile_values_to_empty() -> None:
 
     assert response.content.basic_info.age is None
     assert response.content.basic_info.work_experience_years is None
+    assert [
+        part.content[0].text for part in response.content.skills.content
+    ] == ["Python", "FastAPI"]
 
 
 def test_photo_is_promoted_before_database_switch_and_old_photo_deleted_after() -> None:
@@ -193,7 +205,13 @@ def _payload(*, photo_id: str | None) -> ResumeSaveRequest:
                 "email": "saved@example.com",
                 "photo_id": photo_id,
             },
-            "skills": ["Python", "FastAPI"],
+            "skills": {
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Python"}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "FastAPI"}]},
+                ],
+            },
         }
     )
     return ResumeSaveRequest(content=content, style_config=ResumeStyleConfig())
