@@ -80,7 +80,7 @@ MESSAGE_DELTA_CHUNK_SIZE = 24
 # 仅列出安全的面向用户模型节点；任务型智能体在结果安全后分段呈现用户文本。
 STREAMING_RESPONSE_NODES_BY_AGENT = {
     COMMON_AGENT: frozenset({"agent", "result"}),
-    BASE_CONVERSATION_AGENT: frozenset({"chat_node"}),
+    BASE_CONVERSATION_AGENT: frozenset({"agent_node"}),
 }
 
 

@@ -11,6 +11,9 @@ RESEARCH_AGENT = AgentType.RESEARCH
 LABOR_LAW_AGENT = AgentType.LABOR_LAW
 LITERATURE_READER_AGENT = AgentType.LITERATURE_READER
 
+# 基础对话助手的结构化提问工具名称，供图路由与共享 Runner 识别暂停点。
+ASK_USER_QUESTIONS_TOOL_NAME = "ask_user_questions"
+
 # Checkpoint 线程 ID 已落库，保留旧命名空间以便读取已有会话状态。
 CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY: dict[AgentType, str] = {
     COMMON_AGENT: "default",
@@ -46,6 +49,7 @@ __all__ = [
     "RESEARCH_AGENT",
     "LABOR_LAW_AGENT",
     "LITERATURE_READER_AGENT",
+    "ASK_USER_QUESTIONS_TOOL_NAME",
     "MAX_REFERENCE_IMAGE_BYTES",
     "MAX_REFERENCE_IMAGE_COUNT",
     "MAX_REFERENCE_IMAGE_TOTAL_BYTES",
