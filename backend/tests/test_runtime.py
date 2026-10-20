@@ -12,6 +12,7 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
+from pydantic import PrivateAttr
 
 from agent.constants import BASE_CONVERSATION_AGENT
 from agent.persistence.memory import MemoryConversationStore
@@ -141,9 +142,10 @@ async def test_question_round_limit_rejects_a_fourth_round() -> None:
 
 async def test_basic_conversation_forwards_model_chunks_before_completion() -> None:
     """基础对话助手实时转发模型片段，并在完成事件中保留完整文本。"""
+    chat_model = _StreamingReplyModel()
     assistant = create_basic_conversation_agent(
         agent=BASE_CONVERSATION_AGENT,
-        chat_model=_StreamingReplyModel(),
+        chat_model=chat_model,
         checkpointer=MemorySaver(),
     )
     runtime = build_memory_runner(
@@ -153,7 +155,15 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
         title_generator=_UnavailableTitleGenerator(),
     )
 
-    events = await _collect_events(runtime.stream_chat(message="请回答"))
+    events = []
+    stream_completed_at_delta: list[bool] = []
+    async for event in runtime.stream_chat(message="请回答"):
+        events.append(event)
+        if (
+            event.event_type == AgentEventType.MESSAGE
+            and event.data.get("operation") == "delta"
+        ):
+            stream_completed_at_delta.append(chat_model.stream_completed)
 
     deltas = [
         event.data["text"]
@@ -169,6 +179,7 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
     )
     final_text = completed.data["content"]["blocks"][0]["text"]
     assert deltas
+    assert stream_completed_at_delta and not stream_completed_at_delta[0]
     assert "".join(deltas) == final_text == "你好，世界"
     delta_events = [
         event for event in events
@@ -389,6 +400,12 @@ def _long_reply_graph_factory(checkpointer: object, reply: str) -> object:
 class _StreamingReplyModel(BaseChatModel):
     """模拟支持 astream 的对话模型，避免流式运行时测试访问网络。"""
 
+    _stream_completed: bool = PrivateAttr(default=False)
+
+    @property
+    def stream_completed(self) -> bool:
+        return self._stream_completed
+
     @property
     def _llm_type(self) -> str:
         return "streaming-test"
@@ -417,6 +434,7 @@ class _StreamingReplyModel(BaseChatModel):
         del messages, stop, run_manager, kwargs
         yield ChatGenerationChunk(message=AIMessageChunk(content="你好"))
         yield ChatGenerationChunk(message=AIMessageChunk(content="，世界"))
+        self._stream_completed = True
 
 
 async def test_title_is_generated_only_for_first_message_of_new_conversation() -> None:
