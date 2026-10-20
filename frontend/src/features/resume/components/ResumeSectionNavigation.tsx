@@ -1,12 +1,14 @@
 import type { ResumeSection } from '../model/types'
+import ResumeSectionIcon from './ResumeSectionIcon'
+import type { ResumeSectionIconName } from './ResumeSectionIcon'
 
-const sections: Array<{ id: ResumeSection; label: string; number: string }> = [
-  { id: 'basic', label: '基本信息', number: '01' },
-  { id: 'education', label: '教育背景', number: '02' },
-  { id: 'skills', label: '专业技能', number: '03' },
-  { id: 'work', label: '工作经历', number: '04' },
-  { id: 'projects', label: '项目经历', number: '05' },
-  { id: 'style', label: '排版设置', number: '06' },
+const sections: Array<{ id: ResumeSection; label: string; number: string; icon: ResumeSectionIconName }> = [
+  { id: 'basic', label: '基本信息', number: '01', icon: 'profile' },
+  { id: 'education', label: '教育背景', number: '02', icon: 'education' },
+  { id: 'skills', label: '专业技能', number: '03', icon: 'skills' },
+  { id: 'work', label: '工作经历', number: '04', icon: 'work' },
+  { id: 'projects', label: '项目经历', number: '05', icon: 'projects' },
+  { id: 'style', label: '排版设置', number: '06', icon: 'style' },
 ]
 
 interface ResumeSectionNavigationProps {
@@ -28,15 +30,12 @@ function ResumeSectionNavigation({ activeSection, disabled = false, onChange }: 
           disabled={disabled}
           onClick={() => onChange(section.id)}
         >
-          <span>{section.number}</span>
+          <span className="resume-navigation-number">{section.number}</span>
+          <ResumeSectionIcon name={section.icon} className="resume-navigation-icon" />
           <strong>{section.label}</strong>
           <span className="resume-navigation-arrow" aria-hidden="true">›</span>
         </button>
       ))}
-      <div className="resume-navigation-help">
-        <span aria-hidden="true">✦</span>
-        <p>边编辑边预览，保存后即可导出单页 PDF。</p>
-      </div>
     </nav>
   )
 }

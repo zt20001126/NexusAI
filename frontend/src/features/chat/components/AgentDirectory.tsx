@@ -1,5 +1,6 @@
 import type { AgentDefinition } from '../api/agent'
 import type { AgentType } from '../constants'
+import RobotAvatar, { RESUME_ASSISTANT_AVATAR_SEED } from '../../../shared/components/RobotAvatar'
 import AgentAvatar from './AgentAvatar'
 
 interface AgentDirectoryProps {
@@ -73,7 +74,9 @@ function AgentDirectory({
           aria-label="打开简历助手，创建和编辑简历并导出 PDF"
         >
           <span className="agent-directory-card-top">
-            <span className="agent-directory-avatar agent-directory-resume-avatar" aria-hidden="true">简</span>
+            <span className="agent-directory-avatar agent-directory-resume-avatar" aria-hidden="true">
+              <RobotAvatar seed={RESUME_ASSISTANT_AVATAR_SEED} />
+            </span>
             <span className="agent-directory-arrow" aria-hidden="true">↗</span>
           </span>
           <strong className="agent-directory-name">简历助手</strong>

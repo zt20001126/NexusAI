@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './styles/resume.css'
 import { downloadResumePdf } from './api/resume'
+import RobotAvatar, { RESUME_ASSISTANT_AVATAR_SEED } from '../../shared/components/RobotAvatar'
 import ResumeEditorPanel from './components/ResumeEditorPanel'
 import ResumePreview from './components/ResumePreview'
 import ResumeSectionNavigation from './components/ResumeSectionNavigation'
@@ -65,7 +66,7 @@ function ResumePage({ onBack }: ResumePageProps) {
           <button className="resume-back-button" type="button" onClick={handleBack} aria-label="返回智能体市场">
             <span aria-hidden="true">←</span>
           </button>
-          <span className="resume-brand-mark" aria-hidden="true">简</span>
+          <span className="resume-brand-avatar" aria-hidden="true"><RobotAvatar seed={RESUME_ASSISTANT_AVATAR_SEED} /></span>
           <div><strong>简历助手</strong><span>RESUME ASSISTANT</span></div>
         </div>
         <div className="resume-header-actions">

@@ -7,7 +7,8 @@
 .resume-back-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #E4EAF2; border-radius: 10px; color: #60738B; background: #FFF; font-size: 18px; transition: border-color .15s, color .15s, background .15s; }
 .resume-back-button:hover { border-color: #BED5F4; color: #1459A8; background: #F6FAFF; }
 .resume-back-button:focus-visible, .resume-primary-button:focus-visible, .resume-secondary-button:focus-visible, .resume-link-button:focus-visible, .resume-icon-button:focus-visible, .resume-add-button:focus-visible, .resume-navigation-item:focus-visible, .resume-toolbar-button:focus-visible { outline: 3px solid rgb(22 119 255 / 22%); outline-offset: 2px; }
-.resume-brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #CFE1FC; border-radius: 12px; color: #1764C1; background: linear-gradient(145deg, #F0F7FF, #E2F0FF); font-size: 17px; font-weight: 800; }
+.resume-brand-avatar { display: block; width: 36px; height: 36px; flex: 0 0 auto; overflow: hidden; border: 1px solid #CFE1FC; border-radius: 12px; background: linear-gradient(145deg, #F0F7FF, #E2F0FF); }
+.resume-brand-avatar .agent-avatar-image { display: block; width: 100%; height: 100%; object-fit: contain; }
 .resume-header-actions { gap: 10px; }
 .resume-primary-button, .resume-secondary-button { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; padding: 0 14px; border: 1px solid transparent; border-radius: 9px; font-size: 11px; font-weight: 700; white-space: nowrap; transition: transform .15s, background-color .15s, border-color .15s, box-shadow .15s; }
 .resume-primary-button { border-color: #1556A5; color: #FFF; background: linear-gradient(135deg, #1C6BC8, #1455A7); box-shadow: 0 3px 8px rgb(27 93 171 / 17%); }
@@ -24,19 +25,17 @@
 .resume-workspace { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(145px, 168px) minmax(350px, 1fr) minmax(320px, .9fr); gap: 0; overflow: hidden; }
 .resume-section-navigation { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 24px 12px 16px; overflow-x: hidden; overflow-y: auto; border-right: 1px solid #E5EBF3; background: #F8FAFD; }
 .resume-navigation-eyebrow { padding: 0 9px; margin: 0 0 8px; color: #9AA8B9; font-size: 9px; font-weight: 750; letter-spacing: 1px; }
-.resume-navigation-item { display: grid; min-height: 43px; grid-template-columns: 24px minmax(0, 1fr) 14px; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid transparent; border-radius: 9px; color: #64758B; background: transparent; text-align: left; transition: color .15s, border .15s, background .15s; }
-.resume-navigation-item > span:first-child { color: #A9B5C4; font-size: 8px; font-weight: 700; }
+.resume-navigation-item { display: grid; min-height: 43px; grid-template-columns: 19px 16px minmax(0, 1fr) 12px; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid transparent; border-radius: 9px; color: #64758B; background: transparent; text-align: left; transition: color .15s, border .15s, background .15s; }
+.resume-navigation-number { color: #A9B5C4; font-size: 8px; font-weight: 700; }
+.resume-navigation-icon { display: block; width: 15px; height: 15px; color: #8C9DB2; }
 .resume-navigation-item strong { font-size: 10px; font-weight: 650; white-space: nowrap; }
 .resume-navigation-arrow { opacity: 0; color: #5591D7; font-size: 17px; transition: opacity .15s, transform .15s; }
 .resume-navigation-item:hover { color: #285F9F; background: #F0F5FC; }
 .resume-navigation-item:hover .resume-navigation-arrow { opacity: 1; transform: translateX(2px); }
 .resume-navigation-item.is-active { border-color: #D7E6FA; color: #1557A5; background: #EAF3FF; box-shadow: inset 3px 0 #2674CA; }
-.resume-navigation-item.is-active > span:first-child { color: #4B85C4; }
+.resume-navigation-item.is-active .resume-navigation-number, .resume-navigation-item.is-active .resume-navigation-icon { color: #4B85C4; }
 .resume-navigation-item.is-active .resume-navigation-arrow { opacity: 1; }
 .resume-navigation-item:disabled { opacity: .5; }
-.resume-navigation-help { display: flex; gap: 9px; padding: 12px 9px; margin-top: auto; border: 1px solid #DFEAF7; border-radius: 10px; color: #537397; background: #F1F7FF; }
-.resume-navigation-help > span { color: #4184D0; font-size: 13px; }
-.resume-navigation-help p { margin: 0; font-size: 9px; line-height: 1.6; }
 .resume-preview-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 22px clamp(15px, 2vw, 27px) 14px; overflow-x: hidden; overflow-y: auto; background: #F1F4F8; }
 .resume-preview-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 15px; width: min(100%, 720px); }
 .resume-preview-heading h2 { margin: 3px 0 0; color: #253A55; font-size: 14px; }
@@ -52,7 +51,8 @@
 .resume-preview-contact { margin: 1.7% 0 0; color: #5D6D81; font-size: 1.36cqw; }
 .resume-preview-photo { width: 13.4%; aspect-ratio: 7 / 9; flex: 0 0 auto; object-fit: cover; border-radius: 1.3cqw; }
 .resume-preview-section { margin-top: var(--resume-section-space); }
-.resume-preview-section h2 { padding: 0 0 1%; margin: 0 0 1.8%; border-bottom: var(--resume-divider-width) solid var(--resume-divider-color); color: var(--resume-heading-color); font-size: 1.85cqw; line-height: 1.35; }
+.resume-preview-section h2 { display: flex; align-items: center; gap: 1.2%; padding: 0 0 1%; margin: 0 0 1.8%; border-bottom: var(--resume-divider-width) solid var(--resume-divider-color); color: var(--resume-heading-color); font-size: 1.85cqw; line-height: 1.35; }
+.resume-preview-section-icon { display: block; width: 1.75cqw; height: 1.75cqw; flex: 0 0 auto; color: var(--resume-heading-color); }
 .resume-preview-entry { margin: 0 0 2.1%; font-size: var(--resume-body-font); line-height: var(--resume-line-height); }
 .resume-preview-entry-heading { display: flex; justify-content: space-between; gap: 4%; font-size: 1.55cqw; line-height: 1.4; }
 .resume-preview-entry-heading > span { flex: 0 0 auto; color: #718198; font-size: 1.22cqw; }
@@ -140,8 +140,8 @@
 @media (max-width: 1200px) {
   .resume-workspace { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
   .resume-section-navigation { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 6px; padding: 9px 14px; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #E5EBF3; }
-  .resume-navigation-eyebrow, .resume-navigation-help { display: none; }
-  .resume-navigation-item { flex: 0 0 auto; grid-template-columns: 19px auto; min-height: 35px; padding: 0 9px; }
+  .resume-navigation-eyebrow { display: none; }
+  .resume-navigation-item { flex: 0 0 auto; grid-template-columns: 19px 16px auto; min-height: 35px; padding: 0 9px; }
   .resume-navigation-item strong { font-size: 9px; }
   .resume-navigation-arrow { display: none; }
   .resume-preview-panel { flex: 0 0 auto; min-height: 550px; padding: 18px 20px 14px; }
@@ -153,7 +153,7 @@
   .resume-app-header { min-height: 64px; flex-basis: 64px; gap: 9px; padding: 0 11px; }
   .resume-app-brand { gap: 7px; }
   .resume-back-button { width: 30px; height: 30px; }
-  .resume-brand-mark { width: 30px; height: 30px; border-radius: 10px; font-size: 14px; }
+  .resume-brand-avatar { width: 30px; height: 30px; border-radius: 10px; }
   .resume-app-brand > div strong { font-size: 11px; }
   .resume-app-brand > div span { font-size: 6px; }
   .resume-header-actions { gap: 6px; }

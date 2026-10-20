@@ -20,6 +20,32 @@ from infra.settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
+_SECTION_ICON_MARKUP = {
+    "education": (
+        '<svg class="resume-section-icon resume-section-icon-education" viewBox="0 0 20 20" '
+        'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="1.6" aria-hidden="true"><path d="m2.5 7 7.5-4 7.5 4-7.5 4-7.5-4Z"/>'
+        '<path d="M5.5 9v4.2c2.7 2.2 6.3 2.2 9 0V9M17.5 7v5"/></svg>'
+    ),
+    "skills": (
+        '<svg class="resume-section-icon resume-section-icon-skills" viewBox="0 0 20 20" '
+        'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="1.6" aria-hidden="true"><path d="m10 2.5 2.2 4.6 5.1.7-3.7 3.6.9 5.1-4.5-2.4-4.5 2.4.9-5.1-3.7-3.6 5.1-.7L10 2.5Z"/></svg>'
+    ),
+    "work": (
+        '<svg class="resume-section-icon resume-section-icon-work" viewBox="0 0 20 20" '
+        'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="6" width="15" height="11" rx="1.8"/>'
+        '<path d="M7 6V4.5c0-.8.7-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5V6M2.5 10h15M8 10v2h4v-2"/></svg>'
+    ),
+    "projects": (
+        '<svg class="resume-section-icon resume-section-icon-projects" viewBox="0 0 20 20" '
+        'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="1.6" aria-hidden="true"><path d="M2.5 5.5h6l1.7 1.8h7.3v8.2c0 1.1-.9 2-2 2H4.5c-1.1 0-2-.9-2-2V5.5Z"/>'
+        '<path d="M2.5 8h15"/></svg>'
+    ),
+}
+
 
 class ResumePdfRenderer(Protocol):
     """将可信生成的 HTML 转为 PDF 字节。"""
@@ -141,7 +167,8 @@ def build_resume_html(
     .resume-photo {{ width: 28mm; height: 36mm; object-fit: cover; border-radius: 1mm; }}
     .resume-sections {{ padding-top: 3mm; }}
     .resume-section {{ margin-top: {style.section_spacing_pt}pt; break-inside: avoid; }}
-    .resume-section h2 {{ margin: 0 0 2.5mm; padding-bottom: 1.2mm; color: {style.heading_color}; border-bottom: {style.divider_width_pt}pt solid {style.divider_color}; font-size: 12pt; line-height: 1.25; }}
+    .resume-section h2 {{ display: flex; align-items: center; gap: 2mm; margin: 0 0 2.5mm; padding-bottom: 1.2mm; color: {style.heading_color}; border-bottom: {style.divider_width_pt}pt solid {style.divider_color}; font-size: 12pt; line-height: 1.25; }}
+    .resume-section-icon {{ width: 4mm; height: 4mm; flex: 0 0 auto; }}
     .resume-entry {{ margin: 0 0 2.5mm; break-inside: avoid; }}
     .resume-entry-heading {{ display: flex; justify-content: space-between; gap: 4mm; font-size: 10pt; font-weight: 700; }}
     .resume-entry-meta {{ color: #596a80; font-size: 9pt; }}
@@ -180,14 +207,14 @@ def _render_education(items: list[Any]) -> str:
             f'<div class="resume-entry"><div class="resume-entry-heading"><span>{title}</span>'
             f'<span class="resume-entry-meta">{dates}</span></div><p>{detail}</p></div>'
         )
-    return _section("教育背景", "".join(entries))
+    return _section("教育背景", "".join(entries), "education")
 
 
 def _render_skills(items: list[str]) -> str:
     if not items:
         return ""
     paragraphs = "".join(f"<p>{html.escape(item)}</p>" for item in items)
-    return _section("专业技能", f'<div class="resume-skills">{paragraphs}</div>')
+    return _section("专业技能", f'<div class="resume-skills">{paragraphs}</div>', "skills")
 
 
 def _render_works(items: list[Any]) -> str:
@@ -203,7 +230,7 @@ def _render_works(items: list[Any]) -> str:
             f'<span class="resume-entry-meta">{dates}</span></div>'
             f'<div class="resume-rich-text">{body}</div></div>'
         )
-    return _section("工作经历", "".join(entries))
+    return _section("工作经历", "".join(entries), "work")
 
 
 def _render_projects(items: list[Any]) -> str:
@@ -221,11 +248,12 @@ def _render_projects(items: list[Any]) -> str:
             f'{html.escape(item.name)}</span><span class="resume-entry-meta">{dates}</span></div>'
             f'<p>{meta}</p><div class="resume-rich-text">{body}</div></div>'
         )
-    return _section("项目经历", "".join(entries))
+    return _section("项目经历", "".join(entries), "projects")
 
 
-def _section(title: str, content: str) -> str:
-    return f'<section class="resume-section"><h2>{title}</h2>{content}</section>'
+def _section(title: str, content: str, icon_name: str) -> str:
+    icon = _SECTION_ICON_MARKUP[icon_name]
+    return f'<section class="resume-section"><h2>{icon}<span>{title}</span></h2>{content}</section>'
 
 
 def _render_tiptap(node: Any) -> str:

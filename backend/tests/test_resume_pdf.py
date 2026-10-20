@@ -60,6 +60,9 @@ def test_html_uses_a4_and_renders_skills_and_allowlisted_rich_text_safely() -> N
     assert "<strong>&lt;iframe&gt;safe&lt;/iframe&gt;</strong>" in html_document
     assert "Example &amp; Co" in html_document
     assert "https://" not in html_document
+    assert html_document.count('class="resume-section-icon ') == 2
+    assert "resume-section-icon-skills" in html_document
+    assert "resume-section-icon-work" in html_document
 
 
 def test_html_uses_installed_cjk_font_families() -> None:

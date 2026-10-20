@@ -6,6 +6,8 @@ import type {
   TiptapDocument,
   TiptapNode,
 } from '../model/types'
+import ResumeSectionIcon from './ResumeSectionIcon'
+import type { ResumeSectionIconName } from './ResumeSectionIcon'
 
 interface ResumePreviewProps {
   content: ResumeContent
@@ -78,20 +80,20 @@ function ResumePreview({ content, style, photoPreviewUrl, exists, dirty, loading
                 </div>
                 {photoPreviewUrl && <img className="resume-preview-photo" src={photoPreviewUrl} alt="证件照" />}
               </header>
-              {content.educations.length > 0 && <PreviewSection title="教育背景">{content.educations.map((item) => (
+              {content.educations.length > 0 && <PreviewSection title="教育背景" icon="education">{content.educations.map((item) => (
                 <div className="resume-preview-entry" key={item.id}>
                   <div className="resume-preview-entry-heading"><strong>{item.school}</strong><span>{item.start_month} — {item.end_month}</span></div>
                   <p>{[item.major, item.degree].filter(Boolean).join(' · ')}</p>
                 </div>
               ))}</PreviewSection>}
-              {content.skills.length > 0 && <PreviewSection title="专业技能">{content.skills.map((skill, index) => <p className="resume-preview-skill" key={`${index}-${skill}`}>{skill}</p>)}</PreviewSection>}
-              {content.works.length > 0 && <PreviewSection title="工作经历">{content.works.map((item) => (
+              {content.skills.length > 0 && <PreviewSection title="专业技能" icon="skills">{content.skills.map((skill, index) => <p className="resume-preview-skill" key={`${index}-${skill}`}>{skill}</p>)}</PreviewSection>}
+              {content.works.length > 0 && <PreviewSection title="工作经历" icon="work">{content.works.map((item) => (
                 <div className="resume-preview-entry" key={item.id}>
                   <div className="resume-preview-entry-heading"><strong>{[item.company, item.position].filter(Boolean).join(' · ')}</strong><span>{item.start_month} — {item.end_month}</span></div>
                   <div className="resume-preview-rich">{renderTiptap(item.content)}</div>
                 </div>
               ))}</PreviewSection>}
-              {content.projects.length > 0 && <PreviewSection title="项目经历">{content.projects.map((item) => (
+              {content.projects.length > 0 && <PreviewSection title="项目经历" icon="projects">{content.projects.map((item) => (
                 <div className="resume-preview-entry" key={item.id}>
                   <div className="resume-preview-entry-heading"><strong>{item.name}</strong><span>{item.start_month} — {item.end_month}</span></div>
                   {(item.role || item.technology_stack) && <p>{[item.role, item.technology_stack].filter(Boolean).join(' · ')}</p>}
@@ -107,8 +109,8 @@ function ResumePreview({ content, style, photoPreviewUrl, exists, dirty, loading
   )
 }
 
-function PreviewSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="resume-preview-section"><h2>{title}</h2>{children}</section>
+function PreviewSection({ title, icon, children }: { title: string; icon: ResumeSectionIconName; children: ReactNode }) {
+  return <section className="resume-preview-section"><h2><ResumeSectionIcon name={icon} className="resume-preview-section-icon" />{title}</h2>{children}</section>
 }
 
 function renderTiptap(document: TiptapDocument): ReactNode {
