@@ -52,6 +52,7 @@ from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService, AgentSessionApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.health import HealthMonitor
+from app.service.job_resume import SavedJobResumeReader
 from app.service.research import ResearchApplicationService
 from app.service.literature import LiteratureApplicationService
 from app.service.task_result import TaskResultApplicationService
@@ -110,6 +111,7 @@ def build_lifespan(
                 else UnavailableResumePhotoStorage()
             )
             with PostgresDatabase(settings.database_url, id_generator) as database:
+                resume_repository = PostgresResumeRepository(database)
                 conversation_store = PostgresConversationStore(database)
                 message_store = PostgresMessageStore(database)
                 run_store = PostgresRunStore(database)
@@ -155,6 +157,7 @@ def build_lifespan(
                     agent=JOB_AGENT,
                     chat_model=resolved_model_provider.create_chat_model(),
                     checkpointer=checkpointer,
+                    resume_reader=SavedJobResumeReader(resume_repository).read,
                 )
                 job_runner = create_postgres_runner(
                     agent=JOB_AGENT,
@@ -271,7 +274,7 @@ def build_lifespan(
                     id_generator=id_generator,
                 )
                 app_instance.state.resume_service = ResumeApplicationService(
-                    repository=PostgresResumeRepository(database),
+                    repository=resume_repository,
                     photo_storage=resume_photo_storage,
                     pdf_renderer=PlaywrightResumePdfRenderer(settings),
                 )

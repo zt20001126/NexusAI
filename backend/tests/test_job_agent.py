@@ -11,6 +11,7 @@ from agent.constants import JOB_AGENT
 from agents.job_agent import JOB_SYSTEM_PROMPT, create_job_agent
 from agents.job_agent.recommendation.schemas import RecommendationRequest
 from agents.job_agent.recommendation.service import validate_recommendations
+from agents.job_agent.resume_snapshot import JobResumeSnapshot
 from agents.job_agent.tools.recommend_job_roles import recommend_job_roles
 from agents.registry import PROJECT_AGENT_DEFINITIONS
 from tests.fake_models import ScriptedToolCallingModel
@@ -60,6 +61,43 @@ async def test_job_agent_supports_registered_multi_turn_chat() -> None:
     assert second.agent == JOB_AGENT
 
 
+async def test_job_agent_reads_saved_resume_through_no_argument_tool() -> None:
+    """求职图可调用无参数简历工具，并用实际工具结果生成后续回复。"""
+
+    reader_calls = 0
+    snapshot = JobResumeSnapshot(
+        status="found",
+        intended_position="后端工程师",
+        work_experience_years=3,
+        skills="Python、PostgreSQL",
+    )
+
+    def read_resume() -> JobResumeSnapshot:
+        nonlocal reader_calls
+        reader_calls += 1
+        return snapshot
+
+    assistant = create_job_agent(
+        chat_model=_ReadSavedResumeModel(),
+        checkpointer=MemorySaver(),
+        resume_reader=read_resume,
+    )
+    resume_tool = next(
+        item for item in assistant.tool_registry.tools if item.name == "read_saved_resume"
+    )
+
+    assert resume_tool.args_schema is not None
+    assert resume_tool.args_schema.model_fields == {}
+    response = await assistant.ainvoke(
+        "请结合已保存简历给我建议。",
+        runnable_config={"configurable": {"thread_id": "job-agent-resume-tool-test"}},
+    )
+
+    assert response.status == "completed"
+    assert response.answer == "已保存资料显示目标岗位为后端工程师。"
+    assert reader_calls == 1
+
+
 def test_job_agent_prompt_defines_scope_and_redirect_behavior() -> None:
     """系统指令说明相关范围、无关话题引导和不调用工具的规则。"""
 
@@ -71,6 +109,36 @@ def test_job_agent_prompt_defines_scope_and_redirect_behavior() -> None:
     assert "不调用 `ask_user_questions` 或 `recommend_job_roles`" in JOB_SYSTEM_PROMPT
     assert "混合请求" in JOB_SYSTEM_PROMPT
     assert "打招呼" in JOB_SYSTEM_PROMPT
+    assert "已保存的求职事实" in JOB_SYSTEM_PROMPT
+
+
+class _ReadSavedResumeModel:
+    """先调用简历工具，再根据工具观察组织自然语言回复。"""
+
+    def bind_tools(self, tools: list[object]) -> "_ReadSavedResumeModel":
+        self.tool_names = {getattr(item, "name") for item in tools}
+        return self
+
+    async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+        latest = messages[-1]
+        if isinstance(latest, ToolMessage):
+            assert latest.name == "read_saved_resume"
+            result = json.loads(str(latest.content))
+            position = result["data"]["intended_position"]
+            return AIMessage(content=f"已保存资料显示目标岗位为{position}。")
+
+        assert "read_saved_resume" in self.tool_names
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "read_saved_resume",
+                    "args": {},
+                    "id": "read-saved-resume-call",
+                    "type": "tool_call",
+                }
+            ],
+        )
 
 
 class _OffTopicResponseModel:
