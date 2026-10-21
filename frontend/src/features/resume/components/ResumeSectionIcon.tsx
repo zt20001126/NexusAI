@@ -1,4 +1,4 @@
-export type ResumeSectionIconName = 'profile' | 'education' | 'skills' | 'work' | 'projects' | 'style'
+export type ResumeSectionIconName = 'profile' | 'education' | 'skills' | 'work' | 'projects' | 'style' | 'job'
 
 interface ResumeSectionIconProps {
   name: ResumeSectionIconName
@@ -16,6 +16,7 @@ function ResumeSectionIcon({ name, className }: ResumeSectionIconProps) {
       {name === 'work' && <><rect x="2.5" y="6" width="15" height="11" rx="1.8" /><path d="M7 6V4.5c0-.8.7-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5V6M2.5 10h15M8 10v2h4v-2" /></>}
       {name === 'projects' && <><path d="M2.5 5.5h6l1.7 1.8h7.3v8.2c0 1.1-.9 2-2 2H4.5c-1.1 0-2-.9-2-2V5.5Z" /><path d="M2.5 8h15" /></>}
       {name === 'style' && <><path d="M3 5h14M3 10h14M3 15h14" /><circle cx="7" cy="5" r="1.5" fill="currentColor" /><circle cx="13" cy="10" r="1.5" fill="currentColor" /><circle cx="9" cy="15" r="1.5" fill="currentColor" /></>}
+      {name === 'job' && <><rect x="2.5" y="6" width="15" height="11" rx="2" /><path d="M7 6V4.5A1.5 1.5 0 0 1 8.5 3h3A1.5 1.5 0 0 1 13 4.5V6M2.5 10h15M8 10v2h4v-2" /></>}
     </svg>
   )
 }

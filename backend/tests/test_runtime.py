@@ -14,7 +14,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import PrivateAttr
 
-from agent.constants import BASE_CONVERSATION_AGENT
+from agent.constants import BASE_CONVERSATION_AGENT, JOB_AGENT
 from agent.errors import InvalidResumeAnswersError
 from agent.persistence.memory import MemoryConversationStore, MemoryMessageStore
 from agent.runner import AgentRunner, build_memory_runner
@@ -28,6 +28,7 @@ from agent.streaming.events import (
 from agent.title import ConversationTitleGenerator
 from agents.base_agent import BaseAgent, BaseAgentConfig
 from agents.base_agent import create_basic_conversation_agent
+from agents.job_agent import create_job_agent
 from infra.settings import AppSettings
 from tests.fake_models import (
     ScriptedQuestionCallingProvider,
@@ -203,6 +204,32 @@ async def test_basic_conversation_forwards_model_chunks_before_completion() -> N
     for event in delta_events:
         assert event.data["offset"] == expected_offset
         expected_offset += len(event.data["text"])
+
+
+async def test_job_agent_forwards_model_chunks_as_separate_sse_deltas() -> None:
+    """求职智能体的模型片段应逐段进入共享 SSE 事件流。"""
+    chat_model = _StreamingReplyModel()
+    chat_model.continue_streaming()
+    assistant = create_job_agent(
+        agent=JOB_AGENT,
+        chat_model=chat_model,
+        checkpointer=MemorySaver(),
+    )
+    runtime = build_memory_runner(
+        AppSettings(_env_file=None),
+        graph=assistant.compiled_graph,
+        agent=JOB_AGENT,
+        title_generator=_UnavailableTitleGenerator(),
+    )
+
+    events = await _collect_events(runtime.stream_chat(message="我想找后端岗位"))
+    deltas = [
+        event.data["text"]
+        for event in events
+        if event.event_type == AgentEventType.MESSAGE
+        and event.data.get("operation") == "delta"
+    ]
+    assert deltas == ["你好", "，世界"]
 
 
 async def test_basic_agent_question_card_waits_and_resumes_the_same_run() -> None:
@@ -522,6 +549,11 @@ class _StreamingReplyModel(BaseChatModel):
 
     _stream_completed: bool = PrivateAttr(default=False)
     _continue_streaming: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
+
+    def bind_tools(self, tools: list[object], **kwargs: object) -> "_StreamingReplyModel":
+        """测试求职工厂的提问工具绑定，同时保留可观察的流式输出。"""
+        del tools, kwargs
+        return self
 
     @property
     def stream_completed(self) -> bool:

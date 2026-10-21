@@ -13,3 +13,4 @@ class AgentType(StrEnum):
     RESEARCH = "research_agent"
     LABOR_LAW = "labor_law_agent"
     LITERATURE_READER = "literature_reader_agent"
+    JOB = "job_agent"

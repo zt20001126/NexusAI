@@ -90,7 +90,7 @@ flowchart LR
 
 前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
-使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库文档.md)。
+使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。实习僧开放平台接入获批后，可在 `backend/.env` 中填写 `SHIXISENG_APP_ID` 和 `SHIXISENG_APP_SECRET`；当前改动仅预留服务端配置，岗位搜索调用尚未接入。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库文档.md)。
 
 ### 使用 Docker 启动后端和 Worker
 

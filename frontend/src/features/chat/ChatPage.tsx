@@ -7,6 +7,7 @@ import LiteratureLibraryPanel from './components/LiteratureLibraryPanel'
 import MessageList from './components/MessageList'
 import {
   COMMON_AGENT,
+  JOB_AGENT,
   LITERATURE_READER_AGENT,
   LISTING_AGENT,
   MAX_REFERENCE_IMAGE_BYTES,
@@ -30,6 +31,7 @@ function ChatPage({ onOpenResume }: { onOpenResume: () => void }) {
   const agentDirectoryOpen = mainView === 'directory'
   const [newConversationReady, setNewConversationReady] = useState(false)
   const chat = useChatSession()
+  const marketAgents = chat.agents.filter((item) => item.agent !== JOB_AGENT)
   useEffect(() => {
     if (mainView === 'workspace' && !chat.sidebarLoading && !chat.activeConversationId && !newConversationReady) {
       setAgentSelectionOpen(true)
@@ -143,7 +145,7 @@ function ChatPage({ onOpenResume }: { onOpenResume: () => void }) {
       <section className="chat-main">
         {agentDirectoryOpen && (
           <AgentDirectory
-            agents={chat.agents}
+            agents={marketAgents}
             loading={chat.agentsLoading}
             error={chat.agentsError}
             canReturnToConversation={Boolean(chat.activeConversationId) || newConversationReady}
@@ -227,7 +229,7 @@ function ChatPage({ onOpenResume }: { onOpenResume: () => void }) {
       <AgentSelectionDialog
         open={agentSelectionOpen}
         canCancel={Boolean(chat.activeConversationId) || newConversationReady || agentDirectoryOpen}
-        agents={chat.agents}
+        agents={marketAgents}
         agentsLoading={chat.agentsLoading}
         agentsError={chat.agentsError}
         onSelect={selectAgent}

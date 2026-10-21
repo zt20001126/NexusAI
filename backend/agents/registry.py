@@ -12,6 +12,7 @@ from agent.constants import (
     LABOR_LAW_AGENT,
     RESEARCH_AGENT,
     LITERATURE_READER_AGENT,
+    JOB_AGENT,
 )
 from agent.errors import UnknownAgentError
 from agents.definition import AgentDefinition
@@ -29,6 +30,7 @@ from agents.literature_reader_agent.constants import (
     LITERATURE_READER_AGENT_DESCRIPTION,
     LITERATURE_READER_AGENT_NAME,
 )
+from agents.job_agent.constants import JOB_AGENT_DESCRIPTION, JOB_AGENT_NAME
 
 
 COMMON_AGENT_NAME = "通用智能体"
@@ -80,6 +82,12 @@ PROJECT_AGENT_DEFINITIONS = (
         description=LITERATURE_READER_AGENT_DESCRIPTION,
         supports_image_upload=False,
         supports_document_upload=True,
+    ),
+    AgentDefinition(
+        agent=JOB_AGENT,
+        name=JOB_AGENT_NAME,
+        description=JOB_AGENT_DESCRIPTION,
+        supports_image_upload=False,
     ),
 )
 

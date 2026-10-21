@@ -41,6 +41,7 @@ const plainTextExtensions = [StarterKit.configure({
 
 type RichEditorProps = {
   mode: 'rich'
+  label?: string
   value: TiptapDocument
   disabled?: boolean
   onChange: (value: TiptapDocument) => void
@@ -57,6 +58,7 @@ type RichTextEditorProps = RichEditorProps | PlainEditorProps
 
 function RichTextEditor(props: RichTextEditorProps) {
   const { mode, disabled = false } = props
+  const editorLabel = mode === 'plain' ? '专业技能段落' : props.label ?? '经历描述'
   const editor = useEditor({
     extensions: mode === 'plain' ? plainTextExtensions : richExtensions,
     content: mode === 'plain' ? textToDocument(props.value) : props.value,
@@ -65,7 +67,7 @@ function RichTextEditor(props: RichTextEditorProps) {
     editorProps: {
       attributes: {
         class: `resume-tiptap-content ${mode === 'plain' ? 'is-plain' : ''}`,
-        'aria-label': mode === 'plain' ? '专业技能段落' : '经历描述',
+        'aria-label': editorLabel,
       },
       handleKeyDown: (_view, event) => mode === 'plain' && event.key === 'Enter',
       handlePaste: (view, event) => {
@@ -113,7 +115,7 @@ function RichTextEditor(props: RichTextEditorProps) {
 
   return (
     <div className="resume-tiptap-shell">
-      <div className="resume-tiptap-toolbar" role="toolbar" aria-label="经历内容格式">
+      <div className="resume-tiptap-toolbar" role="toolbar" aria-label={`${editorLabel}格式`}>
         <ToolbarButton label="加粗" active={editor.isActive('bold')} disabled={disabled || !editor.can().chain().focus().toggleBold().run()} onClick={() => editor.chain().focus().toggleBold().run()}>
           <strong>B</strong>
         </ToolbarButton>

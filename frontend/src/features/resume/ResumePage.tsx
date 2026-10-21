@@ -5,6 +5,7 @@ import RobotAvatar, { RESUME_ASSISTANT_AVATAR_SEED } from '../../shared/componen
 import ResumeEditorPanel from './components/ResumeEditorPanel'
 import ResumePreview from './components/ResumePreview'
 import ResumeSectionNavigation from './components/ResumeSectionNavigation'
+import JobChatPanel from '../chat/components/JobChatPanel'
 import { useResumeEditor } from './hooks/useResumeEditor'
 import type { ResumeSection } from './model/types'
 
@@ -99,17 +100,21 @@ function ResumePage({ onBack }: ResumePageProps) {
           dirty={editor.dirty}
           loading={editor.loading}
         />
-        <ResumeEditorPanel
-          section={activeSection}
-          draft={editor.draft}
-          photoPreviewUrl={editor.photoPreviewUrl}
-          photoError={editor.photoError}
-          disabled={editor.loading || editor.saving || editor.uploadingPhoto}
-          onUpdateContent={editor.updateContent}
-          onUpdateStyle={editor.updateStyleConfig}
-          onUploadPhoto={editor.uploadPhoto}
-          onRemovePhoto={editor.removePhoto}
-        />
+        {activeSection === 'job' ? (
+          <JobChatPanel />
+        ) : (
+          <ResumeEditorPanel
+            section={activeSection}
+            draft={editor.draft}
+            photoPreviewUrl={editor.photoPreviewUrl}
+            photoError={editor.photoError}
+            disabled={editor.loading || editor.saving || editor.uploadingPhoto}
+            onUpdateContent={editor.updateContent}
+            onUpdateStyle={editor.updateStyleConfig}
+            onUploadPhoto={editor.uploadPhoto}
+            onRemovePhoto={editor.removePhoto}
+          />
+        )}
       </div>
     </main>
   )

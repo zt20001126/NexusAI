@@ -7,6 +7,7 @@ export const AgentType = {
   RESEARCH: 'research_agent',
   LABOR_LAW: 'labor_law_agent',
   LITERATURE_READER: 'literature_reader_agent',
+  JOB: 'job_agent',
 } as const
 export type AgentType = typeof AgentType[keyof typeof AgentType]
 
@@ -14,6 +15,7 @@ export const COMMON_AGENT = AgentType.COMMON
 export const IMAGE_AGENT = AgentType.IMAGE
 export const LISTING_AGENT = AgentType.LISTING
 export const LITERATURE_READER_AGENT = AgentType.LITERATURE_READER
+export const JOB_AGENT = AgentType.JOB
 
 const agentTypeValues = new Set<string>(Object.values(AgentType))
 

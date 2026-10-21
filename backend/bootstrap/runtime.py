@@ -15,11 +15,13 @@ from agent.constants import (
     LABOR_LAW_AGENT,
     RESEARCH_AGENT,
     LITERATURE_READER_AGENT,
+    JOB_AGENT,
 )
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
 from agent.streaming.publisher import EventPublisher
 from agents.base_agent import create_basic_conversation_agent
+from agents.job_agent import create_job_agent
 from agents.image_agent.graph import build_image_agent_graph
 from agents.image_agent.providers.result_downloader import ImageResultDownloader
 from agents.image_agent.providers.tokenhub_client import TokenHubImageClient
@@ -149,6 +151,15 @@ def build_lifespan(
                     agent=BASE_CONVERSATION_AGENT,
                     graph=basic_conversation_agent.compiled_graph,
                 )
+                job_agent = create_job_agent(
+                    agent=JOB_AGENT,
+                    chat_model=resolved_model_provider.create_chat_model(),
+                    checkpointer=checkpointer,
+                )
+                job_runner = create_postgres_runner(
+                    agent=JOB_AGENT,
+                    graph=job_agent.compiled_graph,
+                )
                 image_model = resolved_model_provider.create_chat_model()
                 image_graph = build_image_agent_graph(
                     checkpointer,
@@ -238,6 +249,7 @@ def build_lifespan(
                         RESEARCH_AGENT: research_runner,
                         LABOR_LAW_AGENT: labor_law_runner,
                         LITERATURE_READER_AGENT: literature_runner,
+                        JOB_AGENT: job_runner,
                     },
                     MemoryEventSequence(),
                     conversation_store,

@@ -86,7 +86,7 @@ function ResumePreview({ content, style, photoPreviewUrl, exists, dirty, loading
                   <p>{[item.major, item.degree].filter(Boolean).join(' · ')}</p>
                 </div>
               ))}</PreviewSection>}
-              {content.skills.length > 0 && <PreviewSection title="专业技能" icon="skills">{content.skills.map((skill, index) => <p className="resume-preview-skill" key={`${index}-${skill}`}>{skill}</p>)}</PreviewSection>}
+              {hasTiptapText(content.skills) && <PreviewSection title="专业技能" icon="skills"><div className="resume-preview-rich">{renderTiptap(content.skills)}</div></PreviewSection>}
               {content.works.length > 0 && <PreviewSection title="工作经历" icon="work">{content.works.map((item) => (
                 <div className="resume-preview-entry" key={item.id}>
                   <div className="resume-preview-entry-heading"><strong>{[item.company, item.position].filter(Boolean).join(' · ')}</strong><span>{item.start_month} — {item.end_month}</span></div>
@@ -115,6 +115,16 @@ function PreviewSection({ title, icon, children }: { title: string; icon: Resume
 
 function renderTiptap(document: TiptapDocument): ReactNode {
   return document.content.map((node, index) => renderNode(node, `${node.type}-${index}`))
+}
+
+function hasTiptapText(document: TiptapDocument): boolean {
+  return document.content.some(hasNodeText)
+}
+
+function hasNodeText(node: TiptapNode): boolean {
+  if (node.type === 'text') return node.text.trim().length > 0
+  if (node.type === 'hardBreak') return false
+  return (node.content ?? []).some(hasNodeText)
 }
 
 function renderNode(node: TiptapNode, key: string): ReactNode {
