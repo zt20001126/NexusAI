@@ -66,12 +66,26 @@
 .resume-editor-panel { min-width: 0; min-height: 0; padding: 23px clamp(16px, 2vw, 27px) 32px; overflow-x: hidden; overflow-y: auto; border-left: 1px solid #E5EBF3; background: #FFF; }
 .resume-job-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-left: 1px solid #E5EBF3; background: #FFF; }
 .resume-job-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 22px 14px; border-bottom: 1px solid #EDF1F6; }
-.resume-job-header h2 { margin: 0 0 5px; color: #203652; font-size: 18px; }
-.resume-job-header span { color: #8190A3; font-size: 10px; }
-.resume-job-history { display: flex; align-items: center; gap: 8px; padding: 10px 22px 0; color: #64758B; font-size: 10px; }
-.resume-job-history select { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid #DFE6EF; border-radius: 8px; color: #30445E; background: #FFF; font-size: 11px; }
-.resume-job-history select:focus-visible, .resume-job-older:focus-visible { outline: 3px solid rgb(22 119 255 / 22%); outline-offset: 2px; }
-.resume-job-capability { padding: 10px 22px; margin: 0; color: #73849A; background: #F8FAFD; font-size: 10px; line-height: 1.5; }
+.resume-job-header h2 { margin: 0; color: #203652; font-size: 18px; }
+.resume-job-history { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px 22px 0; color: #64758B; font-size: 10px; }
+.resume-job-history-label { flex: 0 0 auto; }
+.resume-job-history-control { position: relative; min-width: 0; flex: 1; }
+.resume-job-history-trigger { display: flex; width: 100%; min-height: 36px; align-items: center; justify-content: space-between; gap: 10px; padding: 0 11px; border: 1px solid #DFE6EF; border-radius: 9px; color: #30445E; background: #FFF; text-align: left; font: inherit; transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease; }
+.resume-job-history-trigger:hover:not(:disabled), .resume-job-history-trigger.is-open { border-color: #A9C8EC; background: #FBFDFF; box-shadow: 0 0 0 3px rgb(41 123 209 / 7%); }
+.resume-job-history-trigger:focus-visible, .resume-job-history-option:focus-visible, .resume-job-older:focus-visible { outline: 3px solid rgb(22 119 255 / 22%); outline-offset: 2px; }
+.resume-job-history-trigger:disabled { color: #8795A7; background: #F8FAFC; }
+.resume-job-history-value { overflow: hidden; color: #30445E; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.resume-job-history-chevron { flex: 0 0 auto; color: #8194AB; font-size: 17px; line-height: 1; transform: translateY(-2px); transition: transform .18s ease; }
+.resume-job-history-trigger.is-open .resume-job-history-chevron { transform: rotate(180deg) translateY(-2px); }
+.resume-job-history-menu { position: absolute; top: calc(100% + 7px); right: 0; left: 0; max-height: 240px; padding: 5px; overflow-x: hidden; overflow-y: auto; border: 1px solid #E2EAF3; border-radius: 11px; background: #FFF; box-shadow: 0 12px 30px rgb(27 51 82 / 16%), 0 2px 6px rgb(27 51 82 / 6%); opacity: 0; pointer-events: none; transform: translateY(-5px) scale(.99); transform-origin: top center; transition: opacity .16s ease, transform .16s ease, visibility .16s; visibility: hidden; }
+.resume-job-history-menu.is-open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); visibility: visible; }
+.resume-job-history-option { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px solid transparent; border-radius: 7px; color: #405570; background: transparent; text-align: left; font-size: 11px; line-height: 1.4; cursor: pointer; }
+.resume-job-history-option > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resume-job-history-option:hover { color: #1B5FA9; background: #F3F8FF; }
+.resume-job-history-option.is-selected { border-color: #D8E8FA; color: #1557A5; background: #EAF3FF; font-weight: 650; }
+.resume-job-history-check { flex: 0 0 auto; color: #2674CA; }
+.resume-job-history-empty { padding: 13px 9px; margin: 0; color: #8190A3; font-size: 10px; line-height: 1.6; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .resume-job-history-trigger, .resume-job-history-chevron, .resume-job-history-menu { transition: none; } }
 .resume-job-state, .resume-job-error { padding: 8px 22px; margin: 0; font-size: 11px; }
 .resume-job-error { color: #A53C2F; background: #FFF7F5; }
 .resume-job-messages { display: flex; flex: 1; min-height: 0; flex-direction: column; }
