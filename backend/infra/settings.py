@@ -112,6 +112,20 @@ class AppSettings(BaseSettings):
             "OPENALEX_RETRY_DELAY_SECONDS", "openalex_retry_delay_seconds"
         ),
     )
+    # 实习僧职位搜索使用商户凭证进行服务端签名；APP_SECRET 不得暴露给前端，调用来源 IP 需由平台配置白名单。
+    shixiseng_app_id: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("SHIXISENG_APP_ID", "shixiseng_app_id"),
+    )
+    shixiseng_app_secret: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("SHIXISENG_APP_SECRET", "shixiseng_app_secret"),
+    )
+    shixiseng_base_url: str = Field(
+        default="https://open.shixiseng.com",
+        validation_alias=AliasChoices("SHIXISENG_BASE_URL", "shixiseng_base_url"),
+    )
+
     research_max_search_rounds: int = Field(
         default=RESEARCH_DEFAULT_MAX_ROUNDS,
         ge=1,

@@ -69,3 +69,28 @@ def test_openalex_configuration_uses_environment_aliases(monkeypatch) -> None:
     assert settings.openalex_max_retries == 4
     assert settings.research_max_search_rounds == 2
 
+
+def test_shixiseng_configuration_uses_environment_aliases(monkeypatch) -> None:
+    """实习僧商户凭证、API 地址和超时配置可从环境变量读取。"""
+    monkeypatch.setenv("SHIXISENG_APP_ID", "test-app-id")
+    monkeypatch.setenv("SHIXISENG_APP_SECRET", "test-app-secret")
+    monkeypatch.setenv("SHIXISENG_BASE_URL", "https://example.test")
+    monkeypatch.setenv("SHIXISENG_TIMEOUT_SECONDS", "35")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.shixiseng_app_id.get_secret_value() == "test-app-id"
+    assert settings.shixiseng_app_secret.get_secret_value() == "test-app-secret"
+    assert settings.shixiseng_base_url == "https://example.test"
+    assert settings.shixiseng_timeout_seconds == 35
+
+
+def test_shixiseng_configuration_has_safe_defaults() -> None:
+    """未获批 API 凭证时保持空值，基础地址和超时使用默认设置。"""
+    settings = AppSettings(_env_file=None)
+
+    assert settings.shixiseng_app_id.get_secret_value() == ""
+    assert settings.shixiseng_app_secret.get_secret_value() == ""
+    assert settings.shixiseng_base_url == "https://open.shixiseng.com"
+    assert settings.shixiseng_timeout_seconds == 20
+
