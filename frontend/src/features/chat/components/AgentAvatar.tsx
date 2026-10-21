@@ -14,6 +14,7 @@ const avatarSeedByAgent: Record<AgentType, string> = {
   [AgentType.LABOR_LAW]: '1874244142498832389',
   [AgentType.LITERATURE_READER]: '1874244142498832390',
   [AgentType.BASIC_CONVERSATION]: '1874244142498832391',
+  [AgentType.JOB]: '1874244142498832392',
 }
 
 /** 按智能体类型提供固定 seed，头像绘制器由共享界面能力复用。 */

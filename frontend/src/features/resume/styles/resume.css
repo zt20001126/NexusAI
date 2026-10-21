@@ -64,6 +64,24 @@
 .resume-overflow-warning { width: min(100%, 720px); padding: 8px 10px; margin: 0 auto 10px; border: 1px solid #F1D6A8; border-radius: 8px; color: #946523; background: #FFF9ED; font-size: 10px; }
 .resume-preview-skeleton { height: 100%; min-height: 220px; }
 .resume-editor-panel { min-width: 0; min-height: 0; padding: 23px clamp(16px, 2vw, 27px) 32px; overflow-x: hidden; overflow-y: auto; border-left: 1px solid #E5EBF3; background: #FFF; }
+.resume-job-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-left: 1px solid #E5EBF3; background: #FFF; }
+.resume-job-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 22px 14px; border-bottom: 1px solid #EDF1F6; }
+.resume-job-header h2 { margin: 0 0 5px; color: #203652; font-size: 18px; }
+.resume-job-header span { color: #8190A3; font-size: 10px; }
+.resume-job-history { display: flex; align-items: center; gap: 8px; padding: 10px 22px 0; color: #64758B; font-size: 10px; }
+.resume-job-history select { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid #DFE6EF; border-radius: 8px; color: #30445E; background: #FFF; font-size: 11px; }
+.resume-job-history select:focus-visible, .resume-job-older:focus-visible { outline: 3px solid rgb(22 119 255 / 22%); outline-offset: 2px; }
+.resume-job-capability { padding: 10px 22px; margin: 0; color: #73849A; background: #F8FAFD; font-size: 10px; line-height: 1.5; }
+.resume-job-state, .resume-job-error { padding: 8px 22px; margin: 0; font-size: 11px; }
+.resume-job-error { color: #A53C2F; background: #FFF7F5; }
+.resume-job-messages { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.resume-job-panel .message-list { width: calc(100% - 28px); gap: 16px; padding: 20px 0; }
+.resume-job-panel .message-row { gap: 7px; }
+.resume-job-panel .message-column { max-width: calc(100% - 38px); }
+.resume-job-panel .welcome-panel { width: calc(100% - 40px); padding: 30px 0; }
+.resume-job-panel .welcome-panel h1 { font-size: 17px; }
+.resume-job-panel .composer-wrap { width: calc(100% - 36px); padding: 10px 0 12px; }
+.resume-job-older { align-self: center; padding: 6px 10px; border: 0; color: #38679E; background: transparent; font-size: 10px; }
 .resume-editor-section { width: min(100%, 560px); margin: 0 auto; }
 .resume-editor-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 16px; margin-bottom: 17px; border-bottom: 1px solid #EDF1F6; }
 .resume-editor-eyebrow { margin: 0 0 4px; color: #91A3B9; font-size: 8px; font-weight: 800; letter-spacing: 1.15px; }
@@ -146,6 +164,7 @@
   .resume-preview-panel { flex: 0 0 auto; min-height: 550px; padding: 18px 20px 14px; }
   .resume-preview-paper { width: min(100%, 180mm); }
   .resume-editor-panel { flex: 0 0 auto; min-height: 300px; padding: 22px 20px 32px; border-top: 1px solid #E5EBF3; border-left: 0; }
+  .resume-job-panel { flex: 0 0 auto; height: min(680px, 80vh); min-height: 400px; border-top: 1px solid #E5EBF3; border-left: 0; }
 }
 
 @media (max-width: 600px) {

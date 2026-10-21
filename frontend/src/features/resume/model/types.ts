@@ -1,4 +1,4 @@
-export type ResumeSection = 'basic' | 'education' | 'skills' | 'work' | 'projects' | 'style'
+export type ResumeSection = 'basic' | 'education' | 'skills' | 'work' | 'projects' | 'style' | 'job'
 
 export interface BasicInfo {
   name: string

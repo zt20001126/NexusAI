@@ -9,6 +9,7 @@ const sections: Array<{ id: ResumeSection; label: string; number: string; icon: 
   { id: 'work', label: '工作经历', number: '04', icon: 'work' },
   { id: 'projects', label: '项目经历', number: '05', icon: 'projects' },
   { id: 'style', label: '排版设置', number: '06', icon: 'style' },
+  { id: 'job', label: '求职助手', number: '07', icon: 'job' },
 ]
 
 interface ResumeSectionNavigationProps {
