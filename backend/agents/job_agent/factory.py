@@ -10,6 +10,7 @@ from agents.job_agent.agent import JobAgent
 from agents.job_agent.config import JobAgentConfig
 from agents.job_agent.prompts import JOB_SYSTEM_PROMPT
 from agents.job_agent.tools.ask_user_questions import ask_user_questions
+from agents.job_agent.tools.recommend_job_roles import recommend_job_roles
 
 
 def create_job_agent(
@@ -18,7 +19,7 @@ def create_job_agent(
     agent: AgentType = AgentType.JOB,
     checkpointer: BaseCheckpointSaver[Any],
 ) -> JobAgent:
-    """创建基础求职对话图；模型和持久化器由组合根注入。"""
+    """创建带结构化追问与岗位推荐能力的求职对话图。"""
 
     return JobAgent(
         config=JobAgentConfig(
@@ -26,6 +27,6 @@ def create_job_agent(
             system_prompt=JOB_SYSTEM_PROMPT,
         ),
         chat_model=chat_model,
-        tools=[ask_user_questions],
+        tools=[ask_user_questions, recommend_job_roles],
         checkpointer=checkpointer,
     )
