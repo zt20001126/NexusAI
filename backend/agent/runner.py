@@ -17,6 +17,7 @@ from agent.constants import (
     BASE_CONVERSATION_AGENT,
     CHECKPOINT_AGENT_NAMESPACE_COMPATIBILITY,
     COMMON_AGENT,
+    JOB_AGENT,
     LISTING_AGENT,
     MAX_QUESTION_ROUNDS_PER_RUN,
 )
@@ -81,6 +82,7 @@ MESSAGE_DELTA_CHUNK_SIZE = 24
 STREAMING_RESPONSE_NODES_BY_AGENT = {
     COMMON_AGENT: frozenset({"agent", "result"}),
     BASE_CONVERSATION_AGENT: frozenset({"agent_node"}),
+    JOB_AGENT: frozenset({"agent_node"}),
 }
 
 
