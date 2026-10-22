@@ -89,7 +89,7 @@ async def test_job_agent_reads_saved_resume_through_no_argument_tool() -> None:
     assert resume_tool.args_schema is not None
     assert resume_tool.args_schema.model_fields == {}
     response = await assistant.ainvoke(
-        "请结合已保存简历给我建议。",
+        "请分析一下我已保存简历的不足和改进空间。",
         runnable_config={"configurable": {"thread_id": "job-agent-resume-tool-test"}},
     )
 
@@ -110,6 +110,23 @@ def test_job_agent_prompt_defines_scope_and_redirect_behavior() -> None:
     assert "混合请求" in JOB_SYSTEM_PROMPT
     assert "打招呼" in JOB_SYSTEM_PROMPT
     assert "已保存的求职事实" in JOB_SYSTEM_PROMPT
+    assert "分析、诊断或评估本人简历" in JOB_SYSTEM_PROMPT
+    assert "必须在给出分析前调用 `read_saved_resume`" in JOB_SYSTEM_PROMPT
+    assert "一般简历知识、模板咨询" in JOB_SYSTEM_PROMPT
+    assert "简历未写明推断为用户没有相关经历" in JOB_SYSTEM_PROMPT
+
+
+def test_job_agent_prompt_defines_resume_analysis_result_boundaries() -> None:
+    """提示词规定已保存简历不足分析的触发、排除和失败处理边界。"""
+
+    from pathlib import Path
+
+    prompt_path = Path(__file__).parents[1] / "agents" / "job_agent" / "prompts" / "agent.md"
+    prompt = prompt_path.read_text(encoding="utf-8")
+    assert "本人简历不足分析" in prompt
+    assert "一般简历知识、模板咨询" in prompt
+    assert "`found`" in prompt and "`not_found`" in prompt and "`unavailable`" in prompt
+    assert "不得把字段为空或未返回写成用户没有相应经历" in prompt
 
 
 class _ReadSavedResumeModel:
