@@ -8,8 +8,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from agents.job_agent.resume_snapshot import MAX_JOB_RESUME_FACTS_CHARS
 from app.crud.resume import ResumeRecord
-from app.dependencies.resume_owner import RESUME_OWNER_PRINCIPAL_ID
 from app.service.job_resume import SavedJobResumeReader
+
+TEST_PRINCIPAL_ID = "job-reader-owner@example.test"
 
 
 class FakeResumeRepository:
@@ -46,10 +47,10 @@ def test_reader_projects_saved_career_facts_and_omits_personal_fields() -> None:
     """工具数据包含职业经历和技能，但不包含姓名、联系方式或照片。"""
 
     repository = FakeResumeRepository(_record(_resume_content()))
-    snapshot = SavedJobResumeReader(repository).read()
+    snapshot = SavedJobResumeReader(repository).read(TEST_PRINCIPAL_ID)
     serialized = snapshot.model_dump_json()
 
-    assert repository.principal_ids == [RESUME_OWNER_PRINCIPAL_ID]
+    assert repository.principal_ids == [TEST_PRINCIPAL_ID]
     assert snapshot.status == "found"
     assert snapshot.intended_position == "后端工程师"
     assert snapshot.work_experience_years == 3
@@ -72,11 +73,11 @@ def test_reader_reports_missing_resume_without_creating_owner_data() -> None:
 
     repository = FakeResumeRepository()
 
-    snapshot = SavedJobResumeReader(repository).read()
+    snapshot = SavedJobResumeReader(repository).read(TEST_PRINCIPAL_ID)
 
     assert snapshot.status == "not_found"
     assert snapshot.educations == []
-    assert repository.principal_ids == [RESUME_OWNER_PRINCIPAL_ID]
+    assert repository.principal_ids == [TEST_PRINCIPAL_ID]
 
 
 def test_reader_returns_safe_unavailable_state_for_database_or_invalid_data() -> None:
@@ -88,8 +89,8 @@ def test_reader_returns_safe_unavailable_state_for_database_or_invalid_data() ->
         _record({"basic_info": "invalid legacy data"})
     )
 
-    database_snapshot = SavedJobResumeReader(unavailable_repository).read()
-    invalid_snapshot = SavedJobResumeReader(invalid_repository).read()
+    database_snapshot = SavedJobResumeReader(unavailable_repository).read(TEST_PRINCIPAL_ID)
+    invalid_snapshot = SavedJobResumeReader(invalid_repository).read(TEST_PRINCIPAL_ID)
 
     assert database_snapshot.status == "unavailable"
     assert invalid_snapshot.status == "unavailable"
@@ -104,7 +105,9 @@ def test_reader_marks_text_that_exceeds_the_shared_output_budget() -> None:
         work_text="工作" * 2_000,
         project_text="项目" * 2_000,
     )
-    snapshot = SavedJobResumeReader(FakeResumeRepository(_record(content))).read()
+    snapshot = SavedJobResumeReader(FakeResumeRepository(_record(content))).read(
+        TEST_PRINCIPAL_ID
+    )
     total_text_chars = (
         len(snapshot.intended_position or "")
         + sum(
@@ -152,6 +155,7 @@ def test_optimization_writer_updates_only_allowed_fields_and_preserves_private_d
     repository = FakeResumeRepository(_record(_resume_content()))
     original = repository.record
     result = SavedJobResumeReader(repository).apply_optimization(
+        TEST_PRINCIPAL_ID,
         {
             "scope": "basic_info",
             "source_updated_at": original.updated_at.isoformat(),
@@ -172,6 +176,7 @@ def test_optimization_writer_rejects_protected_fields_and_stale_candidates() -> 
     current_time = repository.record.updated_at.isoformat()
 
     invalid = reader.apply_optimization(
+        TEST_PRINCIPAL_ID,
         {
             "scope": "basic_info",
             "source_updated_at": current_time,
@@ -179,6 +184,7 @@ def test_optimization_writer_rejects_protected_fields_and_stale_candidates() -> 
         }
     )
     stale = reader.apply_optimization(
+        TEST_PRINCIPAL_ID,
         {
             "scope": "skills",
             "source_updated_at": "2000-01-01T00:00:00+00:00",

@@ -90,6 +90,8 @@ flowchart LR
 
 前端开发服务器默认通过 `/api` 代理到本地后端。后端 API 交互文档路径为 `/docs`；本地启动时访问 `http://127.0.0.1:8000/docs`。
 
+启用邮箱账号功能前，在 `backend/.env` 设置 `MAIL_SMTP_USERNAME` 为完整 QQ 邮箱地址，在 QQ 邮箱设置中启用 SMTP 服务并生成授权码后填入 `MAIL_SMTP_PASSWORD`，再为 `AUTH_CODE_PEPPER` 配置随机长密钥。SMTP 密码必须使用邮箱生成的授权码，不能使用网页登录密码；不要将 `.env` 或真实授权码提交到 Git。验证码和会话使用现有 Redis，无需增加 PostgreSQL 认证表。若数据库含本次迭代早期创建的认证临时表，可执行 `backend/migrations/017_redis_auth_state.sql` 清理。登录 Cookie 在非开发环境默认使用 Secure，生产环境应通过 HTTPS 提供前端和 API。
+
 使用生图、Embedding 或 PDF 存储能力时，按需配置 TokenHub 和私有 OSS 凭据。实习僧开放平台接入获批后，可在 `backend/.env` 中填写 `SHIXISENG_APP_ID` 和 `SHIXISENG_APP_SECRET`；当前改动仅预留服务端配置，岗位搜索调用尚未接入。Compose 中的 `worker` 同时处理 Agent 对话和文献导入；导入文献前还需应用文献数据库迁移。该 Worker 使用单进程串行处理任务，文献解析期间排队的对话任务会等待。变量、迁移和部署细节见 [`backend/.env.example`](backend/.env.example) 与[数据库结构说明](docs/数据库文档.md)。
 
 ### 使用 Docker 启动后端和 Worker

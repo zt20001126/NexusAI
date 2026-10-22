@@ -640,7 +640,10 @@ class AgentRunner:
                 )
             yield self._event(record, AgentEventType.START)
             config = {
-                "configurable": {"thread_id": scope_key},
+                "configurable": {
+                    "thread_id": scope_key,
+                    "principal_id": record.principal_id,
+                },
                 "recursion_limit": self._max_steps,
             }
             async with asyncio.timeout(self._run_timeout_seconds):

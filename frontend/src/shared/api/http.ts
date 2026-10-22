@@ -46,11 +46,13 @@ function deliverStreamFrame<T>(
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: init?.credentials ?? 'same-origin',
     headers: {
       Accept: 'application/json',
       ...init?.headers,
     },
   })
+  dispatchUnauthenticated(path, response.status)
   const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !body?.success || body.data === undefined) {
@@ -68,12 +70,14 @@ export async function requestBinary<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       Accept: 'application/json',
       'Content-Type': body.type || 'application/octet-stream',
     },
     body,
   })
+  dispatchUnauthenticated(path, response.status)
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
   if (!response.ok || !envelope?.success || envelope.data === undefined) {
     throw new Error(`${readApiErrorMessage(envelope, response.status)}（${fileName}）`)
@@ -85,9 +89,11 @@ export async function requestBinary<T>(
 export async function requestFormData<T>(path: string, body: FormData): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { Accept: 'application/json' },
     body,
   })
+  dispatchUnauthenticated(path, response.status)
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
   if (!response.ok || !envelope?.success || envelope.data === undefined) {
     throw new Error(readApiErrorMessage(envelope, response.status))
@@ -141,8 +147,12 @@ export async function streamEvents<T>(
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}${requestPath}`, init)
+      const response = await fetch(`${API_BASE_URL}${requestPath}`, {
+        ...init,
+        credentials: 'same-origin',
+      })
       if (!response.ok) {
+        dispatchUnauthenticated(requestPath, response.status)
         const body = (await response.json().catch(() => null)) as ApiEnvelope<unknown> | null
         if (response.status === 410 && isListening) {
           const restartCursor = await options.onExpired?.()
@@ -226,5 +236,11 @@ export async function streamEvents<T>(
       await new Promise<void>((resolve) => window.setTimeout(resolve, reconnectDelay))
       reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
     }
+  }
+}
+
+function dispatchUnauthenticated(path: string, status: number): void {
+  if (status === 401 && !path.startsWith('/api/auth/')) {
+    window.dispatchEvent(new Event('nexusai:unauthenticated'))
   }
 }

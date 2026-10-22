@@ -23,8 +23,8 @@ def create_job_agent(
     chat_model: BaseChatModel,
     agent: AgentType = AgentType.JOB,
     checkpointer: BaseCheckpointSaver[Any],
-    resume_reader: Callable[[], JobResumeSnapshot] | None = None,
-    resume_optimization_writer: Callable[[dict], str] | None = None,
+    resume_reader: Callable[[str], JobResumeSnapshot] | None = None,
+    resume_optimization_writer: Callable[[str, dict], str] | None = None,
 ) -> JobAgent:
     """创建带结构化追问与岗位推荐能力的求职对话图。"""
 

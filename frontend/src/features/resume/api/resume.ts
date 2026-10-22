@@ -30,16 +30,20 @@ export function deleteStagedResumePhoto(photoId: string): Promise<{ photo_id: st
 
 export async function getSavedResumePhoto(): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}${RESUME_API}/photo`, {
+    credentials: 'same-origin',
     headers: { Accept: 'image/png, image/jpeg' },
   })
+  notifySessionExpired(response.status)
   if (!response.ok) throw new Error(await readErrorMessage(response))
   return response.blob()
 }
 
 export async function downloadResumePdf(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${RESUME_API}/export/pdf`, {
+    credentials: 'same-origin',
     headers: { Accept: 'application/pdf' },
   })
+  notifySessionExpired(response.status)
   if (!response.ok) throw new Error(await readErrorMessage(response))
 
   const objectUrl = URL.createObjectURL(await response.blob())
@@ -48,6 +52,10 @@ export async function downloadResumePdf(): Promise<void> {
   anchor.download = 'resume.pdf'
   anchor.click()
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+}
+
+function notifySessionExpired(status: number): void {
+  if (status === 401) window.dispatchEvent(new Event('nexusai:unauthenticated'))
 }
 
 async function readErrorMessage(response: Response): Promise<string> {

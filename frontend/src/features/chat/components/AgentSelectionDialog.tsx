@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { AgentDefinition } from '../api/agent'
 import type { AgentType } from '../constants'
-import AgentAvatar from './AgentAvatar'
+import AgentAvatar from '../../../shared/components/AgentAvatar'
 
 interface AgentSelectionDialogProps {
   open: boolean

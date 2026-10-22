@@ -1,4 +1,4 @@
-"""提供按简历固定 owner 读取和整体保存的 PostgreSQL CRUD。"""
+"""提供按可信用户主体读取和整体保存的 PostgreSQL CRUD。"""
 
 from dataclasses import dataclass
 from datetime import datetime

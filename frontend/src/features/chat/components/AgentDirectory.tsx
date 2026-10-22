@@ -1,7 +1,7 @@
 import type { AgentDefinition } from '../api/agent'
 import type { AgentType } from '../constants'
 import RobotAvatar, { RESUME_ASSISTANT_AVATAR_SEED } from '../../../shared/components/RobotAvatar'
-import AgentAvatar from './AgentAvatar'
+import AgentAvatar from '../../../shared/components/AgentAvatar'
 
 interface AgentDirectoryProps {
   agents: AgentDefinition[]

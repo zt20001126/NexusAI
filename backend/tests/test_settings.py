@@ -15,6 +15,38 @@ def test_settings_no_longer_expose_checkpoint_backend_switch() -> None:
     assert settings.database_url is None
 
 
+def test_email_auth_settings_use_safe_qq_smtp_defaults(monkeypatch) -> None:
+    """认证邮件只从环境配置读取 QQ SMTP 授权码及摘要密钥。"""
+    monkeypatch.setenv("MAIL_SMTP_USERNAME", "nexus@example.test")
+    monkeypatch.setenv("MAIL_SMTP_PASSWORD", "smtp-app-code")
+    monkeypatch.setenv("AUTH_CODE_PEPPER", "test-long-random-pepper")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.mail_smtp_host == "smtp.qq.com"
+    assert settings.mail_smtp_port == 465
+    assert settings.mail_smtp_configured is True
+    assert settings.mail_smtp_password.get_secret_value() == "smtp-app-code"
+    assert settings.secure_auth_cookie is False
+    assert AppSettings(_env_file=None, app_env="production").secure_auth_cookie is True
+
+
+def test_email_auth_settings_accept_common_smtp_environment_names(monkeypatch) -> None:
+    """兼容部署中常见的 SMTP_* 命名，避免已填写的授权码被忽略。"""
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USERNAME", "nexus@example.test")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp-app-code")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.mail_smtp_host == "smtp.example.test"
+    assert settings.mail_smtp_port == 465
+    assert settings.mail_smtp_username == "nexus@example.test"
+    assert settings.mail_smtp_password.get_secret_value() == "smtp-app-code"
+    assert settings.mail_smtp_configured is True
+
+
 def test_application_startup_requires_database_url() -> None:
     """应用始终使用 PostgreSQL，启动时缺少 DATABASE_URL 会明确失败。"""
     with pytest.raises(ValueError, match="DATABASE_URL"):

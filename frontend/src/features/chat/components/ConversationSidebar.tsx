@@ -1,5 +1,5 @@
 import type { Conversation } from '../api/conversations'
-import AgentAvatar from './AgentAvatar'
+import AgentAvatar from '../../../shared/components/AgentAvatar'
 
 interface ConversationSidebarProps {
   conversations: Conversation[]

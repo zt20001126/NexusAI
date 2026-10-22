@@ -1,4 +1,4 @@
-"""简历助手 API 的固定主体、JSON 契约和二进制响应测试。"""
+"""简历助手 API 的认证主体、JSON 契约和二进制响应测试。"""
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.dependencies.resume_owner import RESUME_OWNER_PRINCIPAL_ID
+from app.dependencies.auth import get_principal_id
 from app.schemas.resume import (
     ResumeContent,
     ResumePhotoUploadResponse,
@@ -21,6 +21,7 @@ from infra.settings import AppSettings
 
 TEST_PNG = b"\x89PNG\r\n\x1a\nresume-test-image"
 TEST_PDF = b"%PDF-1.7 resume-test"
+TEST_PRINCIPAL_ID = "resume-test-owner@example.test"
 
 
 class FakeResumeService:
@@ -81,6 +82,7 @@ def client() -> Any:
         yield
 
     application = create_app(AppSettings(_env_file=None), lifespan=lifespan)
+    application.dependency_overrides[get_principal_id] = lambda: TEST_PRINCIPAL_ID
     with TestClient(application) as test_client:
         test_client.app.state.fake_resume_service = service
         yield test_client
@@ -96,7 +98,7 @@ def test_get_returns_defaults_without_external_identity(client: TestClient) -> N
         "content": [{"type": "paragraph", "content": []}],
     }
     assert response.headers["cache-control"] == "private, no-store"
-    assert client.app.state.fake_resume_service.principals == [RESUME_OWNER_PRINCIPAL_ID]
+    assert client.app.state.fake_resume_service.principals == [TEST_PRINCIPAL_ID]
 
 
 def test_put_persists_rich_skills_and_rejects_owner_fields(
@@ -242,7 +244,7 @@ def test_photo_upload_delete_and_binary_responses_use_fixed_owner(
     assert pdf.headers["cache-control"] == "private, no-store"
 
     assert set(client.app.state.fake_resume_service.principals) == {
-        RESUME_OWNER_PRINCIPAL_ID
+        TEST_PRINCIPAL_ID
     }
 
 

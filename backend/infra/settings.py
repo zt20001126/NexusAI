@@ -31,6 +31,33 @@ class AppSettings(BaseSettings):
     )
 
     app_env: str = "development"
+    mail_smtp_host: str = Field(
+        default="smtp.qq.com",
+        validation_alias=AliasChoices("MAIL_SMTP_HOST", "SMTP_HOST", "mail_smtp_host"),
+    )
+    mail_smtp_port: int = Field(
+        default=465,
+        ge=1,
+        le=65535,
+        validation_alias=AliasChoices("MAIL_SMTP_PORT", "SMTP_PORT", "mail_smtp_port"),
+    )
+    mail_smtp_username: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAIL_SMTP_USERNAME", "SMTP_USERNAME", "mail_smtp_username"
+        ),
+    )
+    mail_smtp_password: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices(
+            "MAIL_SMTP_PASSWORD", "SMTP_PASSWORD", "mail_smtp_password"
+        ),
+    )
+    mail_from_name: str = "NexusAI"
+    auth_code_pepper: SecretStr = SecretStr("")
+    auth_cookie_name: str = "nexusai_session"
+    auth_cookie_secure: bool | None = None
+    auth_session_ttl_seconds: int = Field(default=604_800, ge=300, le=2_592_000)
     # Snowflake worker ID 在同一套部署中的并发进程间必须唯一；1023 保留给历史迁移。
     snowflake_worker_id: int = Field(default=0, ge=0, le=1022)
     deepseek_api_key: SecretStr = SecretStr("")
@@ -248,6 +275,21 @@ class AppSettings(BaseSettings):
                 self.aliyun_oss_bucket.strip(),
             )
         )
+
+    @property
+    def mail_smtp_configured(self) -> bool:
+        """判断 SMTP 发件账号与授权码是否已配置。"""
+        return bool(
+            self.mail_smtp_username.strip()
+            and self.mail_smtp_password.get_secret_value().strip()
+        )
+
+    @property
+    def secure_auth_cookie(self) -> bool:
+        """本地 HTTP 开发允许非 Secure Cookie，其他环境默认强制 Secure。"""
+        if self.auth_cookie_secure is not None:
+            return self.auth_cookie_secure
+        return self.app_env != "development"
 
     volcengine_ark_api_key: SecretStr = SecretStr("")
     volcengine_ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"

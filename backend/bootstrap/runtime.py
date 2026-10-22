@@ -50,8 +50,10 @@ from app.crud import (
     PostgresTaskResultStore,
     PostgresResumeRepository,
 )
+from app.crud.auth import PostgresAuthRepository
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService, AgentSessionApplicationService
+from app.service.auth import AuthApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.health import HealthMonitor
 from app.service.job_resume import SavedJobResumeReader
@@ -75,6 +77,8 @@ from infra.health_probes import PostgresHealthProbe, RedisBrokerHealthProbe
 from infra.literature_task_queue import CeleryLiteratureTaskQueue
 from infra.agent_event_store import RedisAgentEventStore
 from infra.agent_task_queue import CeleryAgentTaskQueue
+from infra.email_sender import SmtpEmailSender
+from infra.redis_auth_store import RedisAuthStore
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
 
@@ -113,6 +117,14 @@ def build_lifespan(
                 else UnavailableResumePhotoStorage()
             )
             with PostgresDatabase(settings.database_url, id_generator) as database:
+                auth_repository = PostgresAuthRepository(database)
+                auth_store = RedisAuthStore(settings)
+                app_instance.state.auth_service = AuthApplicationService(
+                    repository=auth_repository,
+                    auth_store=auth_store,
+                    email_sender=SmtpEmailSender(settings),
+                    settings=settings,
+                )
                 resume_repository = PostgresResumeRepository(database)
                 conversation_store = PostgresConversationStore(database)
                 message_store = PostgresMessageStore(database)
@@ -308,6 +320,7 @@ def build_lifespan(
                     await health_monitor.stop()
                     await redis_probe.aclose()
                     await event_store.aclose()
+                    auth_store.close()
 
     return lifespan
 

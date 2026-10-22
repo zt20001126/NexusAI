@@ -13,6 +13,7 @@ from infra.literature_document_storage import (
     LiteratureStorageNotConfiguredError,
 )
 from app.exceptions.resume import ResumeApplicationError
+from app.service.auth import AuthApplicationError
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -23,6 +24,21 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, error: ResumeApplicationError
     ) -> JSONResponse:
         """简历助手业务错误使用固定 code/message，不暴露底层异常。"""
+        del request
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+    @app.exception_handler(AuthApplicationError)
+    async def handle_auth_error(
+        request: Request, error: AuthApplicationError
+    ) -> JSONResponse:
+        """将认证业务错误映射为稳定且不包含底层凭据的响应。"""
         del request
         return JSONResponse(
             status_code=error.status_code,
