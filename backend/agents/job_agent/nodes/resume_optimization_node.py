@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from agent.schemas.tool_result import ToolResult
@@ -16,11 +17,14 @@ DECISION_QUESTION_ID = "resume_optimization_decision"
 
 
 def create_resume_optimization_node(
-    writer: Callable[[dict[str, Any]], str] | None,
-) -> Callable[[JobAgentState], dict[str, Any]]:
+    writer: Callable[[str, dict[str, Any]], str] | None,
+) -> Callable[[JobAgentState, RunnableConfig], dict[str, Any]]:
     """只从待确认状态执行保存；模型没有数据库写入工具。"""
 
-    def node(state: JobAgentState) -> dict[str, Any]:
+    def node(
+        state: JobAgentState,
+        config: RunnableConfig | None = None,
+    ) -> dict[str, Any]:
         messages = state.get("messages", [])
         last = messages[-1] if messages else None
         pending = state.get("pending_resume_optimization")
@@ -60,7 +64,15 @@ def create_resume_optimization_node(
         if not isinstance(decision, str) or decision not in option_labels:
             return {}
         if decision in {"确认采用并保存", "accept_and_save"} and writer is not None:
-            result = writer(pending)
+            principal_id = (config or {}).get("configurable", {}).get("principal_id")
+            if not isinstance(principal_id, str) or not principal_id:
+                return {
+                    "pending_resume_optimization": None,
+                    "messages": [
+                        SystemMessage(content="简历优化保存结果：unavailable")
+                    ],
+                }
+            result = writer(principal_id, pending)
             return {
                 "pending_resume_optimization": None,
                 "messages": [SystemMessage(content=f"简历优化保存结果：{result}")],

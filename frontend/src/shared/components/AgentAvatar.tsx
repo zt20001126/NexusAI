@@ -1,11 +1,11 @@
-import { AgentType } from '../constants'
-import RobotAvatar from '../../../shared/components/RobotAvatar'
+import { AgentType } from '../../features/chat/constants'
+import RobotAvatar from './RobotAvatar'
 
 interface AgentAvatarProps {
   agent: AgentType
 }
 
-/** 保留旧头像生成所用的稳定 seed；它们仅用于视觉生成，不是 API 或数据库 ID。 */
+/** 按智能体类型提供固定图标，供首页和工作区共用。 */
 const avatarSeedByAgent: Record<AgentType, string> = {
   [AgentType.COMMON]: '1874244142498832385',
   [AgentType.IMAGE]: '1874244142498832386',
@@ -17,9 +17,6 @@ const avatarSeedByAgent: Record<AgentType, string> = {
   [AgentType.JOB]: '1874244142498832392',
 }
 
-/** 按智能体类型提供固定 seed，头像绘制器由共享界面能力复用。 */
-function AgentAvatar({ agent }: AgentAvatarProps) {
+export default function AgentAvatar({ agent }: AgentAvatarProps) {
   return <RobotAvatar seed={avatarSeedByAgent[agent]} />
 }
-
-export default AgentAvatar

@@ -1,4 +1,4 @@
-"""为求职助手读取固定主体简历并转换为有界求职事实。"""
+"""为求职助手读取当前账号简历并转换为有界求职事实。"""
 
 import logging
 from datetime import datetime
@@ -14,7 +14,6 @@ from agents.job_agent.resume_snapshot import (
     ResumeWorkFact,
 )
 from app.crud.resume import PostgresResumeRepository
-from app.dependencies.resume_owner import get_resume_owner_principal_id
 from app.schemas.resume import (
     ResumeContent,
     TiptapBulletList,
@@ -48,22 +47,21 @@ class _TextBudget:
 
 
 class SavedJobResumeReader:
-    """读取简历固定主体并只向求职助手提供经过筛选的简历事实。"""
+    """读取指定主体简历并只向求职助手提供经过筛选的简历事实。"""
 
     def __init__(self, repository: PostgresResumeRepository) -> None:
         self._repository = repository
-        self._principal_id = get_resume_owner_principal_id()
 
-    def read(self) -> JobResumeSnapshot:
+    def read(self, principal_id: str) -> JobResumeSnapshot:
         """读取已保存简历并校验后投影求职字段。
 
-        Step 1: 使用固定主体从简历仓储读取一条记录。
+        Step 1: 使用当前可信主体从简历仓储读取一条记录。
         Step 2: 将 JSONB 内容校验为简历契约，提取求职相关字段。
         Step 3: 截断富文本并返回不含联系方式等敏感字段的 DTO。
         """
 
         try:
-            record = self._repository.get(self._principal_id)
+            record = self._repository.get(principal_id)
         except SQLAlchemyError as error:
             self._log_read_failure(error)
             return JobResumeSnapshot(status="unavailable")
@@ -79,7 +77,7 @@ class SavedJobResumeReader:
 
         return _to_job_resume_snapshot(content, record.updated_at)
 
-    def apply_optimization(self, candidate: dict) -> str:
+    def apply_optimization(self, principal_id: str, candidate: dict) -> str:
         """合并已确认候选并按源版本条件更新；返回稳定结果码。"""
         from copy import deepcopy
 
@@ -89,7 +87,7 @@ class SavedJobResumeReader:
             scope = candidate["scope"]
             source_updated_at = datetime.fromisoformat(candidate["source_updated_at"])
             patch = candidate["patch"]
-            record = self._repository.get(self._principal_id)
+            record = self._repository.get(principal_id)
             if record is None or record.updated_at != source_updated_at:
                 return "resume_changed"
             content = ResumeContent.model_validate(record.content).model_dump(
@@ -132,7 +130,7 @@ class SavedJobResumeReader:
                     merged[key] = value
             validated = ResumeContent.model_validate(merged)
             saved = self._repository.update_if_unchanged(
-                self._principal_id,
+                principal_id,
                 expected_updated_at=source_updated_at,
                 content=validated.model_dump(mode="json", exclude_none=True),
             )

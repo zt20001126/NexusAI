@@ -15,7 +15,7 @@ test('conversation welcome and sidebar use their current agent avatar', async (c
   context.after(() => server.close())
 
   const [{ default: AgentAvatar }, { default: MessageList }, { default: ConversationSidebar }] = await Promise.all([
-    server.ssrLoadModule('/src/features/chat/components/AgentAvatar.tsx'),
+    server.ssrLoadModule('/src/shared/components/AgentAvatar.tsx'),
     server.ssrLoadModule('/src/features/chat/components/MessageList.tsx'),
     server.ssrLoadModule('/src/features/chat/components/ConversationSidebar.tsx'),
   ])

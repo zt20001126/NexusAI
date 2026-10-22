@@ -58,7 +58,7 @@ class ResumePhotoStorage(Protocol):
 
 
 class ResumeApplicationService:
-    """运行首版单人简历用例，所有数据读写都绑定固定主体。"""
+    """编排简历用例，并将所有数据读写绑定到可信用户主体。"""
 
     def __init__(
         self,

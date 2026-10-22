@@ -4,10 +4,10 @@ import asyncio
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import Response
 
-from app.dependencies.resume_owner import get_resume_owner_principal_id
+from app.dependencies.auth import get_principal_id
 from app.exceptions.resume import (
     ResumePhotoInvalidError,
     ResumePhotoInvalidIdError,
@@ -27,19 +27,26 @@ def _success(data: Any) -> dict[str, Any]:
 
 
 @router.get("")
-def get_resume(request: Request) -> dict[str, Any]:
-    """读取当前单人主体的简历；首次访问返回空 DTO 且不写数据库。"""
+def get_resume(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
+    """读取当前登录主体的简历；首次访问返回空 DTO 且不写数据库。"""
     result = request.app.state.resume_service.get_resume(
-        get_resume_owner_principal_id()
+        principal_id
     )
     return _success(result.model_dump(mode="json"))
 
 
 @router.put("")
-def save_resume(payload: ResumeSaveRequest, request: Request) -> dict[str, Any]:
+def save_resume(
+    payload: ResumeSaveRequest,
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> dict[str, Any]:
     """整体校验并保存简历内容和排版设置。"""
     result = request.app.state.resume_service.save_resume(
-        get_resume_owner_principal_id(),
+        principal_id,
         payload,
     )
     return _success(result.model_dump(mode="json"))
@@ -49,8 +56,9 @@ def save_resume(payload: ResumeSaveRequest, request: Request) -> dict[str, Any]:
 async def upload_resume_photo(
     request: Request,
     file: Annotated[UploadFile, File(description="PNG/JPEG 证件照，最大 5 MiB")],
+    principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
-    """有界读取照片并保存至当前单人主体的 OSS staging 前缀。"""
+    """有界读取照片并保存至当前登录主体的 OSS staging 前缀。"""
     chunks: list[bytes] = []
     total_bytes = 0
     try:
@@ -63,7 +71,7 @@ async def upload_resume_photo(
             raise ResumePhotoInvalidError("照片文件不能为空")
         result: ResumePhotoUploadResponse = await asyncio.to_thread(
             request.app.state.resume_service.upload_photo,
-            get_resume_owner_principal_id(),
+            principal_id,
             b"".join(chunks),
         )
     finally:
@@ -72,10 +80,13 @@ async def upload_resume_photo(
 
 
 @router.get("/photo")
-def get_resume_photo(request: Request) -> Response:
+def get_resume_photo(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> Response:
     """只读取数据库当前 photo_id 引用的私有照片。"""
     data, mime_type = request.app.state.resume_service.get_saved_photo(
-        get_resume_owner_principal_id()
+        principal_id
     )
     return Response(
         content=data,
@@ -88,22 +99,26 @@ def get_resume_photo(request: Request) -> Response:
 def delete_staged_resume_photo(
     photo_id: str,
     request: Request,
+    principal_id: str = Depends(get_principal_id),
 ) -> dict[str, Any]:
     """取消未保存的照片上传；不接受对象键，也不删除已引用照片。"""
     if not re.fullmatch(r"[0-9a-f]{32}", photo_id):
         raise ResumePhotoInvalidIdError()
     request.app.state.resume_service.delete_staged_photo(
-        get_resume_owner_principal_id(),
+        principal_id,
         photo_id,
     )
     return _success({"photo_id": photo_id, "deleted": True})
 
 
 @router.get("/export/pdf")
-def export_resume_pdf(request: Request) -> Response:
+def export_resume_pdf(
+    request: Request,
+    principal_id: str = Depends(get_principal_id),
+) -> Response:
     """仅从数据库已保存版本生成 PDF，不接受临时草稿内容。"""
     pdf_bytes = request.app.state.resume_service.export_pdf(
-        get_resume_owner_principal_id()
+        principal_id
     )
     return Response(
         content=pdf_bytes,
