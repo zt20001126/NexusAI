@@ -13,7 +13,9 @@ from agent.schemas.tool_result import ToolResult
 def test_stage_node_only_copies_candidate_without_writing() -> None:
     calls: list[dict] = []
     candidate = {"scope": "skills", "source_updated_at": "2026-01-01T00:00:00+00:00", "patch": {}}
-    node = create_resume_optimization_node(lambda value: calls.append(value) or "saved")
+    node = create_resume_optimization_node(
+        lambda principal_id, value: calls.append(value) or "saved"
+    )
     tool_result = ToolResult(success=True, data=candidate).model_dump_json()
     state = {
         "messages": [
@@ -62,7 +64,9 @@ def test_only_matching_confirmation_question_can_trigger_writer() -> None:
             {"label": "取消"},
         ],
     }]}})
-    node = create_resume_optimization_node(lambda value: calls.append(value) or "saved")
+    node = create_resume_optimization_node(
+        lambda principal_id, value: calls.append(value) or "saved"
+    )
     state = {
         "pending_resume_optimization": candidate,
         "messages": [
@@ -71,7 +75,7 @@ def test_only_matching_confirmation_question_can_trigger_writer() -> None:
         ],
     }
 
-    result = node(state)
+    result = node(state, {"configurable": {"principal_id": "test-user"}})
 
     assert calls == [candidate]
     assert result["pending_resume_optimization"] is None
@@ -80,7 +84,9 @@ def test_only_matching_confirmation_question_can_trigger_writer() -> None:
 
 def test_unrelated_question_answer_does_not_write() -> None:
     calls: list[dict] = []
-    node = create_resume_optimization_node(lambda value: calls.append(value) or "saved")
+    node = create_resume_optimization_node(
+        lambda principal_id, value: calls.append(value) or "saved"
+    )
     state = {
         "pending_resume_optimization": {"scope": "skills"},
         "messages": [

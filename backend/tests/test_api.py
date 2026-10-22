@@ -5,6 +5,7 @@ import asyncio
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import httpx
 from fastapi import FastAPI
@@ -425,6 +426,11 @@ def _test_lifespan(settings: AppSettings, model_provider: ScriptedToolCallingPro
         for agent, service in services.items():
             task_queue.register(agent, service)
         app.state.settings = settings
+        app.state.auth_service = SimpleNamespace(
+            get_session_principal=lambda token: (
+                "local-development" if token == "test-session" else None
+            )
+        )
         app.state.agent_registry = AgentRegistry(
             [
                 AgentDefinition(COMMON_AGENT, COMMON_AGENT_NAME, COMMON_AGENT_DESCRIPTION, False),
@@ -467,13 +473,15 @@ def _client(settings: AppSettings | None = None) -> TestClient:
     """创建带显式测试生命周期的 API 客户端。"""
     resolved_settings = settings or AppSettings(_env_file=None)
     model_provider = ScriptedToolCallingProvider()
-    return TestClient(
+    client = TestClient(
         create_app(
             resolved_settings,
             model_provider=model_provider,
             lifespan=_test_lifespan(resolved_settings, model_provider),
         )
     )
+    client.cookies.set(resolved_settings.auth_cookie_name, "test-session")
+    return client
 
 
 def test_common_agent_uses_registered_chat_route() -> None:

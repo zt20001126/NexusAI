@@ -79,8 +79,9 @@ async def test_job_agent_reads_saved_resume_through_no_argument_tool(message: st
         skills="Python、PostgreSQL",
     )
 
-    def read_resume() -> JobResumeSnapshot:
+    def read_resume(principal_id: str) -> JobResumeSnapshot:
         nonlocal reader_calls
+        assert principal_id == "test-user"
         reader_calls += 1
         return snapshot
 
@@ -97,7 +98,12 @@ async def test_job_agent_reads_saved_resume_through_no_argument_tool(message: st
     assert resume_tool.args_schema.model_fields == {}
     response = await assistant.ainvoke(
         message,
-        runnable_config={"configurable": {"thread_id": "job-agent-resume-tool-test"}},
+        runnable_config={
+            "configurable": {
+                "thread_id": "job-agent-resume-tool-test",
+                "principal_id": "test-user",
+            }
+        },
     )
 
     assert response.status == "completed"
@@ -253,7 +259,7 @@ async def test_resume_based_job_recommendation_reads_resume_before_validation() 
     assistant = create_job_agent(
         chat_model=model,
         checkpointer=MemorySaver(),
-        resume_reader=lambda: JobResumeSnapshot(
+        resume_reader=lambda principal_id: JobResumeSnapshot(
             status="found",
             work_experience_years=3,
             skills="Python、PostgreSQL",
@@ -262,7 +268,12 @@ async def test_resume_based_job_recommendation_reads_resume_before_validation() 
 
     response = await assistant.ainvoke(
         "根据我已保存的简历推荐适合的工作岗位。",
-        runnable_config={"configurable": {"thread_id": "resume-based-role-test"}},
+        runnable_config={
+            "configurable": {
+                "thread_id": "resume-based-role-test",
+                "principal_id": "test-user",
+            }
+        },
     )
 
     assert response.status == "completed"
@@ -280,12 +291,17 @@ async def test_resume_recommendation_without_saved_resume_does_not_invent_facts(
     assistant = create_job_agent(
         chat_model=model,
         checkpointer=MemorySaver(),
-        resume_reader=lambda: JobResumeSnapshot(status=resume_status),
+        resume_reader=lambda principal_id: JobResumeSnapshot(status=resume_status),
     )
 
     response = await assistant.ainvoke(
         "根据我的简历推荐适合的工作岗位。",
-        runnable_config={"configurable": {"thread_id": f"resume-{resume_status}-test"}},
+        runnable_config={
+            "configurable": {
+                "thread_id": f"resume-{resume_status}-test",
+                "principal_id": "test-user",
+            }
+        },
     )
 
     assert response.status == "completed"
