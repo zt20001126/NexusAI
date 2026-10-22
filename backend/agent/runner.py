@@ -1062,6 +1062,11 @@ class AgentRunner:
         """把 LangChain 消息转换为消息快照、工具状态或追问题卡。"""
         if isinstance(message, AIMessage):
             for tool_call in message.tool_calls:
+                logger.info(
+                    "智能体调用工具 agent=%s tool=%s",
+                    self._agent.value,
+                    tool_call.get("name", ""),
+                )
                 tool_data: dict[str, Any] = {
                     "tool_name": tool_call.get("name", ""),
                     "status": ToolStatus.STARTED.value,
