@@ -61,8 +61,15 @@ async def test_job_agent_supports_registered_multi_turn_chat() -> None:
     assert second.agent == JOB_AGENT
 
 
-async def test_job_agent_reads_saved_resume_through_no_argument_tool() -> None:
-    """求职图可调用无参数简历工具，并用实际工具结果生成后续回复。"""
+@pytest.mark.parametrize(
+    "message",
+    [
+        "请解读一下我已保存的简历。",
+        "请分析一下我已保存简历的不足和改进空间。",
+    ],
+)
+async def test_job_agent_reads_saved_resume_through_no_argument_tool(message: str) -> None:
+    """简历解读和不足分析均读取保存内容，再依据工具结果答复。"""
 
     reader_calls = 0
     snapshot = JobResumeSnapshot(
@@ -89,7 +96,7 @@ async def test_job_agent_reads_saved_resume_through_no_argument_tool() -> None:
     assert resume_tool.args_schema is not None
     assert resume_tool.args_schema.model_fields == {}
     response = await assistant.ainvoke(
-        "请分析一下我已保存简历的不足和改进空间。",
+        message,
         runnable_config={"configurable": {"thread_id": "job-agent-resume-tool-test"}},
     )
 
@@ -110,8 +117,8 @@ def test_job_agent_prompt_defines_scope_and_redirect_behavior() -> None:
     assert "混合请求" in JOB_SYSTEM_PROMPT
     assert "打招呼" in JOB_SYSTEM_PROMPT
     assert "已保存的求职事实" in JOB_SYSTEM_PROMPT
-    assert "分析、诊断或评估本人简历" in JOB_SYSTEM_PROMPT
-    assert "必须在给出分析前调用 `read_saved_resume`" in JOB_SYSTEM_PROMPT
+    assert "解读、概括或分析本人已保存简历" in JOB_SYSTEM_PROMPT
+    assert "必须在给出结论前调用无参数工具 `read_saved_resume`" in JOB_SYSTEM_PROMPT
     assert "一般简历知识、模板咨询" in JOB_SYSTEM_PROMPT
     assert "简历未写明推断为用户没有相关经历" in JOB_SYSTEM_PROMPT
 
@@ -124,9 +131,20 @@ def test_job_agent_prompt_defines_resume_analysis_result_boundaries() -> None:
     prompt_path = Path(__file__).parents[1] / "agents" / "job_agent" / "prompts" / "agent.md"
     prompt = prompt_path.read_text(encoding="utf-8")
     assert "本人简历不足分析" in prompt
+    assert "解读、概括、分析本人已保存简历" in prompt
+    assert "根据本人简历推荐" in prompt
+    assert "一般岗位推荐不自动视为简历分析" in prompt
     assert "一般简历知识、模板咨询" in prompt
     assert "`found`" in prompt and "`not_found`" in prompt and "`unavailable`" in prompt
     assert "不得把字段为空或未返回写成用户没有相应经历" in prompt
+
+
+def test_job_agent_system_prompt_requires_resume_for_resume_based_requests() -> None:
+    """系统提示明确简历解读和基于简历推荐的读取触发规则。"""
+
+    assert "解读、概括或分析本人已保存简历" in JOB_SYSTEM_PROMPT
+    assert "根据本人简历推荐岗位" in JOB_SYSTEM_PROMPT
+    assert "一般岗位咨询" in JOB_SYSTEM_PROMPT
 
 
 class _ReadSavedResumeModel:
@@ -156,6 +174,148 @@ class _ReadSavedResumeModel:
                 }
             ],
         )
+
+
+class _ResumeBasedRecommendationModel:
+    """模拟读取保存简历、用其字段提交岗位建议并使用校验结果回复。"""
+
+    def __init__(self) -> None:
+        self.tool_results: list[str] = []
+
+    def bind_tools(self, tools: list[object]) -> "_ResumeBasedRecommendationModel":
+        self.tool_names = {getattr(tool, "name") for tool in tools}
+        return self
+
+    async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+        latest = messages[-1]
+        if isinstance(latest, ToolMessage):
+            self.tool_results.append(latest.name)
+            result = json.loads(str(latest.content))
+            if latest.name == "read_saved_resume":
+                snapshot = result["data"]
+                if snapshot["status"] != "found":
+                    return AIMessage(content="目前没有可读取的已保存简历，请提供简历内容。")
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "recommend_job_roles",
+                            "args": {
+                                "profile": {
+                                    "experience_years": snapshot["work_experience_years"],
+                                    "skills": snapshot["skills"].split("、"),
+                                },
+                                "roles": [
+                                    {
+                                        "title": "后端工程师",
+                                        "reasons": ["简历列出的 Python 和 PostgreSQL 与岗位方向相关"],
+                                        "basis_fields": ["skills", "experience_years"],
+                                    }
+                                ],
+                            },
+                            "id": "recommend-from-resume",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            return AIMessage(content=f"推荐方向：{result['data']['roles'][0]['title']}")
+
+        assert {"read_saved_resume", "recommend_job_roles"} <= self.tool_names
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "read_saved_resume",
+                    "args": {},
+                    "id": "read-before-recommendation",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _DirectResponseModel:
+    """模拟一般岗位咨询直接使用当前对话而不读取简历。"""
+
+    def bind_tools(self, tools: list[object]) -> "_DirectResponseModel":
+        self.tool_names = {getattr(tool, "name") for tool in tools}
+        return self
+
+    async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+        del messages
+        return AIMessage(content="请告诉我你的专业、技能和相关经验，我会据此推荐岗位方向。")
+
+
+async def test_resume_based_job_recommendation_reads_resume_before_validation() -> None:
+    """明确要求依据简历推荐时，先读取简历再调用岗位建议校验工具。"""
+
+    model = _ResumeBasedRecommendationModel()
+    assistant = create_job_agent(
+        chat_model=model,
+        checkpointer=MemorySaver(),
+        resume_reader=lambda: JobResumeSnapshot(
+            status="found",
+            work_experience_years=3,
+            skills="Python、PostgreSQL",
+        ),
+    )
+
+    response = await assistant.ainvoke(
+        "根据我已保存的简历推荐适合的工作岗位。",
+        runnable_config={"configurable": {"thread_id": "resume-based-role-test"}},
+    )
+
+    assert response.status == "completed"
+    assert response.answer == "推荐方向：后端工程师"
+    assert model.tool_results == ["read_saved_resume", "recommend_job_roles"]
+
+
+@pytest.mark.parametrize("resume_status", ["not_found", "unavailable"])
+async def test_resume_recommendation_without_saved_resume_does_not_invent_facts(
+    resume_status: str,
+) -> None:
+    """没有可读简历时不提交岗位建议工具，也不伪造简历结论。"""
+
+    model = _ResumeBasedRecommendationModel()
+    assistant = create_job_agent(
+        chat_model=model,
+        checkpointer=MemorySaver(),
+        resume_reader=lambda: JobResumeSnapshot(status=resume_status),
+    )
+
+    response = await assistant.ainvoke(
+        "根据我的简历推荐适合的工作岗位。",
+        runnable_config={"configurable": {"thread_id": f"resume-{resume_status}-test"}},
+    )
+
+    assert response.status == "completed"
+    assert "没有可读取的已保存简历" in response.answer
+    assert model.tool_results == ["read_saved_resume"]
+
+
+async def test_general_job_question_does_not_require_saved_resume() -> None:
+    """一般岗位咨询继续使用当前对话资料，不要求读取保存简历。"""
+
+    reader_calls = 0
+
+    def read_resume() -> JobResumeSnapshot:
+        nonlocal reader_calls
+        reader_calls += 1
+        return JobResumeSnapshot(status="found")
+
+    assistant = create_job_agent(
+        chat_model=_DirectResponseModel(),
+        checkpointer=MemorySaver(),
+        resume_reader=read_resume,
+    )
+
+    response = await assistant.ainvoke(
+        "我适合什么岗位？",
+        runnable_config={"configurable": {"thread_id": "general-role-question-test"}},
+    )
+
+    assert response.status == "completed"
+    assert reader_calls == 0
 
 
 class _OffTopicResponseModel:
