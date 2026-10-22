@@ -79,6 +79,70 @@ class SavedJobResumeReader:
 
         return _to_job_resume_snapshot(content, record.updated_at)
 
+    def apply_optimization(self, candidate: dict) -> str:
+        """合并已确认候选并按源版本条件更新；返回稳定结果码。"""
+        from copy import deepcopy
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        try:
+            scope = candidate["scope"]
+            source_updated_at = datetime.fromisoformat(candidate["source_updated_at"])
+            patch = candidate["patch"]
+            record = self._repository.get(self._principal_id)
+            if record is None or record.updated_at != source_updated_at:
+                return "resume_changed"
+            content = ResumeContent.model_validate(record.content).model_dump(
+                mode="json", exclude_none=True
+            )
+            allowed = {
+                "basic_info": {"basic_info"},
+                "educations": {"skills"},
+                "skills": {"skills"},
+                "works": {"works"},
+                "projects": {"projects"},
+                "all": {"basic_info", "skills", "works", "projects"},
+            }
+            if scope not in allowed or not isinstance(patch, dict):
+                return "invalid_candidate"
+            if set(patch) - allowed[scope]:
+                return "invalid_candidate"
+            merged = deepcopy(content)
+            for key, value in patch.items():
+                if key == "basic_info":
+                    if not isinstance(value, dict) or set(value) - {"intended_position"}:
+                        return "invalid_candidate"
+                    merged[key].update(value)
+                elif key in {"works", "projects"}:
+                    current_items = merged[key]
+                    if not isinstance(value, list):
+                        return "invalid_candidate"
+                    seen_indexes: set[int] = set()
+                    for item_patch in value:
+                        if not isinstance(item_patch, dict) or set(item_patch) != {"index", "content"}:
+                            return "invalid_candidate"
+                        index = item_patch["index"]
+                        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(current_items):
+                            return "invalid_candidate"
+                        if index in seen_indexes:
+                            return "invalid_candidate"
+                        seen_indexes.add(index)
+                        current_items[index]["content"] = item_patch["content"]
+                else:
+                    merged[key] = value
+            validated = ResumeContent.model_validate(merged)
+            saved = self._repository.update_if_unchanged(
+                self._principal_id,
+                expected_updated_at=source_updated_at,
+                content=validated.model_dump(mode="json", exclude_none=True),
+            )
+            return "saved" if saved is not None else "resume_changed"
+        except (KeyError, TypeError, ValueError, ValidationError):
+            return "invalid_candidate"
+        except SQLAlchemyError as error:
+            self._log_read_failure(error)
+            return "unavailable"
+
     @staticmethod
     def _log_read_failure(error: Exception) -> None:
         """记录失败类型，不把简历内容或驱动异常详情写入日志。"""

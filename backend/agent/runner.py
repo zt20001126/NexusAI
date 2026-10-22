@@ -130,6 +130,7 @@ class AgentRunner:
         title_generator: ConversationTitleGenerator | None = None,
         id_generator: SnowflakeIdGenerator | None = None,
         cancel_signal: Any | None = None,
+        max_question_rounds: int = MAX_QUESTION_ROUNDS_PER_RUN,
     ) -> None:
         """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
@@ -149,6 +150,7 @@ class AgentRunner:
         self._max_tool_calls = max_tool_calls
         self._max_output_chars = max_output_chars
         self._run_timeout_seconds = run_timeout_seconds
+        self._max_question_rounds = max_question_rounds
         self._task_result_store = task_result_store
         self._attachment_store = attachment_store
         self._title_generator = title_generator
@@ -499,7 +501,7 @@ class AgentRunner:
             if (
                 not isinstance(question_round_count, int)
                 or isinstance(question_round_count, bool)
-                or not 1 <= question_round_count <= MAX_QUESTION_ROUNDS_PER_RUN
+                or not 1 <= question_round_count <= self._max_question_rounds
             ):
                 raise ValueError("追问轮数无效")
         except (TypeError, ValueError) as error:
@@ -545,7 +547,7 @@ class AgentRunner:
                         "type": "question",
                         "run_id": record.run_id,
                         "question_round": record.metadata.get("question_round_count", 1),
-                        "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                        "max_question_rounds": self._max_question_rounds,
                         "questions": questions.model_dump(mode="json", exclude_none=True)["questions"],
                         "answers": answers,
                         **({"question_titles": question_titles} if question_titles else {}),
@@ -1110,7 +1112,7 @@ class AgentRunner:
             question_round_count = record.metadata.get("question_round_count", 0)
             if not isinstance(question_round_count, int) or isinstance(question_round_count, bool):
                 question_round_count = 0
-            if question_round_count >= MAX_QUESTION_ROUNDS_PER_RUN:
+            if question_round_count >= self._max_question_rounds:
                 record.status = RunStatus.FAILED
                 yield self._terminal_event(
                     record,
@@ -1118,7 +1120,7 @@ class AgentRunner:
                     {
                         "code": "QUESTION_ROUND_LIMIT",
                         "message": (
-                            f"本次处理最多补充 {MAX_QUESTION_ROUNDS_PER_RUN} 轮，"
+                            f"本次处理最多补充 {self._max_question_rounds} 轮，"
                             "仍有必要信息缺失。请在聊天框中一次性补充剩余信息后重新提交；"
                             "系统不会根据缺失信息猜测并生成结果。"
                         ),
@@ -1138,7 +1140,7 @@ class AgentRunner:
             question_round = question_round_count + 1
             question_data = questions.model_dump(mode="json", exclude_none=True)
             question_data["question_round"] = question_round
-            question_data["max_question_rounds"] = MAX_QUESTION_ROUNDS_PER_RUN
+            question_data["max_question_rounds"] = self._max_question_rounds
             record.metadata.update({
                 "question_round_count": question_round,
                 "pending_questions": question_data["questions"],
@@ -1159,7 +1161,7 @@ class AgentRunner:
                     "type": "question",
                     "run_id": record.run_id,
                     "question_round": question_round,
-                    "max_question_rounds": MAX_QUESTION_ROUNDS_PER_RUN,
+                    "max_question_rounds": self._max_question_rounds,
                     "questions": question_data["questions"],
                 },
             ]
@@ -1317,6 +1319,7 @@ def build_agent_runner(
     title_generator: ConversationTitleGenerator | None = None,
     id_generator: SnowflakeIdGenerator | None = None,
     cancel_signal: Any | None = None,
+    max_question_rounds: int = MAX_QUESTION_ROUNDS_PER_RUN,
 ) -> AgentRunner:
     """用注入的存储协议为一个 agent 组装运行器。"""
     provider = model_provider or OpenAICompatibleProvider(settings)
@@ -1344,4 +1347,5 @@ def build_agent_runner(
         max_tool_calls=settings.agent_max_tool_calls,
         max_output_chars=settings.agent_max_output_chars,
         run_timeout_seconds=settings.agent_run_timeout_seconds,
+        max_question_rounds=max_question_rounds,
     )

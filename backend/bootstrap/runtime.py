@@ -16,6 +16,8 @@ from agent.constants import (
     RESEARCH_AGENT,
     LITERATURE_READER_AGENT,
     JOB_AGENT,
+    JOB_AGENT_MAX_QUESTION_ROUNDS_PER_RUN,
+    MAX_QUESTION_ROUNDS_PER_RUN,
 )
 from agent.persistence.memory import MemoryEventSequence
 from agent.runner import AgentRunner, build_agent_runner
@@ -140,6 +142,11 @@ def build_lifespan(
                         attachment_store=attachment_store,
                         id_generator=id_generator,
                         cancel_signal=event_store,
+                        max_question_rounds=(
+                            JOB_AGENT_MAX_QUESTION_ROUNDS_PER_RUN
+                            if agent == JOB_AGENT
+                            else MAX_QUESTION_ROUNDS_PER_RUN
+                        ),
                     )
 
                 runner = create_postgres_runner(COMMON_AGENT)
@@ -153,11 +160,13 @@ def build_lifespan(
                     agent=BASE_CONVERSATION_AGENT,
                     graph=basic_conversation_agent.compiled_graph,
                 )
+                job_resume_reader = SavedJobResumeReader(resume_repository)
                 job_agent = create_job_agent(
                     agent=JOB_AGENT,
                     chat_model=resolved_model_provider.create_chat_model(),
                     checkpointer=checkpointer,
-                    resume_reader=SavedJobResumeReader(resume_repository).read,
+                    resume_reader=job_resume_reader.read,
+                    resume_optimization_writer=job_resume_reader.apply_optimization,
                 )
                 job_runner = create_postgres_runner(
                     agent=JOB_AGENT,

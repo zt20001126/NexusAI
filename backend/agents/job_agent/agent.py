@@ -39,6 +39,7 @@ class JobAgent:
         chat_model: BaseChatModel,
         tools: Iterable[BaseTool] = (),
         checkpointer: BaseCheckpointSaver[Any] | None = None,
+        resume_optimization_writer: Any | None = None,
     ) -> None:
         self._config = config
         self._checkpointer = checkpointer
@@ -48,6 +49,7 @@ class JobAgent:
             chat_model=chat_model,
             tool_registry=self._tool_registry,
             checkpointer=checkpointer,
+            resume_optimization_writer=resume_optimization_writer,
         )
 
     @property

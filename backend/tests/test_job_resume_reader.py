@@ -28,6 +28,19 @@ class FakeResumeRepository:
             raise SQLAlchemyError("database details must not be returned")
         return self.record
 
+    def update_if_unchanged(
+        self, principal_id: str, *, expected_updated_at: datetime, content: dict[str, Any]
+    ) -> ResumeRecord | None:
+        if self.record is None or self.record.updated_at != expected_updated_at:
+            return None
+        self.record = ResumeRecord(
+            content=content,
+            style_config=self.record.style_config,
+            created_at=self.record.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return self.record
+
 
 def test_reader_projects_saved_career_facts_and_omits_personal_fields() -> None:
     """工具数据包含职业经历和技能，但不包含姓名、联系方式或照片。"""
@@ -133,6 +146,48 @@ def test_reader_marks_text_that_exceeds_the_shared_output_budget() -> None:
 
     assert snapshot.truncated is True
     assert total_text_chars <= MAX_JOB_RESUME_FACTS_CHARS
+
+
+def test_optimization_writer_updates_only_allowed_fields_and_preserves_private_data() -> None:
+    repository = FakeResumeRepository(_record(_resume_content()))
+    original = repository.record
+    result = SavedJobResumeReader(repository).apply_optimization(
+        {
+            "scope": "basic_info",
+            "source_updated_at": original.updated_at.isoformat(),
+            "patch": {"basic_info": {"intended_position": "高级后端工程师"}},
+        }
+    )
+
+    assert result == "saved"
+    assert repository.record.content["basic_info"]["intended_position"] == "高级后端工程师"
+    assert repository.record.content["basic_info"]["name"] == "简历用户姓名"
+    assert repository.record.content["basic_info"]["photo_id"] == "a" * 32
+    assert repository.record.style_config == original.style_config
+
+
+def test_optimization_writer_rejects_protected_fields_and_stale_candidates() -> None:
+    repository = FakeResumeRepository(_record(_resume_content()))
+    reader = SavedJobResumeReader(repository)
+    current_time = repository.record.updated_at.isoformat()
+
+    invalid = reader.apply_optimization(
+        {
+            "scope": "basic_info",
+            "source_updated_at": current_time,
+            "patch": {"basic_info": {"name": "另一个人"}},
+        }
+    )
+    stale = reader.apply_optimization(
+        {
+            "scope": "skills",
+            "source_updated_at": "2000-01-01T00:00:00+00:00",
+            "patch": {"skills": _document("新技能")},
+        }
+    )
+
+    assert invalid == "invalid_candidate"
+    assert stale == "resume_changed"
 
 
 def _record(content: dict[str, Any]) -> ResumeRecord:

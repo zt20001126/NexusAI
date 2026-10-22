@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.crud.identity import resolve_user_id
@@ -74,6 +74,36 @@ class PostgresResumeRepository:
             if row is None:
                 raise RuntimeError("简历 upsert 后未能读取已保存记录")
             return _to_record(row)
+
+    def update_if_unchanged(
+        self,
+        principal_id: str,
+        *,
+        expected_updated_at: datetime,
+        content: dict[str, Any],
+    ) -> ResumeRecord | None:
+        """仅当简历版本未变化时更新内容，避免候选覆盖并发编辑。"""
+        with self._database.session_factory.begin() as session:
+            owner_id = resolve_user_id(
+                session,
+                principal_id,
+                create=False,
+                id_generator=self._database.id_generator,
+            )
+            if owner_id is None:
+                return None
+            result = session.execute(
+                update(Resume)
+                .where(
+                    Resume.owner_id == owner_id,
+                    Resume.updated_at == expected_updated_at,
+                )
+                .values(content=content, updated_at=func.now())
+            )
+            if result.rowcount != 1:
+                return None
+            row = session.scalar(select(Resume).where(Resume.owner_id == owner_id))
+            return _to_record(row) if row is not None else None
 
 
 def _to_record(row: Resume) -> ResumeRecord:
