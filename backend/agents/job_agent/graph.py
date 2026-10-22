@@ -15,6 +15,10 @@ from agents.job_agent.errors import JobAgentExecutionError
 from agents.job_agent.nodes.agent_node import create_agent_node
 from agents.job_agent.nodes.input_node import create_input_node
 from agents.job_agent.nodes.output_node import output_node
+from agents.job_agent.nodes.resume_optimization_node import (
+    STAGE_TOOL,
+    create_resume_optimization_node,
+)
 from agents.job_agent.nodes.tool_node import create_tool_node
 from agents.job_agent.state import JobAgentState
 from agents.job_agent.tools.registry import ToolRegistry
@@ -61,7 +65,7 @@ def _route_after_agent(
 
 def _route_after_tools(
     state: JobAgentState,
-) -> Literal["agent_node", "pause"]:
+) -> Literal["agent_node", "pause", "resume_optimization_node"]:
     """普通工具回到模型；提问工具结束本阶段并交由 Runner 等待答案。"""
 
     messages = state.get("messages", [])
@@ -71,6 +75,8 @@ def _route_after_tools(
         and last_message.name == ASK_USER_QUESTIONS_TOOL_NAME
     ):
         return "pause"
+    if isinstance(last_message, ToolMessage) and last_message.name == STAGE_TOOL:
+        return "resume_optimization_node"
     return "agent_node"
 
 
@@ -80,6 +86,7 @@ def build_agent_graph(
     chat_model: BaseChatModel,
     tool_registry: ToolRegistry,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    resume_optimization_writer: Any | None = None,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     """从注入的模型、工具和 Checkpointer 创建求职智能体图。"""
 
@@ -95,9 +102,14 @@ def build_agent_graph(
     )
     graph.add_node("tool_node", create_tool_node(tool_registry))
     graph.add_node("output_node", output_node)
+    graph.add_node(
+        "resume_optimization_node",
+        create_resume_optimization_node(resume_optimization_writer),
+    )
 
     graph.add_edge(START, "input_node")
-    graph.add_edge("input_node", "agent_node")
+    graph.add_edge("input_node", "resume_optimization_node")
+    graph.add_edge("resume_optimization_node", "agent_node")
     graph.add_conditional_edges(
         "agent_node",
         lambda state: _route_after_agent(
@@ -115,6 +127,7 @@ def build_agent_graph(
         {
             "agent_node": "agent_node",
             "pause": END,
+            "resume_optimization_node": "resume_optimization_node",
         },
     )
     graph.add_edge("output_node", END)

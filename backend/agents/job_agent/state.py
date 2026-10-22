@@ -11,3 +11,4 @@ class JobAgentState(TypedDict, total=False):
 
     messages: Annotated[list[BaseMessage], add_messages]
     answer: str
+    pending_resume_optimization: dict[str, object] | None
