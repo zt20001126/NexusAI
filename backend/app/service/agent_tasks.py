@@ -14,6 +14,7 @@ from agent.streaming.events import (
     get_run_terminal_status,
 )
 from app.crud.run import PostgresRunStore
+from app.crud.credits import PostgresCreditRepository
 from app.crud.message import PostgresMessageStore
 from app.crud.task_result import PostgresTaskResultStore
 from app.db.database import PostgresDatabase
@@ -21,6 +22,7 @@ from bootstrap.runtime import build_lifespan
 from infra.agent_event_store import RedisAgentEventStore
 from infra.celery_app import celery_app
 from infra.settings import AppSettings
+from infra.redis_credit_cache import RedisCreditCache
 from infra.snowflake import get_snowflake_generator
 
 logger = logging.getLogger(__name__)
@@ -32,7 +34,7 @@ async def _execute_agent_run(agent: str, run_id: str) -> None:
     # Worker 使用独立雪花号；必须和 API、文献 Worker 及其他 Agent Worker 实例不同。
     settings = settings.model_copy(update={"snowflake_worker_id": settings.agent_worker_snowflake_id})
     worker_app = FastAPI()
-    lifespan = build_lifespan(settings, model_provider=None)
+    lifespan = build_lifespan(settings, model_provider=None, warm_credit_cache=False)
     async with lifespan(worker_app):
         service = worker_app.state.agent_registry.get_service(agent)
         await service.execute_worker(run_id)
@@ -44,6 +46,8 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
         return
     id_generator = get_snowflake_generator(settings.agent_worker_snowflake_id)
     event_store = RedisAgentEventStore(settings)
+    credit_cache = RedisCreditCache(settings)
+    record = None
     try:
         with PostgresDatabase(settings.database_url, id_generator) as database:
             run_store = PostgresRunStore(database)
@@ -236,13 +240,50 @@ async def _record_worker_start_failure(run_id: str, settings: AppSettings) -> No
                     ),
                 },
             )
+            if terminal_status in {RunTerminalStatus.FAILED, RunTerminalStatus.CANCELLED}:
+                snapshot = PostgresCreditRepository(database).refund_run(record.run_id)
+                if snapshot is not None:
+                    try:
+                        credit_cache.publish(
+                            snapshot.principal_id,
+                            snapshot.balance,
+                            snapshot.version,
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            "credit cache update failed during worker recovery run_id=%s error_type=%s",
+                            run_id,
+                            type(error).__name__,
+                        )
             await asyncio.to_thread(event_store.append, event)
             if record.status in {RunStatus.QUEUED, RunStatus.RUNNING}:
                 record.status = RunStatus.FAILED
                 record.metadata["error_summary"] = "智能体 Worker 初始化失败"
                 run_store.save(record)
     finally:
-        await event_store.aclose()
+        try:
+            if record is not None and record.status in {
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            }:
+                with PostgresDatabase(settings.database_url, id_generator) as database:
+                    snapshot = PostgresCreditRepository(database).refund_run(record.run_id)
+                if snapshot is not None:
+                    credit_cache.publish(
+                        snapshot.principal_id,
+                        snapshot.balance,
+                        snapshot.version,
+                    )
+        except Exception as error:
+            logger.error(
+                "agent run refund recovery failed run_id=%s error_type=%s",
+                run_id,
+                type(error).__name__,
+            )
+        try:
+            await event_store.aclose()
+        finally:
+            credit_cache.close()
 
 
 @celery_app.task(

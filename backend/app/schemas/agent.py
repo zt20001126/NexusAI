@@ -32,8 +32,7 @@ class ChatRequest(BaseModel):
         max_length=MAX_REFERENCE_IMAGE_COUNT,
         description="已上传并暂存的参考图片标识，单次最多 3 张",
     )
-    request_id: str | None = Field(
-        default=None,
+    request_id: str = Field(
         min_length=16,
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
@@ -65,8 +64,7 @@ class ResumeRequest(BaseModel):
         max_length=MAX_QUESTIONS_PER_BATCH,
         description="按问题标识提交的结构化答案",
     )
-    request_id: str | None = Field(
-        default=None,
+    request_id: str = Field(
         min_length=16,
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",

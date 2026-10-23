@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.conversation import Conversation
+from app.models.credit import CreditEntry, UserCredit
 from app.models.legal_knowledge import LegalArticle, LegalDocument, LegalLawVersion
 from app.models.literature import (
     LiteratureChunk,
@@ -18,6 +19,7 @@ __all__ = [
     "AgentRun",
     "Base",
     "Conversation",
+    "CreditEntry",
     "Message",
     "Resume",
     "LegalArticle",
@@ -27,5 +29,6 @@ __all__ = [
     "LiteratureConversationDocument",
     "LiteratureDocument",
     "TaskResult",
+    "UserCredit",
     "User",
 ]

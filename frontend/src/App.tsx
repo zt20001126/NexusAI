@@ -31,7 +31,13 @@ function App() {
 
   return (
     <>
-      <div className="auth-account-bar"><span>{auth.session.email}</span><button type="button" onClick={() => { void auth.logout(); window.location.hash = '/market' }}>退出登录</button></div>
+      <div className="auth-account-bar">
+        <span className="auth-account-credits" aria-label="当前积分">
+          {auth.session.credits === null ? '积分同步中' : `${auth.session.credits} 积分`}
+        </span>
+        <span>{auth.session.email}</span>
+        <button type="button" onClick={() => { void auth.logout(); window.location.hash = '/market' }}>退出登录</button>
+      </div>
       <div hidden={resumeOpen}>
         <ChatPage onOpenResume={openResume} />
       </div>

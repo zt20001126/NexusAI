@@ -77,6 +77,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             "RUN_ALREADY_ENDED": 410,
             "EVENT_STORE_UNAVAILABLE": 503,
             "AGENT_QUEUE_UNAVAILABLE": 503,
+            "CREDIT_SERVICE_UNAVAILABLE": 503,
+            "INSUFFICIENT_CREDITS": 402,
         }.get(error.code, 409)
         return JSONResponse(
             status_code=status_code,

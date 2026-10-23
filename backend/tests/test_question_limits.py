@@ -41,6 +41,7 @@ def test_question_payload_and_resume_request_allow_at_most_three_questions() -> 
     ResumeRequest(
         conversation_id="1",
         answers={f"question_{index}": "答案" for index in range(1, 4)},
+        request_id="question-resume-id-0001",
     )
     with pytest.raises(ValueError):
         ResumeRequest(

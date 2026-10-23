@@ -12,6 +12,18 @@ interface ApiEnvelope<T> {
   detail?: string | Array<{ msg?: string }>
 }
 
+export class ApiRequestError extends Error {
+  public readonly status: number
+  public readonly code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+  }
+}
+
 function readApiErrorMessage(body: ApiEnvelope<unknown> | null, status: number): string {
   if (body?.message) return body.message
   if (typeof body?.detail === 'string') return body.detail
@@ -56,7 +68,7 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !body?.success || body.data === undefined) {
-    throw new Error(readApiErrorMessage(body, response.status))
+    throw new ApiRequestError(readApiErrorMessage(body, response.status), response.status, body?.code)
   }
 
   return body.data
@@ -80,7 +92,11 @@ export async function requestBinary<T>(
   dispatchUnauthenticated(path, response.status)
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
   if (!response.ok || !envelope?.success || envelope.data === undefined) {
-    throw new Error(`${readApiErrorMessage(envelope, response.status)}（${fileName}）`)
+    throw new ApiRequestError(
+      `${readApiErrorMessage(envelope, response.status)}（${fileName}）`,
+      response.status,
+      envelope?.code,
+    )
   }
   return envelope.data
 }
@@ -96,7 +112,7 @@ export async function requestFormData<T>(path: string, body: FormData): Promise<
   dispatchUnauthenticated(path, response.status)
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
   if (!response.ok || !envelope?.success || envelope.data === undefined) {
-    throw new Error(readApiErrorMessage(envelope, response.status))
+    throw new ApiRequestError(readApiErrorMessage(envelope, response.status), response.status, envelope?.code)
   }
   return envelope.data
 }
@@ -167,8 +183,7 @@ export async function streamEvents<T>(
         if (response.status >= 500 && isListening) {
           throw new RetryableStreamError(readApiErrorMessage(body, response.status))
         }
-        if (response.status >= 500) throw new Error(readApiErrorMessage(body, response.status))
-        throw new Error(readApiErrorMessage(body, response.status))
+        throw new ApiRequestError(readApiErrorMessage(body, response.status), response.status, body?.code)
       }
 
       if (!isListening) {

@@ -53,6 +53,16 @@ class _MemoryDatabase:
         return None
 
 
+class _MemoryCreditRepository:
+    """让 Worker 恢复测试显式隔离 PostgreSQL 积分事务。"""
+
+    def __init__(self, _database: _MemoryDatabase) -> None:
+        pass
+
+    def refund_run(self, _run_id: str):
+        return None
+
+
 def _patch_recovery_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     record: RunRecord,
@@ -68,6 +78,7 @@ def _patch_recovery_dependencies(
 
     monkeypatch.setattr(agent_tasks, "PostgresDatabase", lambda *_args: _MemoryDatabase())
     monkeypatch.setattr(agent_tasks, "PostgresRunStore", lambda _database: run_store)
+    monkeypatch.setattr(agent_tasks, "PostgresCreditRepository", _MemoryCreditRepository)
     monkeypatch.setattr(agent_tasks, "PostgresMessageStore", lambda _database: message_store)
     monkeypatch.setattr(
         agent_tasks,

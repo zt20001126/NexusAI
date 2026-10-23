@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC
 
 from app.crud.auth import PostgresAuthRepository
+from app.service.credits import CreditApplicationService
 from app.service.auth_email_templates import (
     render_password_reset_email,
     render_registration_email,
@@ -57,11 +58,13 @@ class AuthApplicationService:
         auth_store: RedisAuthStore,
         email_sender: SmtpEmailSender,
         settings: AppSettings,
+        credit_service: CreditApplicationService | None = None,
     ) -> None:
         self._repository = repository
         self._auth_store = auth_store
         self._email_sender = email_sender
         self._settings = settings
+        self._credit_service = credit_service
 
     async def request_email_code(self, email_value: str, purpose: str) -> None:
         """发送有用途、有效期和重发冷却限制的邮箱验证码。"""
@@ -132,6 +135,8 @@ class AuthApplicationService:
         password_hash = hash_password(password)
         if not self._repository.create_user(email, password_hash):
             raise AuthApplicationError(409, "EMAIL_ALREADY_REGISTERED", "该邮箱已注册")
+        if self._credit_service is not None:
+            self._credit_service.refresh(email)
         return self._create_session(email, password_hash)
 
     def login(self, email_value: str, password: str) -> AuthResult:

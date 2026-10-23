@@ -71,7 +71,7 @@ export interface ChatRequest {
   message: string
   conversation_id?: string
   attachment_ids?: string[]
-  request_id?: string
+  request_id: string
 }
 
 export interface AgentDefinition {

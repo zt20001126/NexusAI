@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
@@ -63,6 +62,7 @@ async def chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
         principal_id=principal_id,
+        request_id=payload.request_id,
         attachment_ids=payload.attachment_ids,
     )
     return _success([event.public_event().model_dump(mode="json") for event in events])
@@ -87,7 +87,7 @@ async def stream_chat(
         message=payload.message,
         conversation_id=payload.conversation_id,
         principal_id=principal_id,
-        request_id=payload.request_id or uuid.uuid4().hex,
+        request_id=payload.request_id,
         attachment_ids=payload.attachment_ids,
     )
     return EventSourceResponse(
@@ -151,7 +151,7 @@ async def resume_run(
         run_id=run_id,
         answers=payload.answers,
         principal_id=principal_id,
-        request_id=payload.request_id or uuid.uuid4().hex,
+        request_id=payload.request_id,
         after=payload.after_event_id,
     )
     return EventSourceResponse(

@@ -18,6 +18,8 @@ NexusAI 是一个多智能体对话应用。用户在同一聊天界面中选择
 | `labor_law_agent` | 检索中国大陆全国性劳动法规并提供条文依据 |
 | `literature_reader_agent` | 导入 PDF，基于所选文献进行问答、总结和比较 |
 
+新注册账号获赠 100 积分；每轮新对话消耗 1 分，失败或主动取消后退回。账号栏显示余额。
+
 ## 技术栈
 
 | 层次 | 技术 |
@@ -68,7 +70,13 @@ flowchart LR
 2. 启动 PostgreSQL 和 Redis：
 
    ```powershell
-   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans postgres redis worker
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans postgres redis
+   ```
+
+   部署启用积分计费前，先对目标 PostgreSQL 执行 `backend/migrations/018_user_credits.sql`。该迁移为现有账号创建 0 分余额，不补发注册积分；应在启动新版 API 和 Worker 前完成。迁移完成后启动 Worker：
+
+   ```powershell
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans worker
    ```
 
 3. 启动后端：

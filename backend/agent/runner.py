@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import suppress
 from typing import Any
 
@@ -34,6 +34,7 @@ from agent.errors import (
 from agent.graph import build_agent_graph
 from agent.persistence.interfaces import (
     AttachmentStore,
+    BilledChatSubmissionStore,
     ConversationStore,
     EventSequence,
     MessageStore,
@@ -131,6 +132,7 @@ class AgentRunner:
         id_generator: SnowflakeIdGenerator | None = None,
         cancel_signal: Any | None = None,
         max_question_rounds: int = MAX_QUESTION_ROUNDS_PER_RUN,
+        billed_submission_store: BilledChatSubmissionStore | None = None,
     ) -> None:
         """注入单个智能体图和共享运行时基础设施。"""
         self._graph = graph
@@ -156,6 +158,7 @@ class AgentRunner:
         self._title_generator = title_generator
         self._id_generator = id_generator or get_snowflake_generator()
         self._cancel_signal = cancel_signal
+        self._billed_submission_store = billed_submission_store
         self._cancel_events: dict[str, asyncio.Event] = {}
 
     def stream_chat(
@@ -188,11 +191,14 @@ class AgentRunner:
         attachment_ids: list[str] | None = None,
         graph_context: dict[str, Any] | None = None,
         request_id: str | None = None,
+        before_submit: Callable[[], None] | None = None,
+        on_credit_update: Callable[[int, int], None] | None = None,
+        on_submission_failure: Callable[[str], None] | None = None,
     ) -> RunRecord:
-        """先保存用户输入和排队运行，供 Celery Worker 脱离 HTTP 连接执行。
+        """原子保存用户输入和排队运行，供 Celery Worker 脱离 HTTP 连接执行。
 
         Step 1: 校验会话与附件所有权，并计算请求幂等摘要。
-        Step 2: 创建或复用排队运行，保存已有消息表可读取的执行输入。
+        Step 2: 通过计费提交仓储原子保存运行、用户消息和扣费明细。
         Step 3: 返回稳定会话及运行标识，由应用服务派发后台任务。
         """
         resolved_id = conversation_id or self._id_generator.next_id_string()
@@ -240,10 +246,6 @@ class AgentRunner:
             or conversation.get("agent", COMMON_AGENT) != self._agent
         ):
             raise ConversationAccessDeniedError()
-        self._conversation_store.save(
-            resolved_id,
-            {"principal_id": principal_id, "agent": self._agent},
-        )
         task_result_id = self._id_generator.next_id_string()
         record = RunRecord(
             run_id=self._id_generator.next_id_string(),
@@ -262,25 +264,6 @@ class AgentRunner:
             },
             agent=self._agent,
         )
-        try:
-            self._run_store.save(record)
-        except DuplicateAgentRunRequest:
-            existing = self._run_store.get_by_request_id(request_id or "", principal_id)
-            if existing is None:
-                raise
-            if existing.metadata.get("request_hash") != payload_hash:
-                raise AgentRunRequestConflictError() from None
-            # 首个请求先写运行、再写消息；短暂等待它完成该小段数据库准备。
-            for _ in range(40):
-                if existing.metadata.get("input_message_id"):
-                    return existing
-                time.sleep(0.025)
-                existing = self._run_store.get_by_request_id(request_id or "", principal_id)
-                if existing is None:
-                    break
-            if existing is not None and existing.metadata.get("input_message_id"):
-                return existing
-            raise AgentRunPreparationPendingError() from None
         user_content = text_content(message)
         user_content["blocks"][0]["id"] = self._id_generator.next_id_string()
         user_content["blocks"].extend(
@@ -291,18 +274,64 @@ class AgentRunner:
             }
             for attachment_id in resolved_attachments
         )
-        message_id = self._message_store.save(resolved_id, "user", user_content)
+        message_id = self._id_generator.next_id_string()
         record.metadata["input_message_id"] = message_id
-        self._run_store.save(record)
-        if resolved_attachments:
+        prepared_run_id = record.run_id
+        reused_submission = False
+        if self._billed_submission_store is not None:
+            if before_submit is not None:
+                before_submit()
+            record, balance, version = self._billed_submission_store.submit(
+                record, message_id, user_content
+            )
+            reused_submission = record.run_id != prepared_run_id
+            if on_credit_update is not None:
+                on_credit_update(balance, version)
+        else:
+            self._conversation_store.save(
+                resolved_id,
+                {"principal_id": principal_id, "agent": self._agent},
+            )
+            try:
+                self._run_store.save(record)
+            except DuplicateAgentRunRequest:
+                existing = self._run_store.get_by_request_id(request_id or "", principal_id)
+                if existing is None:
+                    raise
+                if existing.metadata.get("request_hash") != payload_hash:
+                    raise AgentRunRequestConflictError() from None
+                for _ in range(40):
+                    if existing.metadata.get("input_message_id"):
+                        return existing
+                    time.sleep(0.025)
+                    existing = self._run_store.get_by_request_id(request_id or "", principal_id)
+                    if existing is None:
+                        break
+                if existing is not None and existing.metadata.get("input_message_id"):
+                    return existing
+                raise AgentRunPreparationPendingError() from None
+            self._message_store.save(
+                resolved_id, "user", user_content, message_id=message_id
+            )
+            self._run_store.save(record)
+        if resolved_attachments and not reused_submission:
             if self._attachment_store is None:
                 raise ValueError("当前智能体不支持图片附件")
-            self._attachment_store.bind_to_message(
-                resolved_attachments,
-                principal_id,
-                resolved_id,
-                message_id,
-            )
+            try:
+                self._attachment_store.bind_to_message(
+                    resolved_attachments,
+                    principal_id,
+                    resolved_id,
+                    message_id,
+                )
+            except Exception:
+                if self._billed_submission_store is not None:
+                    record.status = RunStatus.FAILED
+                    record.metadata["error_summary"] = "用户附件绑定失败"
+                    self._run_store.save(record)
+                    if on_submission_failure is not None:
+                        on_submission_failure(record.run_id)
+                raise
         return record
 
     def execute_prepared(self, run_id: str) -> AsyncIterator[AgentEvent]:
@@ -1323,6 +1352,7 @@ def build_agent_runner(
     id_generator: SnowflakeIdGenerator | None = None,
     cancel_signal: Any | None = None,
     max_question_rounds: int = MAX_QUESTION_ROUNDS_PER_RUN,
+    billed_submission_store: BilledChatSubmissionStore | None = None,
 ) -> AgentRunner:
     """用注入的存储协议为一个 agent 组装运行器。"""
     provider = model_provider or OpenAICompatibleProvider(settings)
@@ -1351,4 +1381,5 @@ def build_agent_runner(
         max_output_chars=settings.agent_max_output_chars,
         run_timeout_seconds=settings.agent_run_timeout_seconds,
         max_question_rounds=max_question_rounds,
+        billed_submission_store=billed_submission_store,
     )

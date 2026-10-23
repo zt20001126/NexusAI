@@ -53,6 +53,7 @@
 .auth-message.is-error { color: #c44747; }
 .auth-message.is-notice { color: #37816b; }
 .auth-account-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 9px 24px; background: #fff; color: #68748a; font-size: 12px; }
+.auth-account-credits { padding: 4px 9px; border: 1px solid #e4eaf7; border-radius: 999px; background: #f7f9ff; color: #4266b2; font-weight: 700; white-space: nowrap; }
 .auth-account-bar button { border: 0; background: transparent; color: #5477d0; font: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .home-agent-card, .home-agent-card .agent-avatar-image, .auth-field input, .auth-submit { transition: none; }

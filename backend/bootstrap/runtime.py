@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+import logging
 from typing import Any
 
 from fastapi import FastAPI
@@ -51,9 +52,12 @@ from app.crud import (
     PostgresResumeRepository,
 )
 from app.crud.auth import PostgresAuthRepository
+from app.crud.billed_chat import PostgresBilledChatSubmissionStore
+from app.crud.credits import PostgresCreditRepository
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService, AgentSessionApplicationService
 from app.service.auth import AuthApplicationService
+from app.service.credits import CreditApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.health import HealthMonitor
 from app.service.job_resume import SavedJobResumeReader
@@ -79,13 +83,18 @@ from infra.agent_event_store import RedisAgentEventStore
 from infra.agent_task_queue import CeleryAgentTaskQueue
 from infra.email_sender import SmtpEmailSender
 from infra.redis_auth_store import RedisAuthStore
+from infra.redis_credit_cache import RedisCreditCache
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
+
+logger = logging.getLogger(__name__)
 
 
 def build_lifespan(
     settings: AppSettings,
     model_provider: ChatModelProvider | None,
+    *,
+    warm_credit_cache: bool = True,
 ) -> Callable[[FastAPI], Any]:
     """创建固定使用 PostgreSQL 的应用生命周期。"""
 
@@ -119,16 +128,22 @@ def build_lifespan(
             with PostgresDatabase(settings.database_url, id_generator) as database:
                 auth_repository = PostgresAuthRepository(database)
                 auth_store = RedisAuthStore(settings)
+                credit_repository = PostgresCreditRepository(database)
+                credit_cache = RedisCreditCache(settings)
+                credit_service = CreditApplicationService(credit_repository, credit_cache)
                 app_instance.state.auth_service = AuthApplicationService(
                     repository=auth_repository,
                     auth_store=auth_store,
                     email_sender=SmtpEmailSender(settings),
                     settings=settings,
+                    credit_service=credit_service,
                 )
+                app_instance.state.credit_service = credit_service
                 resume_repository = PostgresResumeRepository(database)
                 conversation_store = PostgresConversationStore(database)
                 message_store = PostgresMessageStore(database)
                 run_store = PostgresRunStore(database)
+                billed_submission_store = PostgresBilledChatSubmissionStore(database)
                 task_result_store = PostgresTaskResultStore(database)
                 event_store = RedisAgentEventStore(settings)
                 agent_task_queue = CeleryAgentTaskQueue()
@@ -159,6 +174,7 @@ def build_lifespan(
                             if agent == JOB_AGENT
                             else MAX_QUESTION_ROUNDS_PER_RUN
                         ),
+                        billed_submission_store=billed_submission_store,
                     )
 
                 runner = create_postgres_runner(COMMON_AGENT)
@@ -283,6 +299,7 @@ def build_lifespan(
                     event_store,
                     agent_task_queue,
                     run_store,
+                    credit_service,
                 )
                 app_instance.state.literature_service = LiteratureApplicationService(
                     repository=literature_repository,
@@ -314,12 +331,21 @@ def build_lifespan(
                 )
                 app_instance.state.health_monitor = health_monitor
                 try:
+                    if warm_credit_cache:
+                        try:
+                            await asyncio.to_thread(credit_service.warm_cache)
+                        except Exception as error:
+                            logger.warning(
+                                "credit cache warmup failed error_type=%s",
+                                type(error).__name__,
+                            )
                     await health_monitor.start()
                     yield
                 finally:
                     await health_monitor.stop()
                     await redis_probe.aclose()
                     await event_store.aclose()
+                    credit_cache.close()
                     auth_store.close()
 
     return lifespan
@@ -337,6 +363,7 @@ def _install_runtime_state(
     event_store: RedisAgentEventStore,
     agent_task_queue: CeleryAgentTaskQueue,
     run_store: PostgresRunStore,
+    credit_service: CreditApplicationService,
 ) -> None:
     """组装注册表、共享事件发布器和查询服务。"""
     publisher = EventPublisher(event_sequence, settings.sse_heartbeat_seconds)
@@ -348,6 +375,7 @@ def _install_runtime_state(
             run_store=run_store,
             event_store=event_store,
             task_queue=agent_task_queue,
+            credit_service=credit_service,
         )
         for agent, runner in runners.items()
     }
@@ -355,6 +383,7 @@ def _install_runtime_state(
     app_instance.state.settings = settings
     app_instance.state.agent_event_store = event_store
     app_instance.state.agent_task_queue = agent_task_queue
+    app_instance.state.credit_service = credit_service
     app_instance.state.agent_registry = registry
     app_instance.state.agent_session_service = AgentSessionApplicationService(
         conversation_store=conversation_store,
