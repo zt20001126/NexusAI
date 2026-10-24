@@ -38,6 +38,7 @@ function LiteratureLibraryPanel({
   const previousAssistantResponseIdRef = useRef<string | null>(null)
   const previousSendingRef = useRef(sending)
   const collapsedForCurrentResponseRef = useRef(false)
+  const uploadedDocumentRef = useRef<{ id: string; fileName: string } | null>(null)
 
   useEffect(() => {
     if (sending && !previousSendingRef.current) {
@@ -76,6 +77,17 @@ function LiteratureLibraryPanel({
     try {
       const page = await getLiteratureDocuments()
       setDocuments(page.items)
+      const uploadedDocument = uploadedDocumentRef.current
+      if (uploadedDocument) {
+        const current = page.items.find((item) => item.document_id === uploadedDocument.id)
+        if (current?.status === 'ready') {
+          setNotice(`《${uploadedDocument.fileName}》已完成解析，可用于回答。`)
+          uploadedDocumentRef.current = null
+        } else if (current?.status === 'failed') {
+          setNotice(`《${uploadedDocument.fileName}》解析失败，请查看下方错误。`)
+          uploadedDocumentRef.current = null
+        }
+      }
       setError(null)
     } catch (requestError) {
       setError(getErrorMessage(requestError))
@@ -127,7 +139,8 @@ function LiteratureLibraryPanel({
     setError(null)
     setNotice(null)
     try {
-      await uploadLiteraturePdf(file)
+      const uploaded = await uploadLiteraturePdf(file)
+      uploadedDocumentRef.current = { id: uploaded.document_id, fileName: file.name }
       setNotice(`已提交《${file.name}》，正在解析。`)
       await refreshDocuments()
     } catch (requestError) {

@@ -383,6 +383,20 @@ async def test_graph_abstains_when_model_quote_is_not_in_source_text() -> None:
     assert answer == LITERATURE_ABSTENTION
 
 
+async def test_graph_keeps_valid_claim_when_another_quote_is_not_in_source_text() -> None:
+    """单条无效引文不应使同轮其他有依据的声明一并弃答。"""
+    answer = await _run_graph(
+        [
+            '{"claims":[{"text":"实验组的平均值高于对照组。","evidence_quotes":[{"evidence_id":"9001","quote":"实验组的平均值高于对照组。"}]},{"text":"研究证实了全部假设。","evidence_quotes":[{"evidence_id":"9001","quote":"研究证实了全部假设。"}]}]}',
+            '{"claims":[{"claim_index":0,"supported":true}]}',
+        ]
+    )
+
+    assert "实验组的平均值高于对照组。" in answer
+    assert "研究证实了全部假设。" not in answer
+    assert "其余问题部分未能从已引用原文中确认。" in answer
+
+
 async def test_graph_abstains_when_support_verifier_duplicates_claim_index() -> None:
     """核验结果重复声明编号时不允许后一个结果覆盖前一个否定判断。"""
     answer = await _run_graph(

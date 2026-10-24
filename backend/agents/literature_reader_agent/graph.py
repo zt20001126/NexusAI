@@ -159,18 +159,24 @@ def build_literature_reader_agent_graph(
             state.get("principal_id", ""),
         )
         available = {item.evidence_id: item for item in evidence}
-        if not available or any(
-            quote.evidence_id not in available
-            or not _contains_verbatim_quote(
-                available[quote.evidence_id].content,
-                quote.quote,
-            )
+        if not available:
+            return {"verified": False}
+        valid_claims = [
+            claim
             for claim in draft.claims
-            for quote in claim.evidence_quotes
-        ):
+            if all(
+                quote.evidence_id in available
+                and _contains_verbatim_quote(
+                    available[quote.evidence_id].content,
+                    quote.quote,
+                )
+                for quote in claim.evidence_quotes
+            )
+        ]
+        if not valid_claims:
             return {"verified": False}
 
-        # Step 1: 核验器只接收每条声明指定的证据原文，不会被要求补充事实。
+        # Step 1: 丢弃引文无效的声明，核验器只接收其余声明指定的证据原文。
         verification_payload = {
             "claims": [
                 {
@@ -185,7 +191,7 @@ def build_literature_reader_agent_graph(
                         for quote in claim.evidence_quotes
                     ],
                 }
-                for index, claim in enumerate(draft.claims)
+                for index, claim in enumerate(valid_claims)
             ]
         }
         response = await chat_model.ainvoke(
@@ -199,16 +205,16 @@ def build_literature_reader_agent_graph(
         )
         support_map = {item.claim_index: item.supported for item in support.claims}
         if (
-            len(support.claims) != len(draft.claims)
+            len(support.claims) != len(valid_claims)
             or len(support_map) != len(support.claims)
-            or set(support_map) != set(range(len(draft.claims)))
+            or set(support_map) != set(range(len(valid_claims)))
         ):
             return {"verified": False}
 
         # Step 2: 丢弃核验不通过的声明，只渲染被原文支持的事实和对应出处。
         supported_claims = [
             (claim, index)
-            for index, claim in enumerate(draft.claims)
+            for index, claim in enumerate(valid_claims)
             if support_map[index]
         ]
         if not supported_claims:
