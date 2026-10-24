@@ -22,6 +22,7 @@ from agent.streaming.events import (
     is_run_terminal_event_type,
 )
 from agent.streaming.publisher import EventPublisher
+from app.service.credits import CreditApplicationService
 
 
 class AgentApplicationService:
@@ -36,6 +37,7 @@ class AgentApplicationService:
         run_store: RunStore | None = None,
         event_store: Any | None = None,
         task_queue: Any | None = None,
+        credit_service: CreditApplicationService | None = None,
     ) -> None:
         """注入 Runner 和共享持久化/任务基础设施。"""
         self._runner = runner
@@ -44,6 +46,7 @@ class AgentApplicationService:
         self._run_store = run_store
         self._event_store = event_store
         self._task_queue = task_queue
+        self._credit_service = credit_service
 
     async def chat(
         self,
@@ -53,12 +56,25 @@ class AgentApplicationService:
         principal_id: str,
         attachment_ids: list[str] | None = None,
         graph_context: dict[str, Any] | None = None,
+        request_id: str | None = None,
     ) -> list[AgentEvent]:
-        """执行兼容的非流式对话并收集事件。"""
-        events = self._runner.stream_chat(
+        """统一受理并收集非流式对话事件；部署运行时通过队列执行。"""
+        if self._task_queue is None or request_id is None:
+            # 无队列的内存适配只供隔离测试和离线调用使用。
+            events = self._runner.stream_chat(
+                message=message,
+                conversation_id=conversation_id,
+                principal_id=principal_id,
+                attachment_ids=attachment_ids,
+                graph_context=graph_context,
+                request_id=request_id,
+            )
+            return await self._publisher.publish_all(events)
+        _, events = self.submit_chat(
             message=message,
             conversation_id=conversation_id,
             principal_id=principal_id,
+            request_id=request_id,
             attachment_ids=attachment_ids,
             graph_context=graph_context,
         )
@@ -107,18 +123,48 @@ class AgentApplicationService:
             attachment_ids=attachment_ids,
             graph_context=graph_context,
             request_id=request_id,
+            before_submit=(
+                (lambda: self._credit_service.ensure_can_submit(principal_id))
+                if self._credit_service is not None
+                else None
+            ),
+            on_credit_update=(
+                (lambda balance, version: self._credit_service.publish_balance(
+                    principal_id, balance, version
+                ))
+                if self._credit_service is not None
+                else None
+            ),
+            on_submission_failure=(
+                self._refund_failed_submission
+                if self._credit_service is not None
+                else None
+            ),
         )
-        if before_enqueue is not None:
-            before_enqueue(record)
-        if record.status == RunStatus.QUEUED:
-            if self._task_queue is None:
-                raise RuntimeError("智能体后台队列尚未组装")
-            self._task_queue.enqueue(record.agent.value, record.run_id)
+        try:
+            if before_enqueue is not None:
+                before_enqueue(record)
+            if record.status == RunStatus.QUEUED:
+                if self._task_queue is None:
+                    raise RuntimeError("智能体后台队列尚未组装")
+                self._task_queue.enqueue(record.agent.value, record.run_id)
+        except Exception:
+            self._mark_submission_failed(record)
+            raise
         return record, self.listen(
             conversation_id=record.conversation_id,
             principal_id=principal_id,
             run_id=record.run_id,
-            after=None,
+            after=(
+                "0-0"
+                if record.status in {
+                    RunStatus.WAITING,
+                    RunStatus.COMPLETED,
+                    RunStatus.CANCELLED,
+                    RunStatus.FAILED,
+                }
+                else None
+            ),
         )
 
     def submit_resume(
@@ -178,7 +224,30 @@ class AgentApplicationService:
         if self._event_store is None:
             raise RuntimeError("智能体事件存储尚未组装")
         async for event in self._runner.execute_prepared(run_id):
+            terminal_status = get_run_terminal_status(event)
+            if (
+                self._credit_service is not None
+                and terminal_status in {RunTerminalStatus.FAILED, RunTerminalStatus.CANCELLED}
+            ):
+                # 先退款并更新缓存，再发布终态，避免客户端看到失败时余额仍未回升。
+                await asyncio.to_thread(self._credit_service.refund_run, run_id)
             await asyncio.to_thread(self._event_store.append, event)
+
+    def _refund_failed_submission(self, run_id: str) -> None:
+        """补退附件绑定失败的已受理运行。"""
+        if self._credit_service is not None:
+            self._credit_service.refund_run(run_id)
+
+    def _mark_submission_failed(self, record: RunRecord) -> None:
+        """将入队前失败的运行置为终态并按幂等键退款。"""
+        if record.status != RunStatus.QUEUED:
+            return
+        record.status = RunStatus.FAILED
+        record.metadata["error_summary"] = "本轮未能进入后台处理"
+        if self._run_store is not None:
+            self._run_store.save(record)
+        if self._credit_service is not None:
+            self._credit_service.refund_run(record.run_id)
 
     def listen(
         self,

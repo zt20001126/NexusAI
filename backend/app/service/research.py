@@ -40,6 +40,7 @@ class ResearchApplicationService:
             conversation_id=payload.session_id,
             principal_id=principal_id,
             graph_context={"research_options": options},
+            request_id=payload.request_id,
         )
         conversation_id = next(
             (event.conversation_id for event in events),

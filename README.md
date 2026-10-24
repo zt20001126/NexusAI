@@ -18,6 +18,8 @@ NexusAI 是一个多智能体对话应用。用户在同一聊天界面中选择
 | `labor_law_agent` | 检索中国大陆全国性劳动法规并提供条文依据 |
 | `literature_reader_agent` | 导入 PDF，基于所选文献进行问答、总结和比较 |
 
+新注册账号获赠 100 积分；每轮新对话消耗 1 分，失败或主动取消后退回。账号栏显示余额。
+
 ## 技术栈
 
 | 层次 | 技术 |
@@ -27,6 +29,7 @@ NexusAI 是一个多智能体对话应用。用户在同一聊天界面中选择
 | 智能体编排 | LangGraph 1、共享 AgentRunner、SSE |
 | 数据存储 | PostgreSQL 17、pgvector；SQLAlchemy ORM 与 LangGraph PostgreSQL Checkpointer |
 | 异步任务 | Celery、Redis 7，用于文献导入和解析 |
+| 支付 | Stripe Checkout 沙盒，用于积分充值测试 |
 | 文件存储 | 阿里云私有 OSS |
 | 外部能力 | DeepSeek 对话模型、Tencent TokenHub 生图与 Embedding、OpenAlex 论文检索 |
 
@@ -68,8 +71,16 @@ flowchart LR
 2. 启动 PostgreSQL 和 Redis：
 
    ```powershell
-   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans postgres redis worker
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans postgres redis
    ```
+
+   部署启用积分计费前，先对目标 PostgreSQL 依次执行 `backend/migrations/018_user_credits.sql` 和 `backend/migrations/019_credit_topups.sql`。018 为现有账号创建 0 分余额，不补发注册积分；019 增加充值尝试表和充值账本类型。应在启动新版 API 和 Worker 前完成。迁移完成后启动 Worker：
+
+   ```powershell
+   docker compose --env-file backend/.env -f backend/compose.yaml up -d --remove-orphans worker
+   ```
+
+   如需启用 Stripe 沙盒充值，在 `backend/.env` 配置 `STRIPE_SECRET_KEY`（`sk_test_...`）、`STRIPE_WEBHOOK_SECRET`（本地可用 Stripe CLI 的 `whsec_...`）、`STRIPE_TOPUP_RETURN_BASE_URL` 和 `STRIPE_TOPUP_CURRENCY_LIMITS`。币种配置为 JSON，例如 `{"usd":{"min":1,"max":999999},"eur":{"min":1,"max":999999},"jpy":{"min":50,"max":999999}}`；只配置已在该沙盒账户核实可用的币种和整数金额范围。运行 `stripe listen --forward-to localhost:8000/api/stripe/webhook`，将 CLI 输出的 `whsec_...` 写入配置并重启后端。测试成功卡可使用 `4242 4242 4242 4242`，拒付测试可使用 `4000 0000 0000 0002`，有效期填写未来日期、CVC 填任意 3 位数；完整规则见 [Stripe 测试文档](https://docs.stripe.com/testing)。
 
 3. 启动后端：
 

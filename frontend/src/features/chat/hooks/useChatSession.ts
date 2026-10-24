@@ -34,6 +34,7 @@ import {
   type DisplayMessage,
 } from '../model/messages'
 import { streamLiteratureChat } from '../api/literature'
+import { ApiRequestError } from '../../../shared/api/http'
 
 interface PendingQuestion {
   conversationId: string
@@ -341,6 +342,9 @@ export function useChatSession() {
     activeRunRef.current = runId
 
     const terminalOutcome = readRunTerminalOutcome(event)
+    if (terminalOutcome === 'completed' || terminalOutcome === 'cancelled' || terminalOutcome === 'failed') {
+      window.dispatchEvent(new Event('nexusai:credits-changed'))
+    }
     if (terminalOutcome === 'completed') {
       setPendingQuestion(null)
       if (activeRunRef.current === runId) activeRunRef.current = null
@@ -472,6 +476,7 @@ export function useChatSession() {
     let resolvedConversationId = conversationId
     let accepted = false
     let connectionKey: string | null = null
+    let localMessageId: string | null = null
     listenerControllerRef.current = controller
     listenerKeyRef.current = null
     setError(null)
@@ -492,10 +497,12 @@ export function useChatSession() {
         uploadedImages,
       }
       if (activeConversationRef.current === conversationId) {
+        const optimisticMessageId = `local-${Date.now()}`
+        localMessageId = optimisticMessageId
         setMessages((current) => [
           ...current,
           {
-            id: `local-${Date.now()}`,
+            id: optimisticMessageId,
             role: 'user',
             content: trimmedMessage,
             attachments: uploadedImages.map((item, index) => ({
@@ -508,6 +515,7 @@ export function useChatSession() {
       }
       const onRun = (newConversationId: string, runId: string) => {
         accepted = true
+        window.dispatchEvent(new Event('nexusai:credits-changed'))
         retryableSubmissionRef.current = null
         resolvedConversationId = newConversationId
         runByConversationRef.current.set(newConversationId, runId)
@@ -594,6 +602,16 @@ export function useChatSession() {
       if (controller.signal.aborted) {
         sent = true
       } else {
+        if (
+          !accepted
+          && requestError instanceof ApiRequestError
+          && requestError.code === 'INSUFFICIENT_CREDITS'
+        ) {
+          window.dispatchEvent(new Event('nexusai:credits-changed'))
+          if (localMessageId) {
+            setMessages((current) => current.filter((message) => message.id !== localMessageId))
+          }
+        }
         setError(getErrorMessage(requestError))
         setStatus('请求未完成')
       }

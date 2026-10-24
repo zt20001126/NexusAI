@@ -32,6 +32,13 @@ class FakeAuthService:
             self.active_tokens.discard(token)
 
 
+class FakeCreditService:
+    """为认证路由提供可预测的余额查询。"""
+
+    def get_balance(self, _email: str) -> int:
+        return 42
+
+
 def _client() -> tuple[TestClient, FakeAuthService]:
     auth_service = FakeAuthService()
     settings = AppSettings(_env_file=None)
@@ -40,6 +47,7 @@ def _client() -> tuple[TestClient, FakeAuthService]:
     async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.auth_service = auth_service
+        app.state.credit_service = FakeCreditService()
         yield
 
     application = create_app(settings, lifespan=lifespan)
@@ -62,6 +70,7 @@ def test_login_sets_http_only_cookie_and_exposes_session_email() -> None:
         assert client.get("/api/auth/session").json()["data"] == {
             "authenticated": True,
             "email": "user@example.test",
+            "credits": 42,
         }
 
         logout = client.post("/api/auth/logout")

@@ -1,6 +1,7 @@
 """无需外部服务即可运行和测试的内存基础设施。"""
 
 import asyncio
+import threading
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -12,6 +13,8 @@ from agent.constants import COMMON_AGENT
 from agent.errors import (
     AttachmentAccessDeniedError,
     BackendNotConfiguredError,
+    AgentRunRequestConflictError,
+    InsufficientCreditsError,
     RunBusyError,
 )
 from agent.schemas.conversation import ConversationRecord, MessageRecord
@@ -210,6 +213,76 @@ class MemoryRunStore:
                    if record.conversation_id == conversation_id
                    and record.principal_id == principal_id]
         return max(records, key=lambda record: int(record.run_id), default=None)
+
+
+class MemoryBilledChatSubmissionStore:
+    """为 Runner 测试提供串行、幂等的新对话和积分提交适配器。"""
+
+    def __init__(
+        self,
+        *,
+        conversation_store: MemoryConversationStore,
+        message_store: MemoryMessageStore,
+        run_store: MemoryRunStore,
+        credit_cost: int,
+        balances: dict[str, int] | None = None,
+    ) -> None:
+        """注入内存持久化适配器及显式余额，不为现有主体自动赠分。"""
+        self._conversation_store = conversation_store
+        self._message_store = message_store
+        self._run_store = run_store
+        self._credit_cost = credit_cost
+        self._balances = balances if balances is not None else {}
+        self._versions: defaultdict[str, int] = defaultdict(int)
+        self.event_keys: set[str] = set()
+        self._lock = threading.Lock()
+
+    def submit(
+        self,
+        record: RunRecord,
+        message_id: str,
+        user_content: dict[str, Any],
+    ) -> tuple[RunRecord, int, int]:
+        """在进程锁内检查幂等键与余额，再保存用户消息、运行和扣费。"""
+        request_id = record.metadata.get("request_id")
+        with self._lock:
+            existing = (
+                self._run_store.get_by_request_id(request_id, record.principal_id)
+                if isinstance(request_id, str)
+                else None
+            )
+            if existing is not None:
+                if existing.metadata.get("request_hash") != record.metadata.get("request_hash"):
+                    raise AgentRunRequestConflictError()
+                return (
+                    existing,
+                    self._balances.get(record.principal_id, 0),
+                    self._versions[record.principal_id],
+                )
+
+            balance = self._balances.get(record.principal_id, 0)
+            if balance < self._credit_cost:
+                raise InsufficientCreditsError()
+
+            self._conversation_store.save(
+                record.conversation_id,
+                {"principal_id": record.principal_id, "agent": record.agent},
+            )
+            self._message_store.save(
+                record.conversation_id,
+                "user",
+                user_content,
+                message_id=message_id,
+            )
+            self._run_store.save(record)
+            self._balances[record.principal_id] = balance - self._credit_cost
+            self._versions[record.principal_id] += 1
+            self.event_keys.add(f"debit:{record.run_id}")
+            return (
+                record,
+                self._balances[record.principal_id],
+                self._versions[record.principal_id],
+            )
 
 
 class MemoryRunLock:

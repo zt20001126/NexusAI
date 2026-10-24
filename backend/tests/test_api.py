@@ -489,13 +489,24 @@ def test_common_agent_uses_registered_chat_route() -> None:
     with _client() as client:
         response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
-            json={"message": "帮我整理需求"},
+            json={"request_id": "test-request-id-0001", "message": "帮我整理需求"},
         )
 
     assert response.status_code == 200
     events = response.json()["data"]
     assert events
     assert all(set(event) == {"event_id", "event_type", "timestamp", "data"} for event in events)
+
+
+def test_new_chat_requires_a_stable_request_id() -> None:
+    """所有收费的新对话提交入口必须显式携带幂等标识。"""
+    with _client() as client:
+        response = client.post(
+            f"/api/agents/{COMMON_AGENT}/chat/stream",
+            json={"message": "这条请求没有幂等标识"},
+        )
+
+    assert response.status_code == 422
 
 
 def test_multi_agent_discovery_includes_research_agent() -> None:
@@ -521,6 +532,7 @@ def test_research_rest_search_returns_papers_and_reusable_session() -> None:
         response = client.post(
             "/api/v1/research/search",
             json={
+                "request_id": "test-research-id-0001",
                 "message": "查找关于科研方法的论文",
                 "limit": 1,
                 "year_from": 2020,
@@ -538,6 +550,7 @@ def test_research_rest_search_returns_papers_and_reusable_session() -> None:
         continued = client.post(
             "/api/v1/research/search",
             json={
+                "request_id": "test-research-id-0002",
                 "message": "查找关于科研方法的论文",
                 "session_id": detail["session_id"],
                 "limit": 1,
@@ -569,6 +582,7 @@ def test_research_rest_returns_no_results_as_a_business_status() -> None:
         response = client.post(
             "/api/v1/research/search",
             json={
+                "request_id": "test-research-id-0003",
                 "message": "查找科研论文",
                 "limit": 5,
                 "year_from": 2026,
@@ -586,7 +600,7 @@ def test_research_rest_returns_partial_when_fewer_papers_match() -> None:
     with _client() as client:
         response = client.post(
             "/api/v1/research/search",
-            json={"message": "查找科研论文", "limit": 5},
+            json={"request_id": "test-research-id-0004", "message": "查找科研论文", "limit": 5},
         )
 
     assert response.status_code == 200
@@ -599,7 +613,7 @@ def test_stream_chat_uses_stable_sse_contract_without_general_question_cards() -
     with _client() as client:
         response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat/stream",
-            json={"message": "帮我整理需求"},
+            json={"request_id": "test-stream-id-0001", "message": "帮我整理需求"},
         )
         history = client.get(
             f"/api/conversations/{response.headers['x-conversation-id']}/messages"
@@ -643,7 +657,7 @@ def test_legacy_agent_route_is_not_supported() -> None:
     with _client() as client:
         response = client.post(
             "/api/agents/missing/chat",
-            json={"message": "hello"},
+            json={"request_id": "test-missing-id-0001", "message": "hello"},
         )
 
     assert response.status_code == 404
@@ -654,7 +668,7 @@ def test_unknown_agent_is_a_controlled_not_found() -> None:
     with _client() as client:
         response = client.post(
             "/api/agents/not-registered/chat",
-            json={"message": "开始"},
+            json={"request_id": "test-unknown-id-0001", "message": "开始"},
         )
 
     assert response.status_code == 404
@@ -666,13 +680,14 @@ def test_conversation_cannot_be_reused_by_another_agent() -> None:
     with _client() as client:
         common_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
-            json={"message": "创建一个通用智能体会话"},
+            json={"request_id": "test-agent-id-0001", "message": "创建一个通用智能体会话"},
         )
         conversations = client.get("/api/conversations").json()["data"]["items"]
         conversation_id = conversations[0]["conversation_id"]
         image_response = client.post(
             f"/api/agents/{IMAGE_AGENT}/chat",
             json={
+                "request_id": "test-agent-id-0002",
                 "message": "帮我生成商品图",
                 "conversation_id": conversation_id,
             },
@@ -696,6 +711,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         paused_response = client.post(
             f"/api/agents/{IMAGE_AGENT}/chat/stream",
             json={
+                "request_id": "test-image-id-0001",
                 "message": "生成一个淘宝详情页。",
                 "attachment_ids": [attachment_id],
             },
@@ -724,6 +740,7 @@ def test_image_agent_upload_ask_resume_persist_and_authorize_result() -> None:
         resumed = client.post(
             f"/api/agents/{IMAGE_AGENT}/runs/{run_id}/resume",
             json={
+                "request_id": "test-resume-id-0001",
                 "conversation_id": conversation_id,
                 "answers": {"image_size": "1:1 方图（1024×1024）"},
             },
@@ -845,7 +862,7 @@ def test_listing_chat_requires_at_least_one_product_image() -> None:
     with _client() as client:
         response = client.post(
             f"/api/agents/{LISTING_AGENT}/chat",
-            json={"message": "生成商品 Listing"},
+            json={"request_id": "test-listing-id-0001", "message": "生成商品 Listing"},
         )
 
     assert response.status_code == 422
@@ -864,6 +881,7 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
         first_response = client.post(
             f"/api/agents/{LISTING_AGENT}/chat/stream",
             json={
+                "request_id": "test-listing-id-0002",
                 "message": "这是一款蓝色便携水杯，请帮我写淘宝商品内容。",
                 "attachment_ids": [attachment_id],
             },
@@ -899,6 +917,7 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
         blank_resume = client.post(
             f"/api/agents/{LISTING_AGENT}/runs/{run_id}/resume",
             json={
+                "request_id": "test-listing-resume-id-0001",
                 "conversation_id": conversation_id,
                 "answers": {question_id: "  "},
             },
@@ -906,6 +925,7 @@ def test_listing_questions_are_required_and_result_json_is_owner_scoped() -> Non
         resume_response = client.post(
             f"/api/agents/{LISTING_AGENT}/runs/{run_id}/resume",
             json={
+                "request_id": "test-listing-resume-id-0002",
                 "conversation_id": conversation_id,
                 "answers": {question_id: "500 毫升"},
             },
@@ -978,7 +998,7 @@ def test_general_chat_uses_natural_language_without_question_cards() -> None:
     with _client() as client:
         response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
-            json={"message": "帮我梳理业务"},
+            json={"request_id": "test-common-id-0001", "message": "帮我梳理业务"},
         )
         events = response.json()["data"]
 
@@ -1009,13 +1029,14 @@ def test_conversation_and_message_history_endpoints_support_paging() -> None:
     with _client() as client:
         first_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
-            json={"message": "帮我梳理业务"},
+            json={"request_id": "test-history-id-0001", "message": "帮我梳理业务"},
         )
         conversations = client.get("/api/conversations").json()["data"]["items"]
         conversation_id = conversations[0]["conversation_id"]
         second_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
             json={
+                "request_id": "test-history-id-0002",
                 "conversation_id": conversation_id,
                 "message": "再补充：面向售后工单处理。",
             },
@@ -1087,7 +1108,7 @@ def test_conversation_messages_are_hidden_from_other_principals() -> None:
     with _client() as client:
         chat_response = client.post(
             f"/api/agents/{COMMON_AGENT}/chat",
-            json={"message": "创建我的会话"},
+            json={"request_id": "test-owner-id-0001", "message": "创建我的会话"},
         )
         conversations = client.get("/api/conversations").json()["data"]["items"]
         conversation_id = conversations[0]["conversation_id"]
@@ -1112,6 +1133,7 @@ def test_resume_rejects_unbounded_answer_text() -> None:
         response = client.post(
             f"/api/agents/{COMMON_AGENT}/runs/unknown/resume",
             json={
+                "request_id": "test-unbounded-resume-0001",
                 "conversation_id": "conversation",
                 "answers": {"goal": "x" * 2_001},
             },
@@ -1140,6 +1162,9 @@ def test_production_rejects_missing_authenticated_principal() -> None:
             lifespan=_test_lifespan(settings, provider),
         )
     ) as client:
-        response = client.post(f"/api/agents/{COMMON_AGENT}/chat", json={"message": "开始"})
+        response = client.post(
+            f"/api/agents/{COMMON_AGENT}/chat",
+            json={"request_id": "test-production-id-0001", "message": "开始"},
+        )
 
     assert response.status_code == 401

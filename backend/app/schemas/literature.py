@@ -54,8 +54,7 @@ class LiteratureChatRequest(BaseModel):
         max_length=LITERATURE_AGENT_MAX_DOCUMENTS,
         description="本轮使用的文献 ID；省略时从已有会话恢复",
     )
-    request_id: str | None = Field(
-        default=None,
+    request_id: str = Field(
         min_length=16,
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",

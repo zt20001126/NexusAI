@@ -56,6 +56,17 @@ class RunStore(Protocol):
     ) -> RunRecord | None: ...
 
 
+class BilledChatSubmissionStore(Protocol):
+    """在一次数据库事务中写入新对话并扣除对应积分。"""
+
+    def submit(
+        self,
+        record: RunRecord,
+        message_id: str,
+        user_content: dict[str, Any],
+    ) -> tuple[RunRecord, int, int]: ...
+
+
 class RunLock(Protocol):
     """会话级互斥锁协议。"""
 

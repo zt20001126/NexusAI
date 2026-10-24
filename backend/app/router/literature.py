@@ -1,7 +1,6 @@
 """PDF 文献库管理、历史文献选择和文献 SSE 问答接口。"""
 
 import asyncio
-import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Request, UploadFile
@@ -108,7 +107,7 @@ async def stream_literature_chat(
         conversation_id=payload.conversation_id,
         document_ids=payload.document_ids,
         principal_id=principal_id,
-        request_id=payload.request_id or uuid.uuid4().hex,
+        request_id=payload.request_id,
     )
     return EventSourceResponse(
         encode_sse_events(events),

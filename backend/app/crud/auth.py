@@ -3,7 +3,12 @@
 from dataclasses import dataclass
 from sqlalchemy import select
 
+from app.credit_constants import (
+    CREDIT_EVENT_REGISTRATION_GRANT,
+    REGISTRATION_CREDIT_GRANT,
+)
 from app.db.database import PostgresDatabase
+from app.models.credit import CreditEntry, UserCredit
 from app.models.user import User
 
 
@@ -37,11 +42,29 @@ class PostgresAuthRepository:
             )
             if existing_id is not None:
                 return False
+            user_id = self._database.id_generator.next_id()
             session.add(
                 User(
-                    user_id=self._database.id_generator.next_id(),
+                    user_id=user_id,
                     account=email,
                     password_hash=password_hash,
+                )
+            )
+            session.add(
+                UserCredit(
+                    user_id=user_id,
+                    balance=REGISTRATION_CREDIT_GRANT,
+                    version=1,
+                )
+            )
+            session.add(
+                CreditEntry(
+                    event_key=f"grant:{user_id}",
+                    user_id=user_id,
+                    run_id=None,
+                    kind=CREDIT_EVENT_REGISTRATION_GRANT,
+                    delta=REGISTRATION_CREDIT_GRANT,
+                    balance_after=REGISTRATION_CREDIT_GRANT,
                 )
             )
             return True

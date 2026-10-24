@@ -14,6 +14,7 @@ from infra.literature_document_storage import (
 )
 from app.exceptions.resume import ResumeApplicationError
 from app.service.auth import AuthApplicationError
+from app.service.topups import TopUpApplicationError
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -39,6 +40,21 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, error: AuthApplicationError
     ) -> JSONResponse:
         """将认证业务错误映射为稳定且不包含底层凭据的响应。"""
+        del request
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+    @app.exception_handler(TopUpApplicationError)
+    async def handle_top_up_error(
+        request: Request, error: TopUpApplicationError
+    ) -> JSONResponse:
+        """充值业务错误使用固定 code/message，不暴露 Stripe 异常。"""
         del request
         return JSONResponse(
             status_code=error.status_code,
@@ -77,6 +93,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             "RUN_ALREADY_ENDED": 410,
             "EVENT_STORE_UNAVAILABLE": 503,
             "AGENT_QUEUE_UNAVAILABLE": 503,
+            "CREDIT_SERVICE_UNAVAILABLE": 503,
+            "INSUFFICIENT_CREDITS": 402,
         }.get(error.code, 409)
         return JSONResponse(
             status_code=status_code,

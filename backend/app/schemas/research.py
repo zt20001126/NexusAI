@@ -23,6 +23,12 @@ class ResearchRequest(BaseModel):
         max_length=RESEARCH_MAX_REQUEST_CHARS,
         description="研究主题或检索问题",
     )
+    request_id: str = Field(
+        min_length=16,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="本次科研检索的幂等请求标识；重试时复用",
+    )
     session_id: str | None = Field(
         default=None,
         pattern=r"^[1-9][0-9]{0,18}$",

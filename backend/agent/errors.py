@@ -88,6 +88,20 @@ class AgentRunPreparationPendingError(AgentError):
         super().__init__("RUN_PREPARATION_PENDING", "本轮正在准备，请稍后重试")
 
 
+class InsufficientCreditsError(AgentError):
+    """当前用户余额不足以接受新的对话轮次。"""
+
+    def __init__(self) -> None:
+        super().__init__("INSUFFICIENT_CREDITS", "积分不足，请获取积分后再发送消息")
+
+
+class CreditServiceUnavailableError(AgentError):
+    """Redis 积分缓存无法验证余额，当前不能安全受理新对话。"""
+
+    def __init__(self) -> None:
+        super().__init__("CREDIT_SERVICE_UNAVAILABLE", "积分服务暂时不可用，请稍后重试")
+
+
 class DuplicateAgentRunRequest(Exception):
     """数据库唯一约束发现并发创建了相同 request_id 的运行。"""
 

@@ -35,7 +35,7 @@ export interface LiteratureChatRequest {
   message: string
   conversation_id?: string
   document_ids?: string[]
-  request_id?: string
+  request_id: string
 }
 
 /** 上传 PDF 原件并创建异步入库记录。 */

@@ -99,7 +99,12 @@ def get_session(request: Request) -> dict:
     settings = request.app.state.settings
     token = request.cookies.get(settings.auth_cookie_name)
     email = request.app.state.auth_service.get_session_principal(token)
-    return _success({"authenticated": email is not None, "email": email})
+    credits = (
+        request.app.state.credit_service.get_balance(email)
+        if email is not None
+        else None
+    )
+    return _success({"authenticated": email is not None, "email": email, "credits": credits})
 
 
 @router.post("/logout")
