@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.exceptions.handlers import register_exception_handlers
 from app.router.agents import router as agents_router
 from app.router.auth import router as auth_router
+from app.router.topups import router as topups_router
 from app.router.conversation import router as conversation_router
 from app.router.health import router as health_router
 from app.router.research import router as research_router
@@ -34,6 +35,7 @@ def create_app(
     )
     app.include_router(agents_router)
     app.include_router(auth_router)
+    app.include_router(topups_router)
     app.include_router(conversation_router)
     app.include_router(research_router)
     app.include_router(literature_router)

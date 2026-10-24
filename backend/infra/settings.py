@@ -58,6 +58,10 @@ class AppSettings(BaseSettings):
     auth_cookie_name: str = "nexusai_session"
     auth_cookie_secure: bool | None = None
     auth_session_ttl_seconds: int = Field(default=604_800, ge=300, le=2_592_000)
+    stripe_secret_key: SecretStr = SecretStr("")
+    stripe_webhook_secret: SecretStr = SecretStr("")
+    stripe_topup_return_base_url: str = "http://localhost:5173"
+    stripe_topup_currency_limits: str = ""
     # Snowflake worker ID 在同一套部署中的并发进程间必须唯一；1023 保留给历史迁移。
     snowflake_worker_id: int = Field(default=0, ge=0, le=1022)
     deepseek_api_key: SecretStr = SecretStr("")

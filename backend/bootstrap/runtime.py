@@ -54,10 +54,12 @@ from app.crud import (
 from app.crud.auth import PostgresAuthRepository
 from app.crud.billed_chat import PostgresBilledChatSubmissionStore
 from app.crud.credits import PostgresCreditRepository
+from app.crud.topups import PostgresCreditTopUpRepository
 from app.db.database import PostgresDatabase
 from app.service.agent import AgentApplicationService, AgentSessionApplicationService
 from app.service.auth import AuthApplicationService
 from app.service.credits import CreditApplicationService
+from app.service.topups import CreditTopUpApplicationService
 from app.service.conversation import ConversationApplicationService
 from app.service.health import HealthMonitor
 from app.service.job_resume import SavedJobResumeReader
@@ -84,6 +86,7 @@ from infra.agent_task_queue import CeleryAgentTaskQueue
 from infra.email_sender import SmtpEmailSender
 from infra.redis_auth_store import RedisAuthStore
 from infra.redis_credit_cache import RedisCreditCache
+from infra.stripe_checkout import StripeCheckoutGateway
 from infra.settings import AppSettings
 from infra.snowflake import get_snowflake_generator
 
@@ -131,6 +134,15 @@ def build_lifespan(
                 credit_repository = PostgresCreditRepository(database)
                 credit_cache = RedisCreditCache(settings)
                 credit_service = CreditApplicationService(credit_repository, credit_cache)
+                stripe_gateway = StripeCheckoutGateway(settings)
+                topup_repository = PostgresCreditTopUpRepository(database)
+                app_instance.state.stripe_gateway = stripe_gateway
+                app_instance.state.topup_service = CreditTopUpApplicationService(
+                    repository=topup_repository,
+                    gateway=stripe_gateway,
+                    credit_service=credit_service,
+                    settings=settings,
+                )
                 app_instance.state.auth_service = AuthApplicationService(
                     repository=auth_repository,
                     auth_store=auth_store,

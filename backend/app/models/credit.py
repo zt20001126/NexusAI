@@ -5,7 +5,11 @@ from datetime import datetime
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.credit_constants import CHAT_MESSAGE_CREDIT_COST, REGISTRATION_CREDIT_GRANT
+from app.credit_constants import (
+    CHAT_MESSAGE_CREDIT_COST,
+    CREDIT_EVENT_TOP_UP,
+    REGISTRATION_CREDIT_GRANT,
+)
 from app.models.base import Base
 
 
@@ -54,7 +58,8 @@ class CreditEntry(Base):
         CheckConstraint(
             f"(kind = 'registration_grant' AND delta = {REGISTRATION_CREDIT_GRANT}) OR "
             f"(kind = 'message_debit' AND delta = {-CHAT_MESSAGE_CREDIT_COST}) OR "
-            f"(kind = 'run_refund' AND delta = {CHAT_MESSAGE_CREDIT_COST})",
+            f"(kind = 'run_refund' AND delta = {CHAT_MESSAGE_CREDIT_COST}) OR "
+            f"(kind = '{CREDIT_EVENT_TOP_UP}' AND delta > 0)",
             name="ck_credit_entries_kind_delta",
         ),
         Index("idx_credit_entries_user_created", "user_id", "created_at"),
